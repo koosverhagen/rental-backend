@@ -242,7 +242,7 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
 // ✅ 4. Send hosted link via email
 app.post("/deposit/send-link", async (req, res) => {
   try {
-    const { bookingID, amount } = req.body;
+    const { bookingID, amount, locationId } = req.body; // 👈 added locationId
     const booking = await fetchPlanyoBooking(bookingID);
 
     if (!booking.email) {
@@ -250,6 +250,11 @@ app.post("/deposit/send-link", async (req, res) => {
     }
 
     const link = `${process.env.SERVER_URL}/deposit/pay/${bookingID}`;
+
+    console.log("👉 Deposit link requested:");
+    console.log("   BookingID:", bookingID);
+    console.log("   Amount:", amount);
+    console.log("   LocationID:", locationId); // 👈 log locationId for debugging
 
     const logo = `
       <div style="text-align:center; margin-bottom:20px;">
@@ -271,6 +276,7 @@ app.post("/deposit/send-link", async (req, res) => {
         <p><b>From:</b> ${booking.start}</p>
         <p><b>To:</b> ${booking.end}</p>
         <p>Deposit: <b>£${amount / 100}</b></p>
+        <p><b>Location ID:</b> ${locationId || "N/A"}</p> <!-- 👈 display location -->
         <p><a href="${link}" style="padding:14px 22px; background:#0070f3; color:#fff; border-radius:6px; text-decoration:none; font-size:16px;">💳 Pay Deposit</a></p>
       `,
     });
@@ -287,16 +293,16 @@ app.post("/deposit/send-link", async (req, res) => {
         <p><b>From:</b> ${booking.start}</p>
         <p><b>To:</b> ${booking.end}</p>
         <p>Deposit: <b>£${amount / 100}</b></p>
+        <p><b>Location ID:</b> ${locationId || "N/A"}</p> <!-- 👈 display location -->
         <p><a href="${link}" style="padding:14px 22px; background:#0070f3; color:#fff; border-radius:6px; text-decoration:none; font-size:16px;">💳 Pay Deposit</a></p>
       `,
     });
 
-    res.json({ success: true, url: link });
+    res.json({ success: true, url: link, locationId }); // 👈 return locationId in API response
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
-
 // ✅ 5. List ALL active deposits (requires_capture → Hold Successful)
 app.get("/terminal/list-all", async (req, res) => {
   try {
