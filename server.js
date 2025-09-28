@@ -339,6 +339,17 @@ app.get("/test/email", async (req, res) => {
   }
 });
 
+app.get("/test/smtp", (req, res) => {
+  res.json({
+    host: process.env.SMTP_HOST,
+    port: process.env.SMTP_PORT,
+    secure: process.env.SMTP_SECURE,
+    user: process.env.SMTP_USER ? "✅ set" : "❌ missing",
+    pass: process.env.SMTP_PASS ? "✅ set" : "❌ missing"
+  });
+});
+
+
 // ---------------------------------------------
 const PORT = process.env.PORT || 4242;
 app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
