@@ -13,7 +13,6 @@ app.use(express.json());
 
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
-// ✅ Nodemailer SMTP transporter
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: process.env.SMTP_PORT,
@@ -22,6 +21,8 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
+  tls: { rejectUnauthorized: false }, // 👈 allow Render to connect without cert issues
+  connectionTimeout: 10000,           // 👈 10s timeout instead of hanging
 });
 
 // ---------------------------------------------
