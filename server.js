@@ -457,5 +457,74 @@ app.post("/email/deposit-confirmation", async (req, res) => {
   }
 });
 
+// ---------------------------------------------
+// ✅ Stripe Webhook Handler
+// ---------------------------------------------
+app.post(
+  "/webhook",
+  express.raw({ type: "application/json" }), // raw body required for Stripe signature check
+  (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.error("❌ Webhook signature verification failed:", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    // ✅ Handle different event types
+    switch (event.type) {
+      case "payment_intent.succeeded":
+        console.log("✅ PaymentIntent succeeded:", event.data.object.id);
+        break;
+      case "payment_intent.payment_failed":
+        console.log("❌ PaymentIntent failed:", event.data.object.id);
+        break;
+      default:
+        console.log(`ℹ️ Received unhandled event type: ${event.type}`);
+    }
+
+    res.send();
+  }
+);
+
+// ---------------------------------------------
+// ✅ Planyo Callback Handler (with hash verification)
+// ---------------------------------------------
+app.post("/planyo-callback", (req, res) => {
+  const params = req.body;
+  const receivedHash = params.hash;
+  delete params.hash;
+
+  // Rebuild string for hash verification
+  const sortedKeys = Object.keys(params).sort();
+  let concat = "";
+  for (const key of sortedKeys) {
+    concat += params[key];
+  }
+  concat += process.env.PLANYO_HASH_KEY;
+
+  const computedHash = crypto
+    .createHash("md5")
+    .update(concat)
+    .digest("hex");
+
+  if (computedHash === receivedHash) {
+    console.log("✅ Verified Planyo callback:", params);
+    res.send("OK");
+  } else {
+    console.warn("❌ Invalid Planyo hash!");
+    res.status(400).send("Invalid hash");
+  }
+});
+
+
+
 const PORT = process.env.PORT || 4242;
 app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
