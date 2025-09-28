@@ -349,6 +349,27 @@ app.get("/test/smtp", (req, res) => {
   });
 });
 
+const net = require("net");
+
+app.get("/test/smtp-connect", (req, res) => {
+  const socket = net.createConnection(
+    { host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, timeout: 5000 },
+    () => {
+      res.send("✅ Connection opened to " + process.env.SMTP_HOST + ":" + process.env.SMTP_PORT);
+      socket.end();
+    }
+  );
+
+  socket.on("error", (err) => {
+    res.send("❌ Connection failed: " + err.message);
+  });
+
+  socket.on("timeout", () => {
+    res.send("⏳ Connection attempt timed out.");
+    socket.destroy();
+  });
+});
+
 
 // ---------------------------------------------
 const PORT = process.env.PORT || 4242;
