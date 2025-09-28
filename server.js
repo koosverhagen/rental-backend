@@ -4,7 +4,7 @@ const cors = require("cors");
 const Stripe = require("stripe");
 const nodemailer = require("nodemailer");
 const fetch = require("node-fetch");
-const crypto = require("crypto"); // ✅ needed for Planyo hash auth
+const crypto = require("crypto");
 require("dotenv").config();
 
 const app = express();
@@ -21,8 +21,8 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
-  tls: { rejectUnauthorized: false }, // 👈 allow Render to connect without cert issues
-  connectionTimeout: 10000,           // 👈 10s timeout instead of hanging
+  tls: { rejectUnauthorized: false },
+  connectionTimeout: 10000,
 });
 
 // ---------------------------------------------
@@ -68,7 +68,7 @@ async function fetchPlanyoBooking(bookingID) {
   };
 }
 
-// ✅ 1. Create connection token (for Tap to Pay if ever needed)
+// ✅ 1. Create connection token
 app.post("/terminal/connection_token", async (req, res) => {
   try {
     const connectionToken = await stripe.terminal.connectionTokens.create();
@@ -96,7 +96,7 @@ app.post("/deposit/create-intent", async (req, res) => {
     const intent = await stripe.paymentIntents.create({
       amount,
       currency: "gbp",
-      capture_method: "manual", // 👈 HOLD
+      capture_method: "manual",
       payment_method_types: ["card"],
       metadata: { bookingID },
       description,
@@ -111,26 +111,28 @@ app.post("/deposit/create-intent", async (req, res) => {
 // ✅ 3. Serve hosted deposit entry page
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
-  const amount = 100; // £1 hold
+  const amount = 100; // test hold
 
   const booking = await fetchPlanyoBooking(bookingID);
 
   const intent = await stripe.paymentIntents.create({
     amount,
     currency: "gbp",
-    capture_method: "manual", // 👈 HOLD
+    capture_method: "manual",
     payment_method_types: ["card"],
     metadata: { bookingID },
     description: `Booking #${bookingID} | ${booking.firstName} ${booking.lastName} | ${booking.resource}`,
   });
 
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>…</head>
-    <body>…</body>
-    </html>
-  `);
+  res.send(`<!DOCTYPE html><html><body>
+    <h2>Deposit Hold (£${amount / 100})</h2>
+    <p>Booking <b>#${bookingID}</b> - ${booking.firstName} ${booking.lastName}</p>
+    <script src="https://js.stripe.com/v3/"></script>
+    <script>
+      const stripe = Stripe("${process.env.STRIPE_PUBLISHABLE_KEY}");
+      stripe.confirmCardPayment("${intent.client_secret}", { payment_method: {card: {}}});
+    </script>
+  </body></html>`);
 });
 
 // ✅ 4. Send hosted link via email
@@ -145,37 +147,20 @@ app.post("/deposit/send-link", async (req, res) => {
 
     const link = `${process.env.SERVER_URL}/deposit/pay/${bookingID}`;
 
-    console.log("👉 Deposit link requested:");
-    console.log("   BookingID:", bookingID);
-    console.log("   Amount:", amount);
-    console.log("   LocationID:", locationId);
+    console.log("👉 Deposit link requested:", bookingID, amount, locationId);
 
-    const logo = `<div style="text-align:center; margin-bottom:20px;">
-        <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
-             alt="Equine Transport UK"
-             style="width:160px; height:auto;" />
-      </div>`;
-
-    // Customer email
     await transporter.sendMail({
       from: `"Equine Transport UK" <${process.env.SMTP_USER}>`,
       to: booking.email,
-      subject: `Equine Transport UK | Secure Deposit Link | Booking #${bookingID}`,
-      html: `${logo}<p>Booking <b>#${bookingID}</b></p>
-             <p>Deposit: <b>£${amount / 100}</b></p>
-             <p>Location ID: ${locationId || "N/A"}</p>
-             <p><a href="${link}">💳 Pay Deposit</a></p>`,
+      subject: `Deposit Link for Booking #${bookingID}`,
+      html: `<p>Please pay your deposit: <a href="${link}">Pay Here</a></p>`,
     });
 
-    // Admin email
     await transporter.sendMail({
       from: `"Equine Transport UK" <${process.env.SMTP_USER}>`,
       to: "kverhagen@mac.com",
-      subject: `Admin Copy | Deposit Link for Booking #${bookingID}`,
-      html: `${logo}<p>Booking <b>#${bookingID}</b></p>
-             <p>Deposit: <b>£${amount / 100}</b></p>
-             <p>Location ID: ${locationId || "N/A"}</p>
-             <p><a href="${link}">💳 Pay Deposit</a></p>`,
+      subject: `Admin Copy | Booking #${bookingID}`,
+      html: `<p>Deposit link sent to customer. <a href="${link}">Pay Here</a></p>`,
     });
 
     res.json({ success: true, url: link, locationId });
@@ -185,28 +170,158 @@ app.post("/deposit/send-link", async (req, res) => {
 });
 
 // ✅ 5. List ALL active deposits
-app.get("/terminal/list-all", async (req, res) => { … });
+app.get("/terminal/list-all", async (req, res) => {
+  try {
+    const paymentIntents = await stripe.paymentIntents.list({ limit: 50 });
+    const deposits = [];
+
+    for (const pi of paymentIntents.data) {
+      if (pi.metadata && pi.metadata.bookingID && pi.status === "requires_capture") {
+        const booking = await fetchPlanyoBooking(pi.metadata.bookingID);
+        deposits.push({
+          id: pi.id,
+          bookingID: pi.metadata.bookingID,
+          amount: pi.amount,
+          status: "Hold Successful",
+          created: pi.created,
+          name: booking.resource,
+          start: booking.start,
+          end: booking.end,
+          customer: `${booking.firstName} ${booking.lastName}`.trim(),
+        });
+      }
+    }
+
+    res.json(deposits);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ✅ 6. Cancel deposit
-app.post("/terminal/cancel", async (req, res) => { … });
+app.post("/terminal/cancel", async (req, res) => {
+  try {
+    const { payment_intent_id } = req.body;
+    const canceledIntent = await stripe.paymentIntents.cancel(payment_intent_id);
+    res.json({ id: canceledIntent.id, status: canceledIntent.status });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ✅ 7. Capture deposit
-app.post("/terminal/capture", async (req, res) => { … });
+app.post("/terminal/capture", async (req, res) => {
+  try {
+    const { payment_intent_id } = req.body;
+    const capturedIntent = await stripe.paymentIntents.capture(payment_intent_id);
+    res.json(capturedIntent);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ✅ 8. List deposits for a single booking
-app.get("/terminal/list/:bookingID", async (req, res) => { … });
+app.get("/terminal/list/:bookingID", async (req, res) => {
+  try {
+    const bookingID = String(req.params.bookingID);
+    const paymentIntents = await stripe.paymentIntents.list({ limit: 100 });
+
+    const deposits = paymentIntents.data.filter(
+      (pi) => pi.metadata && String(pi.metadata.bookingID) === bookingID
+    );
+
+    const booking = await fetchPlanyoBooking(bookingID);
+
+    const result = deposits.map((pi) => ({
+      id: pi.id,
+      bookingID,
+      amount: pi.amount,
+      status: pi.status === "requires_capture" ? "Hold Successful" : pi.status,
+      created: pi.created,
+      name: booking.resource,
+      start: booking.start,
+      end: booking.end,
+      customer: `${booking.firstName} ${booking.lastName}`.trim(),
+    }));
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ✅ Send deposit confirmation email
-app.post("/email/deposit-confirmation", async (req, res) => { … });
+app.post("/email/deposit-confirmation", async (req, res) => {
+  try {
+    const { bookingID, amount } = req.body;
+    const booking = await fetchPlanyoBooking(bookingID);
+
+    if (!booking.email) {
+      return res.status(400).json({ error: "Could not find customer email" });
+    }
+
+    await transporter.sendMail({
+      from: `"Equine Transport UK" <${process.env.SMTP_USER}>`,
+      to: [booking.email, "kverhagen@mac.com"],
+      subject: `Deposit Hold Confirmation #${bookingID}`,
+      html: `<p>Deposit hold of £${(amount/100).toFixed(2)} placed for booking ${bookingID}</p>`,
+    });
+
+    res.json({ success: true, email: booking.email });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ✅ Stripe Webhook Handler
-app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => { … });
+app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error("❌ Webhook verification failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  switch (event.type) {
+    case "payment_intent.succeeded":
+      console.log("✅ PaymentIntent succeeded:", event.data.object.id);
+      break;
+    case "payment_intent.payment_failed":
+      console.log("❌ PaymentIntent failed:", event.data.object.id);
+      break;
+    default:
+      console.log(`ℹ️ Unhandled event type: ${event.type}`);
+  }
+
+  res.send();
+});
 
 // ✅ Planyo Callback Handler
-app.post("/planyo-callback", (req, res) => { … });
+app.post("/planyo-callback", (req, res) => {
+  const params = req.body;
+  const receivedHash = params.hash;
+  delete params.hash;
 
+  const sortedKeys = Object.keys(params).sort();
+  let concat = "";
+  for (const key of sortedKeys) concat += params[key];
+  concat += process.env.PLANYO_HASH_KEY;
 
-// ✅ NEW: Simple test route for SMTP
+  const computedHash = crypto.createHash("md5").update(concat).digest("hex");
+
+  if (computedHash === receivedHash) {
+    console.log("✅ Verified Planyo callback:", params);
+    res.send("OK");
+  } else {
+    console.warn("❌ Invalid Planyo hash!");
+    res.status(400).send("Invalid hash");
+  }
+});
+
+// ✅ NEW: SMTP test route
 app.get("/test/email", async (req, res) => {
   try {
     const info = await transporter.sendMail({
@@ -223,7 +338,6 @@ app.get("/test/email", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // ---------------------------------------------
 const PORT = process.env.PORT || 4242;
