@@ -61,7 +61,9 @@ async function fetchPlanyoBooking(bookingID) {
   };
 }
 
+// ---------------------------------------------
 // ✅ Stripe Webhook Handler (raw body required)
+// ---------------------------------------------
 app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
   const sig = req.headers["stripe-signature"];
   let event;
@@ -166,7 +168,10 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
 // ✅ 4. Send hosted link via email (SendGrid)
 app.post("/deposit/send-link", async (req, res) => {
   try {
-    const { bookingID, amount, locationId } = req.body;
+    const { bookingID, amount } = req.body;
+    const locationId =
+      req.body.locationId || process.env.STRIPE_TERMINAL_LOCATION_ID || "N/A";
+
     const booking = await fetchPlanyoBooking(bookingID);
 
     if (!booking.email) {
@@ -189,7 +194,8 @@ app.post("/deposit/send-link", async (req, res) => {
       to: "kverhagen@mac.com",
       from: "kverhagen@mac.com",
       subject: `Admin Copy | Booking #${bookingID}`,
-      html: `<p>Deposit link sent to customer. <a href="${link}">Pay Here</a></p>`,
+      html: `<p>Deposit link sent to customer. <a href="${link}">Pay Here</a></p>
+             <p><b>LocationID:</b> ${locationId}</p>`,
     });
 
     res.json({ success: true, url: link, locationId });
