@@ -141,7 +141,7 @@ app.post("/deposit/create-intent", async (req, res) => {
 // ✅ 3. Serve hosted deposit entry page
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
-  const amount = 100; // test hold
+  const amount = 100; // test hold = £1
 
   const booking = await fetchPlanyoBooking(bookingID);
 
@@ -154,16 +154,79 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
     description: `Booking #${bookingID} | ${booking.firstName} ${booking.lastName} | ${booking.resource}`,
   });
 
-  res.send(`<!DOCTYPE html><html><body>
-    <h2>Deposit Hold (£${amount / 100})</h2>
-    <p>Booking <b>#${bookingID}</b> - ${booking.firstName} ${booking.lastName}</p>
-    <script src="https://js.stripe.com/v3/"></script>
-    <script>
-      const stripe = Stripe("${process.env.STRIPE_PUBLISHABLE_KEY}");
-      stripe.confirmCardPayment("${intent.client_secret}", { payment_method: {card: {}}});
-    </script>
-  </body></html>`);
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+      <title>Deposit Hold - Booking ${bookingID}</title>
+      <script src="https://js.stripe.com/v3/"></script>
+      <style>
+        body { font-family: sans-serif; padding:20px; background:#f8f9fa; }
+        .container { max-width:400px; margin:auto; background:#fff; padding:20px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1); }
+        h2 { text-align:center; }
+        label { display:block; margin-top:12px; }
+        .StripeElement { padding:12px; border:1px solid #ccc; border-radius:6px; margin-top:6px; }
+        button { margin-top:20px; padding:12px; width:100%; background:#0070f3; color:white; font-size:16px; border:none; border-radius:6px; }
+        #result { margin-top:15px; text-align:center; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h2>Deposit Hold (£${amount/100})</h2>
+        <p>Booking #${bookingID}<br>${booking.firstName} ${booking.lastName}</p>
+
+        <form id="payment-form">
+          <label>Card Number</label>
+          <div id="card-number" class="StripeElement"></div>
+
+          <label>Expiry</label>
+          <div id="card-expiry" class="StripeElement"></div>
+
+          <label>CVC</label>
+          <div id="card-cvc" class="StripeElement"></div>
+
+          <button type="submit">Confirm Hold</button>
+        </form>
+
+        <div id="result"></div>
+      </div>
+
+      <script>
+        const stripe = Stripe("${process.env.STRIPE_PUBLISHABLE_KEY}");
+        const elements = stripe.elements();
+
+        const cardNumber = elements.create("cardNumber");
+        cardNumber.mount("#card-number");
+        const cardExpiry = elements.create("cardExpiry");
+        cardExpiry.mount("#card-expiry");
+        const cardCvc = elements.create("cardCvc");
+        cardCvc.mount("#card-cvc");
+
+        const form = document.getElementById("payment-form");
+        const resultDiv = document.getElementById("result");
+
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          resultDiv.textContent = "⏳ Processing...";
+
+          const { error, paymentIntent } = await stripe.confirmCardPayment("${intent.client_secret}", {
+            payment_method: { card: cardNumber }
+          });
+
+          if (error) {
+            resultDiv.textContent = "❌ " + error.message;
+          } else if (paymentIntent && paymentIntent.status === "requires_capture") {
+            resultDiv.textContent = "✅ Hold Successful!";
+          }
+        });
+      </script>
+    </body>
+    </html>
+  `);
 });
+
 
 // ✅ 4. Send hosted link via email (SendGrid)
 app.post("/deposit/send-link", async (req, res) => {
