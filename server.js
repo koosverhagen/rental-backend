@@ -9,7 +9,6 @@ require("dotenv").config();
 
 const app = express();
 app.use(cors());
-
 // ⚠️ DO NOT use express.json() globally yet
 // Stripe webhook needs raw body first
 
