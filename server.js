@@ -4,17 +4,19 @@ const cors = require("cors");
 const Stripe = require("stripe");
 const fetch = require("node-fetch");
 const crypto = require("crypto");
-const sendgrid = require("@sendgrid/mail");   // ✅ SendGrid
+const sendgrid = require("@sendgrid/mail");
 require("dotenv").config();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+
+// ⚠️ DO NOT use express.json() globally yet
+// Stripe webhook needs raw body first
 
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ✅ Configure SendGrid
-sendgrid.setApiKey(process.env.SMTP_PASS);  // use SMTP_PASS for SendGrid API key
+sendgrid.setApiKey(process.env.SMTP_PASS); // SMTP_PASS holds SendGrid API key
 
 // ---------------------------------------------
 // 🔧 Helper: fetch booking info from Planyo
@@ -59,7 +61,42 @@ async function fetchPlanyoBooking(bookingID) {
   };
 }
 
+// ✅ Stripe Webhook Handler (raw body required)
+app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    console.error("❌ Webhook verification failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  switch (event.type) {
+    case "payment_intent.succeeded":
+      console.log("✅ PaymentIntent succeeded:", event.data.object.id);
+      break;
+    case "payment_intent.payment_failed":
+      console.log("❌ PaymentIntent failed:", event.data.object.id);
+      break;
+    default:
+      console.log(`ℹ️ Unhandled event type: ${event.type}`);
+  }
+
+  res.send();
+});
+
+// ✅ Apply express.json() AFTER webhook
+app.use(express.json());
+
+// ---------------------------------------------
 // ✅ 1. Create connection token
+// ---------------------------------------------
 app.post("/terminal/connection_token", async (req, res) => {
   try {
     const connectionToken = await stripe.terminal.connectionTokens.create();
@@ -142,7 +179,7 @@ app.post("/deposit/send-link", async (req, res) => {
     // Customer email
     await sendgrid.send({
       to: booking.email,
-      from: "kverhagen@mac.com",   // must be verified in SendGrid
+      from: "kverhagen@mac.com", // must be verified in SendGrid
       subject: `Deposit Link for Booking #${bookingID}`,
       html: `<p>Please pay your deposit: <a href="${link}">Pay Here</a></p>`,
     });
@@ -257,7 +294,7 @@ app.post("/email/deposit-confirmation", async (req, res) => {
       to: [booking.email, "kverhagen@mac.com"],
       from: "kverhagen@mac.com",
       subject: `Deposit Hold Confirmation #${bookingID}`,
-      html: `<p>Deposit hold of £${(amount/100).toFixed(2)} placed for booking ${bookingID}</p>`,
+      html: `<p>Deposit hold of £${(amount / 100).toFixed(2)} placed for booking ${bookingID}</p>`,
     });
 
     res.json({ success: true, email: booking.email });
@@ -265,32 +302,6 @@ app.post("/email/deposit-confirmation", async (req, res) => {
     console.error("❌ SendGrid confirmation error:", err);
     res.status(500).json({ error: err.message });
   }
-});
-
-// ✅ Stripe Webhook Handler
-app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
-  const sig = req.headers["stripe-signature"];
-  let event;
-
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    console.error("❌ Webhook verification failed:", err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  switch (event.type) {
-    case "payment_intent.succeeded":
-      console.log("✅ PaymentIntent succeeded:", event.data.object.id);
-      break;
-    case "payment_intent.payment_failed":
-      console.log("❌ PaymentIntent failed:", event.data.object.id);
-      break;
-    default:
-      console.log(`ℹ️ Unhandled event type: ${event.type}`);
-  }
-
-  res.send();
 });
 
 // ✅ Planyo Callback Handler
@@ -322,7 +333,7 @@ app.get("/test/email", async (req, res) => {
       to: "kverhagen@mac.com",
       from: "kverhagen@mac.com",
       subject: "Test Email from Render Backend",
-      text: "This is a test email sent from your rental-backend service on Render."
+      text: "This is a test email sent from your rental-backend service on Render.",
     });
 
     res.json({ success: true });
