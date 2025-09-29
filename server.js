@@ -2,9 +2,9 @@
 const express = require("express");
 const cors = require("cors");
 const Stripe = require("stripe");
-const nodemailer = require("nodemailer");
 const fetch = require("node-fetch");
 const crypto = require("crypto");
+const sendgrid = require("@sendgrid/mail");   // ✅ SendGrid
 require("dotenv").config();
 
 const app = express();
@@ -13,17 +13,8 @@ app.use(express.json());
 
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT,
-  secure: process.env.SMTP_SECURE === "true",
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-  tls: { rejectUnauthorized: false },
-  connectionTimeout: 10000,
-});
+// ✅ Configure SendGrid
+sendgrid.setApiKey(process.env.SMTP_PASS);  // SMTP_PASS holds your SendGrid API key
 
 // ---------------------------------------------
 // 🔧 Helper: fetch booking info from Planyo
@@ -135,7 +126,7 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
   </body></html>`);
 });
 
-// ✅ 4. Send hosted link via email
+// ✅ 4. Send hosted link via email (SendGrid)
 app.post("/deposit/send-link", async (req, res) => {
   try {
     const { bookingID, amount, locationId } = req.body;
@@ -146,25 +137,27 @@ app.post("/deposit/send-link", async (req, res) => {
     }
 
     const link = `${process.env.SERVER_URL}/deposit/pay/${bookingID}`;
-
     console.log("👉 Deposit link requested:", bookingID, amount, locationId);
 
-    await transporter.sendMail({
-      from: `"Equine Transport UK" <${process.env.SMTP_USER}>`,
+    // Customer email
+    await sendgrid.send({
       to: booking.email,
+      from: "kverhagen@mac.com",   // must be verified in SendGrid
       subject: `Deposit Link for Booking #${bookingID}`,
       html: `<p>Please pay your deposit: <a href="${link}">Pay Here</a></p>`,
     });
 
-    await transporter.sendMail({
-      from: `"Equine Transport UK" <${process.env.SMTP_USER}>`,
+    // Admin email
+    await sendgrid.send({
       to: "kverhagen@mac.com",
+      from: "kverhagen@mac.com",
       subject: `Admin Copy | Booking #${bookingID}`,
       html: `<p>Deposit link sent to customer. <a href="${link}">Pay Here</a></p>`,
     });
 
     res.json({ success: true, url: link, locationId });
   } catch (err) {
+    console.error("❌ SendGrid email error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -250,7 +243,7 @@ app.get("/terminal/list/:bookingID", async (req, res) => {
   }
 });
 
-// ✅ Send deposit confirmation email
+// ✅ Send deposit confirmation email (SendGrid)
 app.post("/email/deposit-confirmation", async (req, res) => {
   try {
     const { bookingID, amount } = req.body;
@@ -260,15 +253,16 @@ app.post("/email/deposit-confirmation", async (req, res) => {
       return res.status(400).json({ error: "Could not find customer email" });
     }
 
-    await transporter.sendMail({
-      from: `"Equine Transport UK" <${process.env.SMTP_USER}>`,
+    await sendgrid.send({
       to: [booking.email, "kverhagen@mac.com"],
+      from: "kverhagen@mac.com",
       subject: `Deposit Hold Confirmation #${bookingID}`,
       html: `<p>Deposit hold of £${(amount/100).toFixed(2)} placed for booking ${bookingID}</p>`,
     });
 
     res.json({ success: true, email: booking.email });
   } catch (err) {
+    console.error("❌ SendGrid confirmation error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -321,55 +315,22 @@ app.post("/planyo-callback", (req, res) => {
   }
 });
 
-// ✅ NEW: SMTP test route
+// ✅ Simple SendGrid test route
 app.get("/test/email", async (req, res) => {
   try {
-    const info = await transporter.sendMail({
-      from: `"Equine Transport UK" <${process.env.SMTP_USER}>`,
+    await sendgrid.send({
       to: "kverhagen@mac.com",
+      from: "kverhagen@mac.com",
       subject: "Test Email from Render Backend",
       text: "This is a test email sent from your rental-backend service on Render."
     });
 
-    console.log("📧 Test email sent:", info);
-    res.json({ success: true, messageId: info.messageId });
+    res.json({ success: true });
   } catch (err) {
-    console.error("❌ Email send failed:", err);
+    console.error("❌ SendGrid test error:", err);
     res.status(500).json({ error: err.message });
   }
 });
-
-app.get("/test/smtp", (req, res) => {
-  res.json({
-    host: process.env.SMTP_HOST,
-    port: process.env.SMTP_PORT,
-    secure: process.env.SMTP_SECURE,
-    user: process.env.SMTP_USER ? "✅ set" : "❌ missing",
-    pass: process.env.SMTP_PASS ? "✅ set" : "❌ missing"
-  });
-});
-
-const net = require("net");
-
-app.get("/test/smtp-connect", (req, res) => {
-  const socket = net.createConnection(
-    { host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, timeout: 5000 },
-    () => {
-      res.send("✅ Connection opened to " + process.env.SMTP_HOST + ":" + process.env.SMTP_PORT);
-      socket.end();
-    }
-  );
-
-  socket.on("error", (err) => {
-    res.send("❌ Connection failed: " + err.message);
-  });
-
-  socket.on("timeout", () => {
-    res.send("⏳ Connection attempt timed out.");
-    socket.destroy();
-  });
-});
-
 
 // ---------------------------------------------
 const PORT = process.env.PORT || 4242;
