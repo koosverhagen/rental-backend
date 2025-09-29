@@ -14,7 +14,7 @@ app.use(express.json());
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ✅ Configure SendGrid
-sendgrid.setApiKey(process.env.SMTP_PASS);  // SMTP_PASS holds your SendGrid API key
+sendgrid.setApiKey(process.env.SMTP_PASS);  // use SMTP_PASS for SendGrid API key
 
 // ---------------------------------------------
 // 🔧 Helper: fetch booking info from Planyo
