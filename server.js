@@ -10,11 +10,11 @@ require("dotenv").config();
 const app = express();
 app.use(cors());
 
-// ⚠️ Do not use express.json() before webhook — Stripe needs raw body first
+// ⚠️ Don't parse JSON globally yet — Stripe webhook needs raw body first
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ✅ Configure SendGrid
-sendgrid.setApiKey(process.env.SMTP_PASS); // store SendGrid API key in SMTP_PASS
+sendgrid.setApiKey(process.env.SMTP_PASS); // SMTP_PASS holds your SendGrid API key
 
 // ---------------------------------------------
 // 🔧 Helper: fetch booking info from Planyo
@@ -59,9 +59,7 @@ async function fetchPlanyoBooking(bookingID) {
   };
 }
 
-// ---------------------------------------------
 // ✅ Stripe Webhook Handler (raw body required)
-// ---------------------------------------------
 app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
   const sig = req.headers["stripe-signature"];
   let event;
@@ -136,10 +134,11 @@ app.post("/deposit/create-intent", async (req, res) => {
   }
 });
 
-// ✅ 3. Hosted deposit entry page
+// ✅ 3. Serve hosted deposit entry page
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
   const amount = 100; // test hold
+
   const booking = await fetchPlanyoBooking(bookingID);
 
   const intent = await stripe.paymentIntents.create({
@@ -151,46 +150,18 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
     description: `Booking #${bookingID} | ${booking.firstName} ${booking.lastName} | ${booking.resource}`,
   });
 
-  res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Deposit Hold - Booking ${bookingID}</title>
-  <script src="https://js.stripe.com/v3/"></script>
-</head>
-<body>
-  <h2>Deposit Hold (£${amount / 100})</h2>
-  <p>Booking <b>#${bookingID}</b> - ${booking.firstName} ${booking.lastName}</p>
-  <form id="payment-form">
-    <div id="card-element"></div>
-    <button id="submit">Confirm Hold</button>
-  </form>
-  <div id="result"></div>
-  <script>
-    const stripe = Stripe("${process.env.STRIPE_PUBLISHABLE_KEY}");
-    const elements = stripe.elements();
-    const card = elements.create("card");
-    card.mount("#card-element");
-    const form = document.getElementById("payment-form");
-    const resultDiv = document.getElementById("result");
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const {error, paymentIntent} = await stripe.confirmCardPayment("${intent.client_secret}", {
-        payment_method: { card: card }
-      });
-      if (error) {
-        resultDiv.innerText = "❌ " + error.message;
-      } else {
-        resultDiv.innerText = "✅ Hold Successful";
-      }
-    });
-  </script>
-</body>
-</html>`);
+  res.send(`<!DOCTYPE html><html><body>
+    <h2>Deposit Hold (£${amount / 100})</h2>
+    <p>Booking <b>#${bookingID}</b> - ${booking.firstName} ${booking.lastName}</p>
+    <script src="https://js.stripe.com/v3/"></script>
+    <script>
+      const stripe = Stripe("${process.env.STRIPE_PUBLISHABLE_KEY}");
+      stripe.confirmCardPayment("${intent.client_secret}", { payment_method: {card: {}}});
+    </script>
+  </body></html>`);
 });
 
-// ✅ 4. Send hosted link via email (styled with SendGrid)
+// ✅ 4. Send hosted link via email (SendGrid styled)
 app.post("/deposit/send-link", async (req, res) => {
   try {
     const { bookingID, amount, locationId } = req.body;
@@ -206,53 +177,39 @@ app.post("/deposit/send-link", async (req, res) => {
     const logo = `
       <div style="text-align:center; margin-bottom:20px;">
         <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
-             alt="Equine Transport UK"
-             style="width:160px; height:auto;" />
+             alt="Equine Transport UK" style="width:160px; height:auto;" />
       </div>
+    `;
+
+    const htmlBody = `
+      ${logo}
+      <h2 style="text-align:center; color:#0070f3;">Deposit Request</h2>
+      <p>Booking <b>#${bookingID}</b> (${booking.firstName} ${booking.lastName})</p>
+      <p><b>Lorry:</b> ${booking.resource}</p>
+      <p><b>From:</b> ${booking.start}</p>
+      <p><b>To:</b> ${booking.end}</p>
+      <p>Deposit: <b>£${amount / 100}</b></p>
+      <p style="text-align:center;">
+        <a href="${link}" style="padding:14px 22px; background:#0070f3; color:#fff; border-radius:6px; text-decoration:none; font-size:16px;">
+          💳 Pay Deposit
+        </a>
+      </p>
     `;
 
     // Customer email
     await sendgrid.send({
       to: booking.email,
       from: "kverhagen@mac.com",
-      subject: `Equine Transport UK | Secure Deposit Link | Booking #${bookingID} | ${booking.firstName} ${booking.lastName}`,
-      html: `
-        ${logo}
-        <h2 style="text-align:center; color:#0070f3;">Deposit Payment Request</h2>
-        <p>Dear ${booking.firstName} ${booking.lastName},</p>
-        <p>Please complete your deposit hold for <b>Booking #${bookingID}</b>.</p>
-        <p><b>Lorry:</b> ${booking.resource}<br/>
-           <b>From:</b> ${booking.start}<br/>
-           <b>To:</b> ${booking.end}</p>
-        <p style="font-size:18px; text-align:center;">
-          Deposit Required: <b>£${amount / 100}</b>
-        </p>
-        <div style="text-align:center; margin:30px 0;">
-          <a href="${link}"
-             style="padding:14px 22px; background:#0070f3; color:#fff; border-radius:6px; text-decoration:none; font-size:16px;">
-            💳 Pay Deposit Securely
-          </a>
-        </div>
-        <p>Kind regards,<br/>Koos & Avril<br/><b>Equine Transport UK</b></p>
-      `,
+      subject: `Equine Transport UK | Deposit Link | Booking #${bookingID}`,
+      html: htmlBody,
     });
 
     // Admin email
     await sendgrid.send({
       to: "kverhagen@mac.com",
       from: "kverhagen@mac.com",
-      subject: `Admin Copy | Deposit Link Sent | Booking #${bookingID} | ${booking.firstName} ${booking.lastName}`,
-      html: `
-        ${logo}
-        <h3>Deposit link sent to customer</h3>
-        <p><b>Booking #${bookingID}</b> (${booking.firstName} ${booking.lastName})</p>
-        <p><b>Lorry:</b> ${booking.resource}<br/>
-           <b>From:</b> ${booking.start}<br/>
-           <b>To:</b> ${booking.end}</p>
-        <p><b>Deposit:</b> £${amount / 100}</p>
-        <p><b>Customer Email:</b> ${booking.email}</p>
-        <p><a href="${link}">💳 Customer Payment Link</a></p>
-      `,
+      subject: `Admin Copy | Deposit Link | Booking #${bookingID}`,
+      html: htmlBody,
     });
 
     res.json({ success: true, url: link, locationId });
@@ -343,7 +300,7 @@ app.get("/terminal/list/:bookingID", async (req, res) => {
   }
 });
 
-// ✅ Send deposit confirmation email (styled)
+// ✅ Send deposit confirmation email (SendGrid styled)
 app.post("/email/deposit-confirmation", async (req, res) => {
   try {
     const { bookingID, amount } = req.body;
@@ -353,41 +310,32 @@ app.post("/email/deposit-confirmation", async (req, res) => {
       return res.status(400).json({ error: "Could not find customer email" });
     }
 
+    const htmlBody = `
+      <div style="font-family: Arial, sans-serif; line-height:1.6; color:#333;">
+        <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
+             alt="Equine Transport UK"
+             style="width:160px; height:auto; display:block; margin:0 auto 20px auto;" />
+        <h2 style="text-align:center; color:#0070f3;">Deposit Hold Confirmation</h2>
+        <p><b>⚠️ Note:</b> This is a <b>pre-authorisation only</b>. No money has been taken.</p>
+        <p>Dear ${booking.firstName} ${booking.lastName},</p>
+        <p>We have successfully placed a <b>deposit HOLD</b> of 
+        <b>£${(amount/100).toFixed(2)}</b> for your booking <b>#${bookingID}</b>.</p>
+        <ul>
+          <li><b>Lorry:</b> ${booking.resource}</li>
+          <li><b>From:</b> ${booking.start}</li>
+          <li><b>To:</b> ${booking.end}</li>
+          <li><b>Email:</b> ${booking.email}</li>
+        </ul>
+        <p>The funds remain reserved until we either release or capture them.</p>
+        <p style="margin-top:30px;">With kind regards,<br/>Koos & Avril<br/><b>Equine Transport UK</b></p>
+      </div>
+    `;
+
     await sendgrid.send({
       to: [booking.email, "kverhagen@mac.com"],
       from: "kverhagen@mac.com",
-      subject: `Equine Transport UK | Deposit Hold Confirmation #${bookingID} | ${booking.firstName} ${booking.lastName}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; line-height:1.6; color:#333;">
-          <div style="text-align:center; margin-bottom:20px;">
-            <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
-                 alt="Equine Transport UK"
-                 style="width:160px; height:auto;" />
-          </div>
-          <h2 style="text-align:center; color:#0070f3;">Deposit Hold Confirmation</h2>
-          <p><b>⚠️ Note:</b> This is a pre-authorisation only. No money has been taken from your account.</p>
-          <p>Dear ${booking.firstName} ${booking.lastName},</p>
-          <p>We have successfully placed a <b>deposit hold</b> of <b>£${(amount/100).toFixed(2)}</b> for your booking <b>#${bookingID}</b>.</p>
-          <h3>Booking Details</h3>
-          <ul>
-            <li><b>Lorry:</b> ${booking.resource}</li>
-            <li><b>From:</b> ${booking.start}</li>
-            <li><b>To:</b> ${booking.end}</li>
-            <li><b>Customer:</b> ${booking.firstName} ${booking.lastName}</li>
-            <li><b>Email:</b> ${booking.email}</li>
-          </ul>
-          <h3>About This Deposit</h3>
-          <p>The funds remain reserved on your card until we either release the hold (normally within 7 days of return), or capture part/all if required.</p>
-          <p>If the vehicle is returned in good condition with full fuel, the deposit will be released in full automatically.</p>
-          <p style="margin-top:30px;">With kind regards,<br/>Koos & Avril<br/><b>Equine Transport UK</b></p>
-          <hr style="margin:30px 0;"/>
-          <p style="font-size:12px; color:#777; text-align:center;">
-            Equine Transport UK<br/>
-            Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL, East Sussex, GB<br/>
-            📞 +44 7584578654 | ✉️ <a href="mailto:kverhagen@mac.com">kverhagen@mac.com</a>
-          </p>
-        </div>
-      `,
+      subject: `Equine Transport UK | Deposit Hold Confirmation #${bookingID}`,
+      html: htmlBody,
     });
 
     res.json({ success: true, email: booking.email });
@@ -428,10 +376,54 @@ app.get("/test/email", async (req, res) => {
       subject: "Test Email from Render Backend",
       text: "This is a test email sent from your rental-backend service on Render.",
     });
-
     res.json({ success: true });
   } catch (err) {
     console.error("❌ SendGrid test error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ Test deposit email route (dummy booking)
+app.get("/test/deposit-email", async (req, res) => {
+  try {
+    const booking = {
+      firstName: "Test",
+      lastName: "User",
+      resource: "3.5T Lorry",
+      start: "2025-10-01 09:00",
+      end: "2025-10-02 18:00",
+      email: "kverhagen@mac.com",
+    };
+    const bookingID = "TEST12345";
+    const amount = 5000;
+    const link = `${process.env.SERVER_URL}/deposit/pay/${bookingID}`;
+
+    const htmlBody = `
+      <div style="font-family: Arial, sans-serif; line-height:1.6; color:#333;">
+        <h2 style="text-align:center; color:#0070f3;">Deposit Request (Test)</h2>
+        <p>Booking <b>#${bookingID}</b> (${booking.firstName} ${booking.lastName})</p>
+        <p><b>Lorry:</b> ${booking.resource}</p>
+        <p><b>From:</b> ${booking.start}</p>
+        <p><b>To:</b> ${booking.end}</p>
+        <p>Deposit: <b>£${amount / 100}</b></p>
+        <p style="text-align:center;">
+          <a href="${link}" style="padding:14px 22px; background:#0070f3; color:#fff; border-radius:6px; text-decoration:none; font-size:16px;">
+            💳 Pay Deposit
+          </a>
+        </p>
+      </div>
+    `;
+
+    await sendgrid.send({
+      to: "kverhagen@mac.com",
+      from: "kverhagen@mac.com",
+      subject: `Equine Transport UK | Test Deposit Email`,
+      html: htmlBody,
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ SendGrid test deposit error:", err);
     res.status(500).json({ error: err.message });
   }
 });
