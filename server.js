@@ -59,7 +59,7 @@ async function fetchPlanyoBooking(bookingID) {
 // ---------------------------------------------
 // ✅ Stripe Webhook (raw body required)
 // ---------------------------------------------
-app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
+app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   const sig = req.headers["stripe-signature"];
   let event;
 
@@ -74,25 +74,81 @@ app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
+  const pi = event.data.object;
+
   switch (event.type) {
     case "payment_intent.succeeded":
-      console.log("✅ PaymentIntent succeeded:", event.data.object.id);
+      console.log("✅ PaymentIntent succeeded:", pi.id);
       break;
 
     case "payment_intent.payment_failed":
-      console.log("❌ PaymentIntent failed:", event.data.object.id);
+      console.log("❌ PaymentIntent failed:", pi.id);
       break;
 
     case "payment_intent.canceled":
-      console.log("⚠️ PaymentIntent canceled:", event.data.object.id);
+      console.log("⚠️ PaymentIntent canceled:", pi.id);
+      if (pi.metadata && pi.metadata.bookingID) {
+        const booking = await fetchPlanyoBooking(pi.metadata.bookingID);
+        if (booking.email) {
+          await sendgrid.send({
+            to: [booking.email, "kverhagen@mac.com"],
+            from: "Equine Transport UK <kverhagen@mac.com>",
+            subject: `Equine Transport UK | Deposit Hold Canceled | Booking #${pi.metadata.bookingID}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; line-height:1.6; color:#333;">
+                <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
+                     alt="Equine Transport UK"
+                     style="width:160px; height:auto; display:block; margin:0 auto 20px auto;" />
+                <h2 style="text-align:center; color:#d9534f;">Deposit Hold Canceled</h2>
+                <p>Dear ${booking.firstName} ${booking.lastName},</p>
+                <p>The deposit hold for <b>Booking #${pi.metadata.bookingID}</b> has been <b>canceled</b>.</p>
+                <p>No funds are reserved on your card any longer.</p>
+                <hr/>
+                <p style="font-size:12px; color:#777; text-align:center;">
+                  Equine Transport UK<br/>
+                  Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL<br/>
+                  📞 +44 7584578654 | ✉️ kverhagen@mac.com
+                </p>
+              </div>
+            `
+          });
+        }
+      }
       break;
 
     case "charge.succeeded":
-      console.log("✅ Charge succeeded:", event.data.object.id);
+      console.log("✅ Charge succeeded:", pi.id);
       break;
 
     case "charge.refunded":
-      console.log("💸 Charge refunded:", event.data.object.id);
+      console.log("💸 Charge refunded:", pi.id);
+      if (pi.payment_intent && pi.metadata && pi.metadata.bookingID) {
+        const booking = await fetchPlanyoBooking(pi.metadata.bookingID);
+        if (booking.email) {
+          await sendgrid.send({
+            to: [booking.email, "kverhagen@mac.com"],
+            from: "Equine Transport UK <kverhagen@mac.com>",
+            subject: `Equine Transport UK | Deposit Refunded | Booking #${pi.metadata.bookingID}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; line-height:1.6; color:#333;">
+                <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
+                     alt="Equine Transport UK"
+                     style="width:160px; height:auto; display:block; margin:0 auto 20px auto;" />
+                <h2 style="text-align:center; color:#28a745;">Deposit Refunded</h2>
+                <p>Dear ${booking.firstName} ${booking.lastName},</p>
+                <p>Your deposit for <b>Booking #${pi.metadata.bookingID}</b> has been <b>refunded</b>.</p>
+                <p>The funds should appear back in your account within 5–10 working days, depending on your bank.</p>
+                <hr/>
+                <p style="font-size:12px; color:#777; text-align:center;">
+                  Equine Transport UK<br/>
+                  Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL<br/>
+                  📞 +44 7584578654 | ✉️ kverhagen@mac.com
+                </p>
+              </div>
+            `
+          });
+        }
+      }
       break;
 
     default:
