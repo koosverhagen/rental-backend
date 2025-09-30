@@ -1,4 +1,3 @@
-// server.js
 const express = require("express");
 const cors = require("cors");
 const Stripe = require("stripe");
@@ -10,11 +9,21 @@ require("dotenv").config();
 const app = express();
 app.use(cors());
 
-// ⚠️ Don't add express.json() yet — Stripe webhook needs RAW body
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ✅ SendGrid with API key
 sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
+
+// ---------------------------------------------
+// 🔧 Middleware: use raw body for /webhook only
+// ---------------------------------------------
+app.use((req, res, next) => {
+  if (req.originalUrl === "/webhook") {
+    next(); // let Stripe webhook handler apply express.raw()
+  } else {
+    express.json()(req, res, next); // everything else uses JSON body parser
+  }
+});
 
 // ---------------------------------------------
 // 🔧 Helper: fetch booking info from Planyo
@@ -90,6 +99,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
 
   res.send();
 });
+
 
 // ✅ Parse JSON AFTER webhook
 app.use(express.json());
