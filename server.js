@@ -57,7 +57,7 @@ async function fetchPlanyoBooking(bookingID) {
 }
 
 // ---------------------------------------------
-// ✅ Stripe Webhook (raw body required, must come BEFORE express.json())
+// ✅ Stripe Webhook (raw body required)
 // ---------------------------------------------
 app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
   const sig = req.headers["stripe-signature"];
@@ -78,9 +78,23 @@ app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
     case "payment_intent.succeeded":
       console.log("✅ PaymentIntent succeeded:", event.data.object.id);
       break;
+
     case "payment_intent.payment_failed":
       console.log("❌ PaymentIntent failed:", event.data.object.id);
       break;
+
+    case "payment_intent.canceled":
+      console.log("⚠️ PaymentIntent canceled:", event.data.object.id);
+      break;
+
+    case "charge.succeeded":
+      console.log("✅ Charge succeeded:", event.data.object.id);
+      break;
+
+    case "charge.refunded":
+      console.log("💸 Charge refunded:", event.data.object.id);
+      break;
+
     default:
       console.log(`ℹ️ Unhandled event type: ${event.type}`);
   }
