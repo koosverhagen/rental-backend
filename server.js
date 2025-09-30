@@ -484,7 +484,7 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 
     await sendgrid.send({
       to: [booking.email, "kverhagen@mac.com"], // customer + admin copy
-      from: "kverhagen@mac.com",
+      from: "Equine Transport UK <kverhagen@mac.com>",  // 👈 branded From
       subject: `Equine Transport UK | Deposit Hold Confirmation #${bookingID} | ${booking.firstName} ${booking.lastName}`,
       html: htmlBody,
     });
