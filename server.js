@@ -154,7 +154,111 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
     description: `Booking #${bookingID} | ${booking.firstName} ${booking.lastName} | ${booking.resource}`,
   });
 
-  res.send(`<!DOCTYPE html> ... (UNCHANGED HTML/JS CONTENT) ...`);
+  res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+  <title>Deposit Hold - Booking ${bookingID}</title>
+  <script src="https://js.stripe.com/v3/"></script>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#f6f7fb;margin:0}
+    .wrap{max-width:520px;margin:24px auto;padding:20px}
+    .card{background:#fff;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.08);padding:22px}
+    h2{margin:0 0 8px;text-align:center}
+    p.center{text-align:center;color:#666}
+    label{display:block;margin-top:12px;font-weight:600}
+    .StripeElement{padding:12px;border:2px solid #e6e8ef;border-radius:8px;background:#fff;margin-top:6px}
+    button{margin-top:18px;width:100%;padding:14px;border:0;border-radius:10px;background:#0070f3;color:#fff;font-size:17px;cursor:pointer}
+    #result{margin-top:14px;text-align:center}
+    .logo{display:block;margin:0 auto 14px;width:160px; height:auto}
+    .note{background:#f0f7ff;border:1px solid #d6e7ff;color:#124a8a;padding:12px;border-radius:8px;margin-top:14px;font-size:14px}
+    .mini{color:#888;font-size:12px;margin-top:10px;text-align:center}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <img class="logo" src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp" alt="Equine Transport UK"/>
+      <h2>Deposit Hold (£${(amount/100).toFixed(2)})</h2>
+      <p class="center">
+        Booking <b>#${bookingID}</b><br/>
+        ${booking.firstName} ${booking.lastName}<br/>
+        ${booking.resource}<br/>
+        ${booking.start} → ${booking.end}
+      </p>
+
+      <form id="payment-form">
+        <label>Card Number</label>
+        <div id="card-number" class="StripeElement"></div>
+
+        <label>Expiry</label>
+        <div id="card-expiry" class="StripeElement"></div>
+
+        <label>CVC</label>
+        <div id="card-cvc" class="StripeElement"></div>
+
+        <label>Postcode</label>
+        <input id="postal-code" placeholder="Postcode" class="StripeElement" style="height:auto"/>
+
+        <button id="submit">Confirm Hold</button>
+        <div id="result"></div>
+
+        <div class="note">
+          <b>Important:</b> This is a <b>pre-authorisation (hold)</b>. No money is taken now.
+          Funds remain reserved until we either release the hold (normally within 7 days of return)
+          or capture part/all if required by your hire agreement (e.g., refuelling, damage).
+        </div>
+        <div class="mini">Equine Transport UK — Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL</div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const stripe = Stripe("${process.env.STRIPE_PUBLISHABLE_KEY}");
+    const clientSecret = "${intent.client_secret}";
+    const elements = stripe.elements({ style: { base: { fontSize: "16px" } } });
+
+    const cardNumber = elements.create("cardNumber");
+    cardNumber.mount("#card-number");
+    const cardExpiry = elements.create("cardExpiry");
+    cardExpiry.mount("#card-expiry");
+    const cardCvc = elements.create("cardCvc");
+    cardCvc.mount("#card-cvc");
+
+    const form = document.getElementById("payment-form");
+    const resultDiv = document.getElementById("result");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      resultDiv.textContent = "⏳ Processing…";
+
+      const postalCode = document.getElementById("postal-code").value;
+      const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: cardNumber,
+          billing_details: { address: { postal_code: postalCode } }
+        }
+      });
+
+      if (error) {
+        resultDiv.textContent = "❌ " + error.message;
+      } else if (paymentIntent && paymentIntent.status === "requires_capture") {
+        resultDiv.textContent = "✅ Hold Successful. Confirmation email sent.";
+        fetch("${process.env.SERVER_URL}/email/deposit-confirmation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bookingID: "${bookingID}", amount: ${amount} })
+        }).catch(()=>{});
+      } else {
+        resultDiv.textContent = "ℹ️ Status: " + paymentIntent.status;
+      }
+    });
+  </script>
+</body>
+</html>
+  `);
 });
 
 // ---------------------------------------------
