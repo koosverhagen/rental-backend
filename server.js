@@ -91,7 +91,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
         const booking = await fetchPlanyoBooking(pi.metadata.bookingID);
         if (booking.email) {
           await sendgrid.send({
-            to: [booking.email, "kverhagen@mac.com"],
+            to: [booking.email, "kverhagen@mac.com"],  // 👈 both customer + admin
             from: "Equine Transport UK <kverhagen@mac.com>",
             subject: `Equine Transport UK | Deposit Hold Canceled | Booking #${pi.metadata.bookingID}`,
             html: `
@@ -126,7 +126,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
         const booking = await fetchPlanyoBooking(pi.metadata.bookingID);
         if (booking.email) {
           await sendgrid.send({
-            to: [booking.email, "kverhagen@mac.com"],
+            to: [booking.email, "kverhagen@mac.com"],  // 👈 both customer + admin
             from: "Equine Transport UK <kverhagen@mac.com>",
             subject: `Equine Transport UK | Deposit Refunded | Booking #${pi.metadata.bookingID}`,
             html: `
@@ -161,6 +161,8 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
 // ✅ Apply middlewares AFTER webhook
 app.use(cors());
 app.use(express.json());
+
+
 
 // ---------------------------------------------
 // ✅ 1) Terminal connection token (if ever needed)
