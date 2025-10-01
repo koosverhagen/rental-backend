@@ -395,7 +395,7 @@ app.post("/deposit/send-link", async (req, res) => {
 
     // Admin email
     await sendgrid.send({
-      to: "info@equinetransportuk.com",
+      to: "kverhagen@mac.com",
       from: "Equine Transport UK <info@equinetransportuk.com>",
       subject: `Admin Copy | Deposit Link Sent | Booking #${bookingID} | ${booking.firstName} ${booking.lastName}`,
       html: htmlBody,
