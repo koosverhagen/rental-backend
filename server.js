@@ -92,7 +92,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
         if (booking.email) {
           await sendgrid.send({
             to: [booking.email, "kverhagen@mac.com"],  // 👈 both customer + admin
-            from: "Equine Transport UK <kverhagen@mac.com>",
+            from: "Equine Transport UK <info@equinetransportuk.com>",
             subject: `Equine Transport UK | Deposit Hold Canceled | Booking #${pi.metadata.bookingID}`,
             html: `
               <div style="font-family: Arial, sans-serif; line-height:1.6; color:#333;">
@@ -107,7 +107,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
                 <p style="font-size:12px; color:#777; text-align:center;">
                   Equine Transport UK<br/>
                   Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL<br/>
-                  📞 +44 7584578654 | ✉️ kverhagen@mac.com
+                  📞 +44 7584578654 | ✉️ info@equinetransportuk.com
                 </p>
               </div>
             `
@@ -127,7 +127,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
         if (booking.email) {
           await sendgrid.send({
             to: [booking.email, "kverhagen@mac.com"],  // 👈 both customer + admin
-            from: "Equine Transport UK <kverhagen@mac.com>",
+            from: "Equine Transport UK <info@equinetransportuk.com>",
             subject: `Equine Transport UK | Deposit Refunded | Booking #${pi.metadata.bookingID}`,
             html: `
               <div style="font-family: Arial, sans-serif; line-height:1.6; color:#333;">
@@ -142,7 +142,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
                 <p style="font-size:12px; color:#777; text-align:center;">
                   Equine Transport UK<br/>
                   Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL<br/>
-                  📞 +44 7584578654 | ✉️ kverhagen@mac.com
+                  📞 +44 7584578654 | ✉️ info@equinetransportuk.com
                 </p>
               </div>
             `
@@ -388,7 +388,7 @@ app.post("/deposit/send-link", async (req, res) => {
     // Customer email (styled)
     await sendgrid.send({
       to: booking.email,
-      from: "Equine Transport UK <kverhagen@mac.com>",
+      from: "Equine Transport UK <info@equinetransportuk.com>",
       subject: `Equine Transport UK | Secure Deposit Link | Booking #${bookingID} | ${booking.firstName} ${booking.lastName}`,
       html: htmlBody,
     });
@@ -396,7 +396,7 @@ app.post("/deposit/send-link", async (req, res) => {
     // Admin email
     await sendgrid.send({
       to: "kverhagen@mac.com",
-      from: "Equine Transport UK <kverhagen@mac.com>",
+      from: "Equine Transport UK <info@equinetransportuk.com>",
       subject: `Admin Copy | Deposit Link Sent | Booking #${bookingID} | ${booking.firstName} ${booking.lastName}`,
       html: htmlBody,
     });
