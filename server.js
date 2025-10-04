@@ -253,62 +253,106 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
   <title>Deposit Hold - Booking ${bookingID}</title>
   <script src="https://js.stripe.com/v3/"></script>
   <style>
-    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#f6f7fb;margin:0}
-    .wrap{max-width:520px;margin:24px auto;padding:20px}
-    .card{background:#fff;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.08);padding:22px}
-    h2{margin:0 0 8px;text-align:center}
-    p.center{text-align:center;color:#666}
-    label{display:block;margin-top:12px;font-weight:600}
-    .StripeElement{padding:12px;border:2px solid #e6e8ef;border-radius:8px;background:#fff;margin-top:6px}
-    button{margin-top:18px;width:100%;padding:14px;border:0;border-radius:10px;background:#0070f3;color:#fff;font-size:17px;cursor:pointer}
-    #result{margin-top:14px;text-align:center}
-    .logo{display:block;margin:0 auto 14px;width:160px; height:auto}
-    .note{background:#f0f7ff;border:1px solid #d6e7ff;color:#124a8a;padding:12px;border-radius:8px;margin-top:14px;font-size:14px}
-    .mini{color:#888;font-size:12px;margin-top:10px;text-align:center}
+    body {
+      margin:0; padding:0;
+      background:#f6f7fb;
+      font-family:"Helvetica Neue", Arial, sans-serif;
+      font-size:13px; color:#333;
+      line-height:1.6;
+    }
+    .container {
+      max-width:600px; margin:30px auto;
+      background:#fff; padding:20px;
+      border-radius:8px;
+      box-shadow:0 4px 10px rgba(0,0,0,0.05);
+    }
+    .logo {
+      text-align:center; margin-bottom:20px;
+    }
+    .logo img {
+      width:160px; height:auto;
+    }
+    h2 {
+      text-align:center; margin:0 0 12px;
+      color:#0070f3;
+    }
+    p.center { text-align:center; margin:6px 0; color:#555; }
+    label { display:block; margin-top:12px; font-weight:600; }
+    .StripeElement, input {
+      padding:12px; border:2px solid #e6e8ef; border-radius:8px;
+      background:#fff; margin-top:6px; font-size:14px;
+    }
+    button {
+      margin-top:18px; width:100%;
+      padding:14px; border:0;
+      border-radius:10px;
+      background:#0070f3; color:#fff;
+      font-size:16px; cursor:pointer;
+    }
+    #result { margin-top:14px; text-align:center; }
+    hr {
+      margin:24px 0; border:0; border-top:1px solid #ccc;
+    }
+    .footer {
+      font-size:13px; color:#777; text-align:center;
+      line-height:1.5; font-weight:300;
+    }
+    .footer a {
+      color:#0070f3; text-decoration:none; font-weight:500;
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <img class="logo" src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp" alt="Equine Transport UK"/>
-      <h2>Deposit Hold (£${(amount/100).toFixed(2)})</h2>
-      <p class="center">
-        Booking <b>#${bookingID}</b><br/>
-        ${booking.firstName} ${booking.lastName}<br/>
-        ${booking.resource}<br/>
-        ${booking.start} → ${booking.end}
-      </p>
-
-      <form id="payment-form">
-        <label>Card Number</label>
-        <div id="card-number" class="StripeElement"></div>
-
-        <label>Expiry</label>
-        <div id="card-expiry" class="StripeElement"></div>
-
-        <label>CVC</label>
-        <div id="card-cvc" class="StripeElement"></div>
-
-        <label>Postcode</label>
-        <input id="postal-code" placeholder="Postcode" class="StripeElement" style="height:auto"/>
-
-        <button id="submit">Confirm Hold</button>
-        <div id="result"></div>
-
-        <div class="note">
-          <b>Important:</b> This is a <b>pre-authorisation (hold)</b>. No money is taken now.
-          Funds remain reserved until we either release the hold (normally within 7 days of return)
-          or capture part/all if required by your hire agreement (e.g., refuelling, damage).
-        </div>
-        <div class="mini">Equine Transport UK — Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL</div>
-      </form>
+  <div class="container">
+    
+    <!-- Header / Logo -->
+    <div class="logo">
+      <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715" alt="Equine Transport UK Logo"/>
     </div>
+
+    <!-- Title -->
+    <h2>Deposit Hold (£${(amount/100).toFixed(2)})</h2>
+    <p class="center">
+      Booking <b>#${bookingID}</b><br/>
+      ${booking.firstName} ${booking.lastName}<br/>
+      ${booking.resource}<br/>
+      ${booking.start} → ${booking.end}
+    </p>
+
+    <!-- Payment Form -->
+    <form id="payment-form">
+      <label>Card Number</label>
+      <div id="card-number" class="StripeElement"></div>
+
+      <label>Expiry</label>
+      <div id="card-expiry" class="StripeElement"></div>
+
+      <label>CVC</label>
+      <div id="card-cvc" class="StripeElement"></div>
+
+      <label>Postcode</label>
+      <input id="postal-code" placeholder="Postcode"/>
+
+      <button id="submit">Confirm Hold</button>
+      <div id="result"></div>
+    </form>
+
+    <hr/>
+
+    <!-- Footer -->
+    <p class="footer">
+      <strong>Equine Transport UK</strong><br/>
+      Upper Broadreed Farm, Stonehurst Lane, Five Ashes,<br/>
+      TN20 6LL, East Sussex, GB<br/>
+      📞 +44 7812 188871 | ✉️ 
+      <a href="mailto:info@equinetransportuk.com">info@equinetransportuk.com</a>
+    </p>
   </div>
 
   <script>
     const stripe = Stripe("${process.env.STRIPE_PUBLISHABLE_KEY}");
     const clientSecret = "${intent.client_secret}";
-    const elements = stripe.elements({ style: { base: { fontSize: "16px" } } });
+    const elements = stripe.elements({ style: { base: { fontSize: "15px", fontFamily:"Helvetica Neue, Arial, sans-serif" } } });
 
     const cardNumber = elements.create("cardNumber");
     cardNumber.mount("#card-number");
@@ -348,7 +392,7 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
   </script>
 </body>
 </html>
-  `);
+`);
 });
 
 // ---------------------------------------------
