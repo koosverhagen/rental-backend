@@ -294,11 +294,19 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
       margin:24px 0; border:0; border-top:1px solid #ccc;
     }
     .footer {
-      font-size:13px; color:#777; text-align:center;
-      line-height:1.5; font-weight:300;
+      text-align: center;
+      margin-top: 20px;
+      font-size: 13px;
+      color: #777;
+      line-height: 1.5;
+      font-weight: 300;
+      display: block;
+      width: 100%;
     }
     .footer a {
-      color:#0070f3; text-decoration:none; font-weight:500;
+      color:#0070f3;
+      text-decoration:none;
+      font-weight:500;
     }
   </style>
 </head>
@@ -340,13 +348,15 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
     <hr/>
 
     <!-- Footer -->
-    <p class="footer">
-      <strong>Equine Transport UK</strong><br/>
-      Upper Broadreed Farm, Stonehurst Lane, Five Ashes,<br/>
-      TN20 6LL, East Sussex, GB<br/>
-      📞 +44 7812 188871 | ✉️ 
-      <a href="mailto:info@equinetransportuk.com">info@equinetransportuk.com</a>
-    </p>
+    <div class="footer">
+      <p>
+        <strong>Equine Transport UK</strong><br/>
+        Upper Broadreed Farm, Stonehurst Lane, Five Ashes,<br/>
+        TN20 6LL, East Sussex, GB<br/>
+        📞 +44 7812 188871 | ✉️ 
+        <a href="mailto:info@equinetransportuk.com">info@equinetransportuk.com</a>
+      </p>
+    </div>
   </div>
 
   <script>
