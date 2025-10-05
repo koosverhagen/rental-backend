@@ -227,11 +227,11 @@ app.post("/deposit/create-intent", async (req, res) => {
 });
 
 // ---------------------------------------------
-// ✅ 3) Hosted deposit page
+// ✅ 3) Hosted deposit page (with redirect + £400 hold)
 // ---------------------------------------------
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
-  const amount = 100;
+  const amount = 40000; // £400 hold
 
   const booking = await fetchPlanyoBooking(bookingID);
 
@@ -264,14 +264,9 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
       max-width:600px; margin:30px auto;
       background:#fff; padding:20px;
       border-radius:8px;
-      box-shadow:0 4px 10px rgba(0,0,0,0.05);
     }
-    .logo {
-      text-align:center; margin-bottom:20px;
-    }
-    .logo img {
-      width:160px; height:auto;
-    }
+    .logo { text-align:center; margin-bottom:20px; }
+    .logo img { width:160px; height:auto; }
     h2 {
       text-align:center; margin:0 0 12px;
       color:#0070f3;
@@ -290,35 +285,22 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
       font-size:16px; cursor:pointer;
     }
     #result { margin-top:14px; text-align:center; }
-    hr {
-      margin:24px 0; border:0; border-top:1px solid #ccc;
-    }
+    hr { margin:24px 0; border:0; border-top:1px solid #ccc; }
     .footer {
-      text-align: center;
-      margin-top: 20px;
-      font-size: 13px;
-      color: #777;
-      line-height: 1.5;
-      font-weight: 300;
-      display: block;
-      width: 100%;
+      font-size:13px; color:#777; text-align:center;
+      line-height:1.5; font-weight:300;
     }
     .footer a {
-      color:#0070f3;
-      text-decoration:none;
-      font-weight:500;
+      color:#0070f3; text-decoration:none; font-weight:500;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    
-    <!-- Header / Logo -->
     <div class="logo">
       <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715" alt="Equine Transport UK Logo"/>
     </div>
 
-    <!-- Title -->
     <h2>Deposit Hold (£${(amount/100).toFixed(2)})</h2>
     <p class="center">
       Booking <b>#${bookingID}</b><br/>
@@ -327,7 +309,6 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
       ${booking.start} → ${booking.end}
     </p>
 
-    <!-- Payment Form -->
     <form id="payment-form">
       <label>Card Number</label>
       <div id="card-number" class="StripeElement"></div>
@@ -347,76 +328,67 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
 
     <hr/>
 
-    <!-- Footer -->
-    <div class="footer">
-      <p>
-        <strong>Equine Transport UK</strong><br/>
-        Upper Broadreed Farm, Stonehurst Lane, Five Ashes,<br/>
-        TN20 6LL, East Sussex, GB<br/>
-        📞 +44 7812 188871 | ✉️ 
-        <a href="mailto:info@equinetransportuk.com">info@equinetransportuk.com</a>
-      </p>
-    </div>
+    <p class="footer">
+      <strong>Equine Transport UK</strong><br/>
+      Upper Broadreed Farm, Stonehurst Lane, Five Ashes,<br/>
+      TN20 6LL, East Sussex, GB<br/>
+      📞 +44 7812 188871 | ✉️ 
+      <a href="mailto:info@equinetransportuk.com">info@equinetransportuk.com</a>
+    </p>
   </div>
 
- <script>
-  const stripe = Stripe("${process.env.STRIPE_PUBLISHABLE_KEY}");
-  const clientSecret = "${intent.client_secret}";
-  const elements = stripe.elements({ style: { base: { fontSize: "15px", fontFamily:"Helvetica Neue, Arial, sans-serif" } } });
+  <script>
+    const stripe = Stripe("${process.env.STRIPE_PUBLISHABLE_KEY}");
+    const clientSecret = "${intent.client_secret}";
+    const elements = stripe.elements({ style: { base: { fontSize: "15px", fontFamily:"Helvetica Neue, Arial, sans-serif" } } });
 
-  const cardNumber = elements.create("cardNumber");
-  cardNumber.mount("#card-number");
-  const cardExpiry = elements.create("cardExpiry");
-  cardExpiry.mount("#card-expiry");
-  const cardCvc = elements.create("cardCvc");
-  cardCvc.mount("#card-cvc");
+    const cardNumber = elements.create("cardNumber");
+    cardNumber.mount("#card-number");
+    const cardExpiry = elements.create("cardExpiry");
+    cardExpiry.mount("#card-expiry");
+    const cardCvc = elements.create("cardCvc");
+    cardCvc.mount("#card-cvc");
 
-  const form = document.getElementById("payment-form");
-  const resultDiv = document.getElementById("result");
+    const form = document.getElementById("payment-form");
+    const resultDiv = document.getElementById("result");
 
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    resultDiv.textContent = "⏳ Processing…";
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      resultDiv.textContent = "⏳ Processing…";
 
-    const postalCode = document.getElementById("postal-code").value;
-    const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-      payment_method: {
-        card: cardNumber,
-        billing_details: { address: { postal_code: postalCode } }
+      const postalCode = document.getElementById("postal-code").value;
+      const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: cardNumber,
+          billing_details: { address: { postal_code: postalCode } }
+        }
+      });
+
+      if (error) {
+        resultDiv.textContent = "❌ " + error.message;
+      } else if (paymentIntent && paymentIntent.status === "requires_capture") {
+        resultDiv.textContent = "✅ Hold Successful. Redirecting…";
+
+        // Trigger confirmation email
+        fetch("${process.env.SERVER_URL}/email/deposit-confirmation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bookingID: "${bookingID}", amount: ${amount} })
+        }).catch(()=>{});
+
+        // 🔥 Redirect after 2 seconds
+        setTimeout(() => {
+          window.location.href = \`https://www.equinetransportuk.com/thank-you?bookingID=${bookingID}&amount=${amount}\`;
+        }, 2000);
+      } else {
+        resultDiv.textContent = "ℹ️ Status: " + paymentIntent.status;
       }
     });
-
-    if (error) {
-      resultDiv.textContent = "❌ " + error.message;
-    } else if (paymentIntent && paymentIntent.status === "requires_capture") {
-      resultDiv.textContent = "✅ Hold Successful. Redirecting…";
-
-      // Trigger confirmation email
-      fetch("${process.env.SERVER_URL}/email/deposit-confirmation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingID: "${bookingID}", amount: ${amount} })
-      }).catch(()=>{});
-
-      // 🔥 Redirect after 2 seconds — include bookingID and amount in URL
-setTimeout(() => {
-  const url = new URL("https://www.equinetransportuk.com/thank-you");
-  url.searchParams.set("bookingID", "${bookingID}");
-  url.searchParams.set("amount", ${amount});
-  window.location.href = url.toString();
-}, 2000);
-
-
-    } else {
-      resultDiv.textContent = "ℹ️ Status: " + paymentIntent.status;
-    }
-  });
-</script>
+  </script>
 </body>
 </html>
-`);
+  `);
 });
-
 // ---------------------------------------------
 // ✅ 4) Send hosted link via email
 // ---------------------------------------------
