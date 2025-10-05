@@ -398,10 +398,14 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
         body: JSON.stringify({ bookingID: "${bookingID}", amount: ${amount} })
       }).catch(()=>{});
 
-      // 🔥 Redirect after 2 seconds
-      setTimeout(() => {
-        window.location.href = "https://www.equinetransportuk.com/thank-you"; 
-      }, 2000);
+      // 🔥 Redirect after 2 seconds — include bookingID and amount in URL
+setTimeout(() => {
+  const url = new URL("https://www.equinetransportuk.com/thank-you");
+  url.searchParams.set("bookingID", "${bookingID}");
+  url.searchParams.set("amount", ${amount});
+  window.location.href = url.toString();
+}, 2000);
+
 
     } else {
       resultDiv.textContent = "ℹ️ Status: " + paymentIntent.status;
