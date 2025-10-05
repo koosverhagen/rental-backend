@@ -380,7 +380,7 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
 setTimeout(() => {
   const bookingID = "${bookingID}";
   const amount = ${amount};
-  window.location.href = `https://www.equinetransportuk.com/thank-you?bookingID=${bookingID}&amount=${amount}`;
+  window.location.href = "https://www.equinetransportuk.com/thank-you?bookingID=" + bookingID + "&amount=" + amount;
 }, 2000);
       } else {
         resultDiv.textContent = "ℹ️ Status: " + paymentIntent.status;
