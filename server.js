@@ -359,47 +359,55 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
     </div>
   </div>
 
-  <script>
-    const stripe = Stripe("${process.env.STRIPE_PUBLISHABLE_KEY}");
-    const clientSecret = "${intent.client_secret}";
-    const elements = stripe.elements({ style: { base: { fontSize: "15px", fontFamily:"Helvetica Neue, Arial, sans-serif" } } });
+ <script>
+  const stripe = Stripe("${process.env.STRIPE_PUBLISHABLE_KEY}");
+  const clientSecret = "${intent.client_secret}";
+  const elements = stripe.elements({ style: { base: { fontSize: "15px", fontFamily:"Helvetica Neue, Arial, sans-serif" } } });
 
-    const cardNumber = elements.create("cardNumber");
-    cardNumber.mount("#card-number");
-    const cardExpiry = elements.create("cardExpiry");
-    cardExpiry.mount("#card-expiry");
-    const cardCvc = elements.create("cardCvc");
-    cardCvc.mount("#card-cvc");
+  const cardNumber = elements.create("cardNumber");
+  cardNumber.mount("#card-number");
+  const cardExpiry = elements.create("cardExpiry");
+  cardExpiry.mount("#card-expiry");
+  const cardCvc = elements.create("cardCvc");
+  cardCvc.mount("#card-cvc");
 
-    const form = document.getElementById("payment-form");
-    const resultDiv = document.getElementById("result");
+  const form = document.getElementById("payment-form");
+  const resultDiv = document.getElementById("result");
 
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      resultDiv.textContent = "⏳ Processing…";
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    resultDiv.textContent = "⏳ Processing…";
 
-      const postalCode = document.getElementById("postal-code").value;
-      const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-        payment_method: {
-          card: cardNumber,
-          billing_details: { address: { postal_code: postalCode } }
-        }
-      });
-
-      if (error) {
-        resultDiv.textContent = "❌ " + error.message;
-      } else if (paymentIntent && paymentIntent.status === "requires_capture") {
-        resultDiv.textContent = "✅ Hold Successful. Confirmation email sent.";
-        fetch("${process.env.SERVER_URL}/email/deposit-confirmation", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bookingID: "${bookingID}", amount: ${amount} })
-        }).catch(()=>{});
-      } else {
-        resultDiv.textContent = "ℹ️ Status: " + paymentIntent.status;
+    const postalCode = document.getElementById("postal-code").value;
+    const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+      payment_method: {
+        card: cardNumber,
+        billing_details: { address: { postal_code: postalCode } }
       }
     });
-  </script>
+
+    if (error) {
+      resultDiv.textContent = "❌ " + error.message;
+    } else if (paymentIntent && paymentIntent.status === "requires_capture") {
+      resultDiv.textContent = "✅ Hold Successful. Redirecting…";
+
+      // Trigger confirmation email
+      fetch("${process.env.SERVER_URL}/email/deposit-confirmation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingID: "${bookingID}", amount: ${amount} })
+      }).catch(()=>{});
+
+      // 🔥 Redirect after 2 seconds
+      setTimeout(() => {
+        window.location.href = "https://www.equinetransportuk.com/thank-you"; 
+      }, 2000);
+
+    } else {
+      resultDiv.textContent = "ℹ️ Status: " + paymentIntent.status;
+    }
+  });
+</script>
 </body>
 </html>
 `);
