@@ -376,7 +376,7 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
           body: JSON.stringify({ bookingID: "${bookingID}", amount: ${amount} })
         }).catch(()=>{});
 
-        // 🔥 Redirect after 2 seconds
+       // 🔥 Redirect after 2 seconds
 setTimeout(() => {
   const bookingID = "${bookingID}";
   const amount = ${amount};
