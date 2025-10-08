@@ -635,5 +635,58 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 });
 
 // ---------------------------------------------
+// 🕓 Automatic deposit link scheduler (Planyo → Email via /deposit/send-link)
+// ---------------------------------------------
+const cron = require("node-cron");
+
+// Run every day at 18:00 (6PM) UTC (Render runs in UTC by default)
+cron.schedule("0 18 * * *", async () => {
+  console.log("🕕 Checking upcoming bookings for automatic deposit emails...");
+
+  try {
+    const method = "get_reservations";
+    const timestamp = Math.floor(Date.now() / 1000);
+    const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
+    const hashKey = crypto.createHash("md5").update(raw).digest("hex");
+
+    // Get bookings for tomorrow
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dateStr = tomorrow.toISOString().split("T")[0];
+
+    const url =
+      `https://www.planyo.com/rest/?method=${method}` +
+      `&api_key=${process.env.PLANYO_API_KEY}` +
+      `&from=${dateStr}` +
+      `&to=${dateStr}` +
+      `&hash_timestamp=${timestamp}` +
+      `&hash_key=${hashKey}`;
+
+    const resp = await fetch(url);
+    const data = await resp.json();
+
+    if (data && data.response_code === 0 && Array.isArray(data.data)) {
+      for (const booking of data.data) {
+        const bookingID = booking.reservation_id;
+        const amount = 100; // £1 hold (in pence)
+
+        console.log(`📩 Auto-sending deposit link for booking #${bookingID}`);
+
+        await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bookingID, amount }),
+        });
+      }
+    } else {
+      console.log("ℹ️ No bookings found for tomorrow.");
+    }
+  } catch (err) {
+    console.error("❌ Auto-deposit email error:", err);
+  }
+});
+
+
+// ---------------------------------------------
 const PORT = process.env.PORT || 4242;
 app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
