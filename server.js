@@ -656,12 +656,15 @@ cron.schedule("0 18 * * *", async () => {
     const dateStr = tomorrow.toISOString().split("T")[0];
 
     const url =
-      `https://www.planyo.com/rest/?method=${method}` +
-      `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&from=${dateStr}` +
-      `&to=${dateStr}` +
-      `&hash_timestamp=${timestamp}` +
-      `&hash_key=${hashKey}`;
+  `https://www.planyo.com/rest/?method=${method}` +
+  `&api_key=${process.env.PLANYO_API_KEY}` +
+  `&site_id=${process.env.PLANYO_SITE_ID}` +
+  `&from=${dateStr}` +
+  `&to=${dateStr}` +
+  `&include_unconfirmed=1` +          // include all bookings, not just confirmed
+  `&user_id=0` +                      // show all admin-created bookings
+  `&hash_timestamp=${timestamp}` +
+  `&hash_key=${hashKey}`;
 
     const resp = await fetch(url);
     const data = await resp.json();
@@ -709,11 +712,14 @@ cron.schedule("0 18 * * *", async () => {
     const url =
   `https://www.planyo.com/rest/?method=${method}` +
   `&api_key=${process.env.PLANYO_API_KEY}` +
-  `&site_id=${process.env.PLANYO_SITE_ID}` +  // ✅ include your site ID
+  `&site_id=${process.env.PLANYO_SITE_ID}` +
   `&from=${dateStr}` +
   `&to=${dateStr}` +
+  `&include_unconfirmed=1` +          // include all bookings, not just confirmed
+  `&user_id=0` +                      // show all admin-created bookings
   `&hash_timestamp=${timestamp}` +
   `&hash_key=${hashKey}`;
+
 
     const resp = await fetch(url);
     const data = await resp.json();
