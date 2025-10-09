@@ -645,7 +645,7 @@ cron.schedule("0 18 * * *", async () => {
   console.log("🕕 [TEST MODE – Admin Only] Checking upcoming bookings for automatic deposit emails...");
 
   try {
-    const method = "list_reservations"; // ✅ Works for site-level API keys
+    const method = "get_reservations_for_resource";
     const timestamp = Math.floor(Date.now() / 1000);
     const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
@@ -714,7 +714,7 @@ cron.schedule("0 18 * * *", async () => {
 (async () => {
   console.log("⚡ Manual test: running deposit scheduler immediately... [TEST MODE – Admin Only]");
   try {
-    const method = "list_reservations"; // ✅ site-level friendly
+    const method = "get_reservations_for_resource";
     const timestamp = Math.floor(Date.now() / 1000);
     const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
