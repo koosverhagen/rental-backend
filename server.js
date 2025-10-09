@@ -776,6 +776,42 @@ cron.schedule("0 18 * * *", async () => {
   }
 })();
 
+// ----------------------------------------------------
+// ----------------------------------------------------
+// 📬 Planyo Webhook (Notification Callback)
+// ----------------------------------------------------
+app.post("/planyo/callback", express.json(), async (req, res) => {
+  try {
+    const data = req.body || req.query;
+
+    console.log("📩 Planyo callback received:", JSON.stringify(data, null, 2));
+
+    // Example: only act on confirmed reservations
+    if (data.notification_type === "reservation_confirmed") {
+      const bookingID = data.reservation;
+      const email = data.email;
+      console.log(`✅ Reservation confirmed #${bookingID} for ${email}`);
+
+      // Send the deposit link email (to admin only until Nov 1)
+      await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookingID,
+          amount: 100,          // £1 test hold
+          adminOnly: true       // don’t send to customer yet
+        })
+      });
+    }
+
+    res.status(200).send("OK");
+  } catch (err) {
+    console.error("❌ Webhook error:", err);
+    res.status(500).send("Error");
+  }
+});
+
+
 // ---------------------------------------------
 const PORT = process.env.PORT || 4242;
 app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
