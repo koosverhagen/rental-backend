@@ -635,70 +635,17 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 });
 
 // ---------------------------------------------
-// ---------------------------------------------
 // 🕓 Automatic deposit link scheduler (Planyo → Email via /deposit/send-link)
 // TEST MODE – Admin Only (until 1 Nov)
 // ---------------------------------------------
 const cron = require("node-cron");
+const crypto = require("crypto");
+const fetch = require("node-fetch");
 
 // Run every day at 18:00 (6PM) UTC
 cron.schedule("0 18 * * *", async () => {
   console.log("🕕 [TEST MODE – Admin Only] Checking upcoming bookings for automatic deposit emails...");
-
-  try {
-    const method = "list_reservations";
-    const timestamp = Math.floor(Date.now() / 1000);
-    const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
-    const hashKey = crypto.createHash("md5").update(raw).digest("hex");
-
-    // Tomorrow in Europe/London time
-    const londonOffset = 60 * 60; // +1 hour from UTC
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    // midnight to 23:59 in London
-    const startOfDay = Math.floor(tomorrow.setHours(0, 0, 0, 0) / 1000) - londonOffset;
-    const endOfDay = Math.floor(tomorrow.setHours(23, 59, 59, 999) / 1000) - londonOffset;
-
-    // ✅ Correct params for Planyo
-    const url =
-      `https://www.planyo.com/rest/?method=${method}` +
-      `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&site_id=${process.env.PLANYO_SITE_ID}` +
-      `&from_time=${Math.floor(startOfDay)}` +
-      `&to_time=${Math.floor(endOfDay)}` +
-      `&include_unconfirmed=1` +
-      `&list_by_creation_date=0` +
-      `&hash_timestamp=${timestamp}` +
-      `&hash_key=${hashKey}`;
-
-    console.log("🌐 Fetching from Planyo:", url);
-    console.log("🕒 From (London):", new Date(startOfDay * 1000).toLocaleString("en-GB", { timeZone: "Europe/London" }));
-    console.log("🕒 To (London):", new Date(endOfDay * 1000).toLocaleString("en-GB", { timeZone: "Europe/London" }));
-
-    const resp = await fetch(url);
-    const data = await resp.json();
-    console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
-
-    if (data && data.response_code === 0 && Array.isArray(data.data) && data.data.length > 0) {
-      for (const booking of data.data) {
-        const bookingID = booking.reservation_id;
-        const amount = 100; // £1 test hold
-
-        console.log(`📩 [TEST MODE – Admin Only] Auto-sending deposit link for booking #${bookingID}`);
-
-        await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bookingID, amount, adminOnly: true }),
-        });
-      }
-    } else {
-      console.log("ℹ️ No bookings found for tomorrow in automatic run.");
-    }
-  } catch (err) {
-    console.error("❌ Auto-deposit email error:", err);
-  }
+  await runDepositScheduler("auto");
 });
 
 // ---------------------------------------------
@@ -706,26 +653,35 @@ cron.schedule("0 18 * * *", async () => {
 // ---------------------------------------------
 (async () => {
   console.log("⚡ Manual test: running deposit scheduler immediately... [TEST MODE – Admin Only]");
+  await runDepositScheduler("manual");
+})();
+
+// ---------------------------------------------
+// 🧠 Scheduler core function
+// ---------------------------------------------
+async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
-    const timestamp = Math.floor(Date.now() / 1000);
+    const timestamp = Math.floor(Date.now() / 1000); // UTC timestamp
     const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
 
-    // Tomorrow in Europe/London time
+    // 🕒 Tomorrow in Europe/London time
     const londonOffset = 60 * 60; // +1 hour from UTC
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
 
+    // Midnight to 23:59:59 in London
     const startOfDay = Math.floor(tomorrow.setHours(0, 0, 0, 0) / 1000) - londonOffset;
     const endOfDay = Math.floor(tomorrow.setHours(23, 59, 59, 999) / 1000) - londonOffset;
 
+    // ✅ Build the correct Planyo API URL
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
       `&site_id=${process.env.PLANYO_SITE_ID}` +
-      `&from_time=${Math.floor(startOfDay)}` +
-      `&to_time=${Math.floor(endOfDay)}` +
+      `&from_time=${startOfDay}` +
+      `&to_time=${endOfDay}` +
       `&include_unconfirmed=1` +
       `&list_by_creation_date=0` +
       `&hash_timestamp=${timestamp}` +
@@ -739,27 +695,31 @@ cron.schedule("0 18 * * *", async () => {
     const data = await resp.json();
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
-    if (data && data.response_code === 0 && Array.isArray(data.data) && data.data.length > 0) {
+    if (data?.response_code === 0 && Array.isArray(data.data) && data.data.length > 0) {
       for (const booking of data.data) {
         const bookingID = booking.reservation_id;
         const amount = 100; // £1 test hold
-        console.log(`⚡ [TEST MODE – Admin Only] Sending immediate test email for booking #${bookingID}`);
+
+        console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
 
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bookingID, amount, adminOnly: true }),
+          body: JSON.stringify({
+            bookingID,
+            amount,
+            adminOnly: true, // only email admin for now
+          }),
         });
       }
     } else {
-      console.log("ℹ️ No bookings found for tomorrow in manual test.");
+      console.log(`ℹ️ No bookings found for tomorrow in ${mode} run.`);
     }
   } catch (err) {
-    console.error("❌ Manual test error:", err);
+    console.error("❌ Deposit scheduler error:", err);
   }
-})();
+}
 
-// ----------------------------------------------------
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
 // ----------------------------------------------------
@@ -769,21 +729,21 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
 
     console.log("📩 Planyo callback received:", JSON.stringify(data, null, 2));
 
-    // Example: only act on confirmed reservations
+    // Only act on confirmed reservations
     if (data.notification_type === "reservation_confirmed") {
       const bookingID = data.reservation;
       const email = data.email;
       console.log(`✅ Reservation confirmed #${bookingID} for ${email}`);
 
-      // Send the deposit link email (to admin only until Nov 1)
+      // Send the deposit link email (admin only until Nov 1)
       await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bookingID,
-          amount: 100,          // £1 test hold
-          adminOnly: true       // don’t send to customer yet
-        })
+          amount: 100,   // £1 hold
+          adminOnly: true,
+        }),
       });
     }
 
@@ -793,6 +753,7 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
     res.status(500).send("Error");
   }
 });
+
 
 
 // ---------------------------------------------
