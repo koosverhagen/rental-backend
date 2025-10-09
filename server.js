@@ -635,6 +635,7 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 });
 
 // ---------------------------------------------
+// ---------------------------------------------
 // 🕓 Automatic deposit link scheduler (Planyo → Email via /deposit/send-link)
 // TEST MODE – Admin Only (until 1 Nov)
 // ---------------------------------------------
@@ -650,29 +651,20 @@ cron.schedule("0 18 * * *", async () => {
     const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
 
-    // Tomorrow in UTC
+    // Tomorrow in Europe/London time
+    const londonOffset = 60 * 60; // +1 hour from UTC
     const tomorrow = new Date();
-    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const startOfDay = Date.UTC(
-      tomorrow.getUTCFullYear(),
-      tomorrow.getUTCMonth(),
-      tomorrow.getUTCDate(),
-      0, 0, 0
-    ) / 1000;
-
-    const endOfDay = Date.UTC(
-      tomorrow.getUTCFullYear(),
-      tomorrow.getUTCMonth(),
-      tomorrow.getUTCDate(),
-      23, 59, 59
-    ) / 1000;
+    // midnight to 23:59 in London
+    const startOfDay = Math.floor(tomorrow.setHours(0, 0, 0, 0) / 1000) - londonOffset;
+    const endOfDay = Math.floor(tomorrow.setHours(23, 59, 59, 999) / 1000) - londonOffset;
 
     // ✅ Correct params for Planyo
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&site_id=${process.env.PLANYO_SITE_ID}` + // 👈 Added site ID
+      `&site_id=${process.env.PLANYO_SITE_ID}` +
       `&from_time=${Math.floor(startOfDay)}` +
       `&to_time=${Math.floor(endOfDay)}` +
       `&include_unconfirmed=1` +
@@ -681,8 +673,8 @@ cron.schedule("0 18 * * *", async () => {
       `&hash_key=${hashKey}`;
 
     console.log("🌐 Fetching from Planyo:", url);
-    console.log("🕒 From:", new Date(startOfDay * 1000).toUTCString());
-    console.log("🕒 To:", new Date(endOfDay * 1000).toUTCString());
+    console.log("🕒 From (London):", new Date(startOfDay * 1000).toLocaleString("en-GB", { timeZone: "Europe/London" }));
+    console.log("🕒 To (London):", new Date(endOfDay * 1000).toLocaleString("en-GB", { timeZone: "Europe/London" }));
 
     const resp = await fetch(url);
     const data = await resp.json();
@@ -720,27 +712,18 @@ cron.schedule("0 18 * * *", async () => {
     const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
 
+    // Tomorrow in Europe/London time
+    const londonOffset = 60 * 60; // +1 hour from UTC
     const tomorrow = new Date();
-    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const startOfDay = Date.UTC(
-      tomorrow.getUTCFullYear(),
-      tomorrow.getUTCMonth(),
-      tomorrow.getUTCDate(),
-      0, 0, 0
-    ) / 1000;
-
-    const endOfDay = Date.UTC(
-      tomorrow.getUTCFullYear(),
-      tomorrow.getUTCMonth(),
-      tomorrow.getUTCDate(),
-      23, 59, 59
-    ) / 1000;
+    const startOfDay = Math.floor(tomorrow.setHours(0, 0, 0, 0) / 1000) - londonOffset;
+    const endOfDay = Math.floor(tomorrow.setHours(23, 59, 59, 999) / 1000) - londonOffset;
 
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&site_id=${process.env.PLANYO_SITE_ID}` + // 👈 Added site ID
+      `&site_id=${process.env.PLANYO_SITE_ID}` +
       `&from_time=${Math.floor(startOfDay)}` +
       `&to_time=${Math.floor(endOfDay)}` +
       `&include_unconfirmed=1` +
@@ -749,8 +732,8 @@ cron.schedule("0 18 * * *", async () => {
       `&hash_key=${hashKey}`;
 
     console.log("🌐 Fetching from Planyo:", url);
-    console.log("🕒 From:", new Date(startOfDay * 1000).toUTCString());
-    console.log("🕒 To:", new Date(endOfDay * 1000).toUTCString());
+    console.log("🕒 From (London):", new Date(startOfDay * 1000).toLocaleString("en-GB", { timeZone: "Europe/London" }));
+    console.log("🕒 To (London):", new Date(endOfDay * 1000).toLocaleString("en-GB", { timeZone: "Europe/London" }));
 
     const resp = await fetch(url);
     const data = await resp.json();
