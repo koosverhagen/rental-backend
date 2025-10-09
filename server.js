@@ -640,12 +640,12 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 // ---------------------------------------------
 const cron = require("node-cron");
 
-// Run every day at 18:00 (6PM) UTC (Render runs in UTC by default)
+// Run every day at 18:00 (6PM) UTC
 cron.schedule("0 18 * * *", async () => {
   console.log("🕕 [TEST MODE – Admin Only] Checking upcoming bookings for automatic deposit emails...");
 
   try {
-    const method = "list_reservations"; // ✅ Works for site-level API keys
+    const method = "list_reservations";
     const timestamp = Math.floor(Date.now() / 1000);
     const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
@@ -654,7 +654,6 @@ cron.schedule("0 18 * * *", async () => {
     const tomorrow = new Date();
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
 
-    // Convert start/end to UTC UNIX timestamps (Planyo expects UTC)
     const startOfDay = Date.UTC(
       tomorrow.getUTCFullYear(),
       tomorrow.getUTCMonth(),
@@ -669,13 +668,14 @@ cron.schedule("0 18 * * *", async () => {
       23, 59, 59
     ) / 1000;
 
-    // ✅ Use from_time and to_time for list_reservations
+    // ✅ Correct params for Planyo
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
       `&from_time=${Math.floor(startOfDay)}` +
       `&to_time=${Math.floor(endOfDay)}` +
       `&include_unconfirmed=1` +
+      `&list_by_creation_date=0` +
       `&hash_timestamp=${timestamp}` +
       `&hash_key=${hashKey}`;
 
@@ -697,7 +697,7 @@ cron.schedule("0 18 * * *", async () => {
           body: JSON.stringify({
             bookingID,
             amount,
-            adminOnly: true, // 🚫 only send to admin until 1 Nov
+            adminOnly: true,
           }),
         });
       }
@@ -715,7 +715,7 @@ cron.schedule("0 18 * * *", async () => {
 (async () => {
   console.log("⚡ Manual test: running deposit scheduler immediately... [TEST MODE – Admin Only]");
   try {
-    const method = "list_reservations"; // ✅ site-level friendly
+    const method = "list_reservations";
     const timestamp = Math.floor(Date.now() / 1000);
     const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
@@ -723,7 +723,6 @@ cron.schedule("0 18 * * *", async () => {
     const tomorrow = new Date();
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
 
-    // Convert start/end to UTC UNIX timestamps (Planyo expects UTC)
     const startOfDay = Date.UTC(
       tomorrow.getUTCFullYear(),
       tomorrow.getUTCMonth(),
@@ -738,13 +737,13 @@ cron.schedule("0 18 * * *", async () => {
       23, 59, 59
     ) / 1000;
 
-    // ✅ Use from_time and to_time for list_reservations
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
       `&from_time=${Math.floor(startOfDay)}` +
       `&to_time=${Math.floor(endOfDay)}` +
       `&include_unconfirmed=1` +
+      `&list_by_creation_date=0` +
       `&hash_timestamp=${timestamp}` +
       `&hash_key=${hashKey}`;
 
@@ -765,7 +764,7 @@ cron.schedule("0 18 * * *", async () => {
           body: JSON.stringify({
             bookingID,
             amount,
-            adminOnly: true, // 🚫 only send to admin during test
+            adminOnly: true,
           }),
         });
       }
@@ -776,6 +775,7 @@ cron.schedule("0 18 * * *", async () => {
     console.error("❌ Manual test error:", err);
   }
 })();
+
 
 // ---------------------------------------------
 const PORT = process.env.PORT || 4242;
