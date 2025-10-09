@@ -2,7 +2,7 @@
 const express = require("express");
 const cors = require("cors");
 const Stripe = require("stripe");
-const fetch = require("node-fetch");
+
 const crypto = require("crypto");
 const sendgrid = require("@sendgrid/mail");
 require("dotenv").config();
