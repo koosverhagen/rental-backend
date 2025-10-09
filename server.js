@@ -653,13 +653,16 @@ cron.schedule("0 18 * * *", async () => {
     // Get bookings for tomorrow
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const dateStr = tomorrow.toISOString().split("T")[0];
+
+    // Convert start/end to UNIX timestamps (Planyo expects this for list_reservations)
+    const startOfDay = new Date(tomorrow.setHours(0, 0, 0, 0)).getTime() / 1000;
+    const endOfDay = new Date(tomorrow.setHours(23, 59, 59, 999)).getTime() / 1000;
 
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&from=${dateStr}` +
-      `&to=${dateStr}` +
+      `&from=${Math.floor(startOfDay)}` +
+      `&to=${Math.floor(endOfDay)}` +
       `&include_unconfirmed=1` +
       `&hash_timestamp=${timestamp}` +
       `&hash_key=${hashKey}`;
@@ -707,13 +710,16 @@ cron.schedule("0 18 * * *", async () => {
 
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const dateStr = tomorrow.toISOString().split("T")[0];
+
+    // Convert start/end to UNIX timestamps (Planyo expects this for list_reservations)
+    const startOfDay = new Date(tomorrow.setHours(0, 0, 0, 0)).getTime() / 1000;
+    const endOfDay = new Date(tomorrow.setHours(23, 59, 59, 999)).getTime() / 1000;
 
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&from=${dateStr}` +
-      `&to=${dateStr}` +
+      `&from=${Math.floor(startOfDay)}` +
+      `&to=${Math.floor(endOfDay)}` +
       `&include_unconfirmed=1` +
       `&hash_timestamp=${timestamp}` +
       `&hash_key=${hashKey}`;
@@ -746,6 +752,7 @@ cron.schedule("0 18 * * *", async () => {
     console.error("❌ Manual test error:", err);
   }
 })();
+
 
 // ---------------------------------------------
 const PORT = process.env.PORT || 4242;
