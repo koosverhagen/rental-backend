@@ -672,6 +672,7 @@ cron.schedule("0 18 * * *", async () => {
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
+      `&site_id=${process.env.PLANYO_SITE_ID}` + // 👈 Added site ID
       `&from_time=${Math.floor(startOfDay)}` +
       `&to_time=${Math.floor(endOfDay)}` +
       `&include_unconfirmed=1` +
@@ -680,6 +681,9 @@ cron.schedule("0 18 * * *", async () => {
       `&hash_key=${hashKey}`;
 
     console.log("🌐 Fetching from Planyo:", url);
+    console.log("🕒 From:", new Date(startOfDay * 1000).toUTCString());
+    console.log("🕒 To:", new Date(endOfDay * 1000).toUTCString());
+
     const resp = await fetch(url);
     const data = await resp.json();
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
@@ -694,11 +698,7 @@ cron.schedule("0 18 * * *", async () => {
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            bookingID,
-            amount,
-            adminOnly: true,
-          }),
+          body: JSON.stringify({ bookingID, amount, adminOnly: true }),
         });
       }
     } else {
@@ -740,6 +740,7 @@ cron.schedule("0 18 * * *", async () => {
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
+      `&site_id=${process.env.PLANYO_SITE_ID}` + // 👈 Added site ID
       `&from_time=${Math.floor(startOfDay)}` +
       `&to_time=${Math.floor(endOfDay)}` +
       `&include_unconfirmed=1` +
@@ -748,6 +749,9 @@ cron.schedule("0 18 * * *", async () => {
       `&hash_key=${hashKey}`;
 
     console.log("🌐 Fetching from Planyo:", url);
+    console.log("🕒 From:", new Date(startOfDay * 1000).toUTCString());
+    console.log("🕒 To:", new Date(endOfDay * 1000).toUTCString());
+
     const resp = await fetch(url);
     const data = await resp.json();
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
@@ -761,11 +765,7 @@ cron.schedule("0 18 * * *", async () => {
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            bookingID,
-            amount,
-            adminOnly: true,
-          }),
+          body: JSON.stringify({ bookingID, amount, adminOnly: true }),
         });
       }
     } else {
@@ -775,7 +775,6 @@ cron.schedule("0 18 * * *", async () => {
     console.error("❌ Manual test error:", err);
   }
 })();
-
 
 // ---------------------------------------------
 const PORT = process.env.PORT || 4242;
