@@ -658,11 +658,10 @@ cron.schedule("0 18 * * *", async () => {
     const url =
   `https://www.planyo.com/rest/?method=${method}` +
   `&api_key=${process.env.PLANYO_API_KEY}` +
-  `&site_id=${process.env.PLANYO_SITE_ID}` +
   `&from=${dateStr}` +
   `&to=${dateStr}` +
-  `&include_unconfirmed=1` +          // include all bookings, not just confirmed
-  `&user_id=0` +                      // show all admin-created bookings
+  `&include_unconfirmed=1` +
+  `&user_id=0` +
   `&hash_timestamp=${timestamp}` +
   `&hash_key=${hashKey}`;
 
@@ -709,14 +708,13 @@ cron.schedule("0 18 * * *", async () => {
     tomorrow.setDate(tomorrow.getDate() + 1);
     const dateStr = tomorrow.toISOString().split("T")[0];
 
-    const url =
+   const url =
   `https://www.planyo.com/rest/?method=${method}` +
   `&api_key=${process.env.PLANYO_API_KEY}` +
-  `&site_id=${process.env.PLANYO_SITE_ID}` +
   `&from=${dateStr}` +
   `&to=${dateStr}` +
-  `&include_unconfirmed=1` +          // include all bookings, not just confirmed
-  `&user_id=0` +                      // show all admin-created bookings
+  `&include_unconfirmed=1` +
+  `&user_id=0` +
   `&hash_timestamp=${timestamp}` +
   `&hash_key=${hashKey}`;
 
