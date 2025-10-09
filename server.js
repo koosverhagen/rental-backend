@@ -645,7 +645,7 @@ cron.schedule("0 18 * * *", async () => {
   console.log("🕕 [TEST MODE – Admin Only] Checking upcoming bookings for automatic deposit emails...");
 
   try {
-    const method = "get_reservations_for_resource";
+    const method = "list_reservations"; // ✅ Works for site-level API keys
     const timestamp = Math.floor(Date.now() / 1000);
     const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
@@ -669,11 +669,12 @@ cron.schedule("0 18 * * *", async () => {
       23, 59, 59
     ) / 1000;
 
+    // ✅ Use from_time and to_time for list_reservations
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&from=${Math.floor(startOfDay)}` +
-      `&to=${Math.floor(endOfDay)}` +
+      `&from_time=${Math.floor(startOfDay)}` +
+      `&to_time=${Math.floor(endOfDay)}` +
       `&include_unconfirmed=1` +
       `&hash_timestamp=${timestamp}` +
       `&hash_key=${hashKey}`;
@@ -712,23 +713,69 @@ cron.schedule("0 18 * * *", async () => {
 // ⚡ Manual test (runs once on startup)
 // ---------------------------------------------
 (async () => {
-  const method = "get_site_info";
-  const timestamp = Math.floor(Date.now() / 1000);
-  const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
-  const hashKey = crypto.createHash("md5").update(raw).digest("hex");
+  console.log("⚡ Manual test: running deposit scheduler immediately... [TEST MODE – Admin Only]");
+  try {
+    const method = "list_reservations"; // ✅ site-level friendly
+    const timestamp = Math.floor(Date.now() / 1000);
+    const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
+    const hashKey = crypto.createHash("md5").update(raw).digest("hex");
 
-  const url =
-    `https://www.planyo.com/rest/?method=${method}` +
-    `&api_key=${process.env.PLANYO_API_KEY}` +
-    `&hash_timestamp=${timestamp}` +
-    `&hash_key=${hashKey}`;
+    const tomorrow = new Date();
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
 
-  console.log("🌐 Testing Planyo connection with:", url);
-  const resp = await fetch(url);
-  const data = await resp.json();
-  console.log("🧾 Planyo site info response:", JSON.stringify(data, null, 2));
+    // Convert start/end to UTC UNIX timestamps (Planyo expects UTC)
+    const startOfDay = Date.UTC(
+      tomorrow.getUTCFullYear(),
+      tomorrow.getUTCMonth(),
+      tomorrow.getUTCDate(),
+      0, 0, 0
+    ) / 1000;
+
+    const endOfDay = Date.UTC(
+      tomorrow.getUTCFullYear(),
+      tomorrow.getUTCMonth(),
+      tomorrow.getUTCDate(),
+      23, 59, 59
+    ) / 1000;
+
+    // ✅ Use from_time and to_time for list_reservations
+    const url =
+      `https://www.planyo.com/rest/?method=${method}` +
+      `&api_key=${process.env.PLANYO_API_KEY}` +
+      `&from_time=${Math.floor(startOfDay)}` +
+      `&to_time=${Math.floor(endOfDay)}` +
+      `&include_unconfirmed=1` +
+      `&hash_timestamp=${timestamp}` +
+      `&hash_key=${hashKey}`;
+
+    console.log("🌐 Fetching from Planyo:", url);
+    const resp = await fetch(url);
+    const data = await resp.json();
+    console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
+
+    if (data && data.response_code === 0 && Array.isArray(data.data) && data.data.length > 0) {
+      for (const booking of data.data) {
+        const bookingID = booking.reservation_id;
+        const amount = 100; // £1 test hold
+        console.log(`⚡ [TEST MODE – Admin Only] Sending immediate test email for booking #${bookingID}`);
+
+        await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            bookingID,
+            amount,
+            adminOnly: true, // 🚫 only send to admin during test
+          }),
+        });
+      }
+    } else {
+      console.log("ℹ️ No bookings found for tomorrow in manual test.");
+    }
+  } catch (err) {
+    console.error("❌ Manual test error:", err);
+  }
 })();
-
 
 // ---------------------------------------------
 const PORT = process.env.PORT || 4242;
