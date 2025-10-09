@@ -650,13 +650,24 @@ cron.schedule("0 18 * * *", async () => {
     const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
 
-    // Get bookings for tomorrow
+    // Tomorrow in UTC
     const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
 
-    // Convert start/end to UNIX timestamps (Planyo expects this for list_reservations)
-    const startOfDay = new Date(tomorrow.setHours(0, 0, 0, 0)).getTime() / 1000;
-    const endOfDay = new Date(tomorrow.setHours(23, 59, 59, 999)).getTime() / 1000;
+    // Convert start/end to UTC UNIX timestamps (Planyo expects UTC)
+    const startOfDay = Date.UTC(
+      tomorrow.getUTCFullYear(),
+      tomorrow.getUTCMonth(),
+      tomorrow.getUTCDate(),
+      0, 0, 0
+    ) / 1000;
+
+    const endOfDay = Date.UTC(
+      tomorrow.getUTCFullYear(),
+      tomorrow.getUTCMonth(),
+      tomorrow.getUTCDate(),
+      23, 59, 59
+    ) / 1000;
 
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
@@ -709,11 +720,22 @@ cron.schedule("0 18 * * *", async () => {
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
 
     const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
 
-    // Convert start/end to UNIX timestamps (Planyo expects this for list_reservations)
-    const startOfDay = new Date(tomorrow.setHours(0, 0, 0, 0)).getTime() / 1000;
-    const endOfDay = new Date(tomorrow.setHours(23, 59, 59, 999)).getTime() / 1000;
+    // Convert start/end to UTC UNIX timestamps (Planyo expects UTC)
+    const startOfDay = Date.UTC(
+      tomorrow.getUTCFullYear(),
+      tomorrow.getUTCMonth(),
+      tomorrow.getUTCDate(),
+      0, 0, 0
+    ) / 1000;
+
+    const endOfDay = Date.UTC(
+      tomorrow.getUTCFullYear(),
+      tomorrow.getUTCMonth(),
+      tomorrow.getUTCDate(),
+      23, 59, 59
+    ) / 1000;
 
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
