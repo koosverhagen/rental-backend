@@ -704,27 +704,29 @@ cron.schedule("0 18 * * *", async () => {
   await runDepositScheduler("manual");
 })();
 
-// ---------------------------------------------
-// 🧠 Scheduler core function (Fixed from→startOfDay variable mismatch)
+/// ---------------------------------------------
+// 🧠 Scheduler core function (Final: correct UTC conversion for from_time/to_time)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
-
-    // 🕒 Tomorrow in Europe/London time — format-safe
     const tz = "Europe/London";
-    const now = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
-    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
 
-    // Midnight → end of day in London
-    const startOfDay = new Date(tomorrow);
-    startOfDay.setHours(0, 0, 0, 0);
+    // 🕒 Get tomorrow’s date in London time
+    const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
+    const tomorrowLondon = new Date(nowLondon);
+    tomorrowLondon.setDate(nowLondon.getDate() + 1);
 
-    const endOfDay = new Date(tomorrow);
-    endOfDay.setHours(23, 59, 59, 999);
+    // Start/end of that day in London local time
+    const startLondon = new Date(tomorrowLondon);
+    startLondon.setHours(0, 0, 0, 0);
 
-    const from_time = Math.floor(startOfDay.getTime() / 1000);
-    const to_time = Math.floor(endOfDay.getTime() / 1000);
+    const endLondon = new Date(tomorrowLondon);
+    endLondon.setHours(23, 59, 59, 999);
+
+    // ✅ Convert London local times to UTC timestamps
+    const from_time = Math.floor(startLondon.getTime() / 1000) - (startLondon.getTimezoneOffset() * 60);
+    const to_time = Math.floor(endLondon.getTime() / 1000) - (endLondon.getTimezoneOffset() * 60);
 
     // ✅ Call Planyo
     const { url, json: data } = await planyoCall(method, {
@@ -735,8 +737,9 @@ async function runDepositScheduler(mode) {
     });
 
     console.log("🌐 Fetching from Planyo:", url);
-    console.log("🕒 From (London):", startOfDay.toLocaleString("en-GB", { timeZone: tz }));
-    console.log("🕒 To (London):", endOfDay.toLocaleString("en-GB", { timeZone: tz }));
+    console.log("🕒 From (London):", startLondon.toLocaleString("en-GB", { timeZone: tz }));
+    console.log("🕒 To (London):", endLondon.toLocaleString("en-GB", { timeZone: tz }));
+    console.log("🕒 UTC from_time:", from_time, "| UTC to_time:", to_time);
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
     if (data?.response_code === 0 && Array.isArray(data.data) && data.data.length > 0) {
@@ -751,7 +754,7 @@ async function runDepositScheduler(mode) {
           body: JSON.stringify({
             bookingID,
             amount,
-            adminOnly: true, // admin-only emails for now
+            adminOnly: true,
           }),
         });
       }
