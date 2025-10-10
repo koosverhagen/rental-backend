@@ -1,10 +1,11 @@
-// server.js
+/// server.js
 const express = require("express");
 const cors = require("cors");
 const Stripe = require("stripe");
-
 const crypto = require("crypto");
 const sendgrid = require("@sendgrid/mail");
+const cron = require("node-cron");
+const fetch = require("node-fetch");
 require("dotenv").config();
 
 const app = express();
@@ -12,6 +13,7 @@ const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ✅ SendGrid with API key
 sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
+
 
 // ---------------------------------------------
 // 🔧 Helper: fetch booking info from Planyo
@@ -637,8 +639,8 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 // ---------------------------------------------
 // 🧠 Helper: Planyo API call (auto-refresh hash_timestamp + local time handling)
 // ---------------------------------------------
-const cron = require("node-cron");
-const fetch = require("node-fetch");
+
+
 
 
 /**
