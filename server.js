@@ -635,6 +635,43 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 });
 
 // ---------------------------------------------
+// 🧠 Planyo helper (NEW): auto-sign + retry on stale timestamp
+// ---------------------------------------------
+async function planyoCall(method, params = {}) {
+  const buildUrl = () => {
+    const ts = Math.floor(Date.now() / 1000); // UTC seconds
+    const raw = process.env.PLANYO_HASH_KEY + ts + method;
+    const hash = crypto.createHash("md5").update(raw).digest("hex");
+
+    const qs = new URLSearchParams({
+      method,
+      api_key: process.env.PLANYO_API_KEY,
+      site_id: process.env.PLANYO_SITE_ID,
+      hash_timestamp: String(ts),
+      hash_key: hash,
+      ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
+    });
+
+    return `https://www.planyo.com/rest/?${qs.toString()}`;
+  };
+
+  // First attempt
+  let url = buildUrl();
+  let resp = await fetch(url);
+  let json = await resp.json();
+
+  // If timestamp invalid, rebuild with a fresh one and retry once
+  if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || "")) {
+    console.warn("⏱ Timestamp was stale; retrying Planyo call with fresh timestamp…");
+    url = buildUrl();
+    resp = await fetch(url);
+    json = await resp.json();
+  }
+
+  return { url, json };
+}
+
+// ---------------------------------------------
 // 🕓 Automatic deposit link scheduler (Planyo → Email via /deposit/send-link)
 // TEST MODE – Admin Only (until 1 Nov)
 // ---------------------------------------------
@@ -657,14 +694,11 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function
+// 🧠 Scheduler core function (UPDATED to use planyoCall)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
-    const timestamp = Math.floor(Date.now() / 1000); // UTC timestamp
-    const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
-    const hashKey = crypto.createHash("md5").update(raw).digest("hex");
 
     // 🕒 Tomorrow in Europe/London time
     const londonOffset = 60 * 60; // +1 hour from UTC
@@ -672,27 +706,21 @@ async function runDepositScheduler(mode) {
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     // Midnight to 23:59:59 in London
-    const startOfDay = Math.floor(tomorrow.setHours(0, 0, 0, 0) / 1000) - londonOffset;
-    const endOfDay = Math.floor(tomorrow.setHours(23, 59, 59, 999) / 1000) - londonOffset;
+    const from_time = Math.floor(tomorrow.setHours(0, 0, 0, 0) / 1000) - londonOffset;
+    const to_time = Math.floor(tomorrow.setHours(23, 59, 59, 999) / 1000) - londonOffset;
 
-    // ✅ Build the correct Planyo API URL
-    const url =
-      `https://www.planyo.com/rest/?method=${method}` +
-      `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&site_id=${process.env.PLANYO_SITE_ID}` +
-      `&from_time=${startOfDay}` +
-      `&to_time=${endOfDay}` +
-      `&include_unconfirmed=1` +
-      `&list_by_creation_date=0` +
-      `&hash_timestamp=${timestamp}` +
-      `&hash_key=${hashKey}`;
+    // ✅ Call Planyo using helper (auto-sign + auto-retry on stale timestamp)
+    const { url, json: data } = await planyoCall(method, {
+      from_time,
+      to_time,
+      include_unconfirmed: 1,
+      list_by_creation_date: 0,
+    });
 
     console.log("🌐 Fetching from Planyo:", url);
-    console.log("🕒 From (London):", new Date(startOfDay * 1000).toLocaleString("en-GB", { timeZone: "Europe/London" }));
-    console.log("🕒 To (London):", new Date(endOfDay * 1000).toLocaleString("en-GB", { timeZone: "Europe/London" }));
+    console.log("🕒 From (London):", new Date(from_time * 1000).toLocaleString("en-GB", { timeZone: "Europe/London" }));
+    console.log("🕒 To (London):", new Date(to_time * 1000).toLocaleString("en-GB", { timeZone: "Europe/London" }));
 
-    const resp = await fetch(url);
-    const data = await resp.json();
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
     if (data?.response_code === 0 && Array.isArray(data.data) && data.data.length > 0) {
