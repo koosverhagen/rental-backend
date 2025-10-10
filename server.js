@@ -711,20 +711,21 @@ async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
 
-    // 🕒 Tomorrow in Europe/London time (local -> UTC)
-    const tz = "Europe/London";
-    const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
-    const tomorrow = new Date(nowLondon);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    // 🕒 Tomorrow in Europe/London time — format-safe (avoids MM/DD confusion)
+const tz = "Europe/London";
+const now = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
+const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
 
-    // Midnight → end of day in London
-    const from = new Date(tomorrow);
-    from.setHours(0, 0, 0, 0);
-    const to = new Date(tomorrow);
-    to.setHours(23, 59, 59, 999);
+// Start (00:00:00) and end (23:59:59) in that timezone
+const startOfDay = new Date(tomorrow);
+startOfDay.setHours(0, 0, 0, 0);
 
-    const from_time = Math.floor(from.getTime() / 1000);
-    const to_time = Math.floor(to.getTime() / 1000);
+const endOfDay = new Date(tomorrow);
+endOfDay.setHours(23, 59, 59, 999);
+
+// Convert to UTC UNIX timestamps
+const from_time = Math.floor(startOfDay.getTime() / 1000);
+const to_time = Math.floor(endOfDay.getTime() / 1000);
 
     // ✅ Call Planyo
     const { url, json: data } = await planyoCall(method, {
