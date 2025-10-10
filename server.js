@@ -733,14 +733,21 @@ async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
 
-    // 🕒 Tomorrow in Europe/London time
-    const londonOffset = 60 * 60; // +1 hour from UTC
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
+   
+   // 🕒 Tomorrow in Europe/London time (use site timezone directly)
+const tz = "Europe/London";
+const tomorrow = new Date();
+tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // Midnight to 23:59:59 in London
-    const from_time = Math.floor(tomorrow.setHours(0, 0, 0, 0) / 1000) - londonOffset;
-    const to_time = Math.floor(tomorrow.setHours(23, 59, 59, 999) / 1000) - londonOffset;
+// Compute timestamps for 00:00–23:59 *in local site time*
+const start = new Date(tomorrow.toLocaleString("en-GB", { timeZone: tz }));
+start.setHours(0, 0, 0, 0);
+const end = new Date(tomorrow.toLocaleString("en-GB", { timeZone: tz }));
+end.setHours(23, 59, 59, 999);
+
+const from_time = Math.floor(start.getTime() / 1000);
+const to_time = Math.floor(end.getTime() / 1000);
+
 
     // ✅ Use helper to sign and auto-retry if timestamp mismatch
     const { url, json: data } = await planyoCall(method, {
