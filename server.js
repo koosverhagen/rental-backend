@@ -677,7 +677,40 @@ async function planyoCall(method, params = {}) {
 // ---------------------------------------------
 const cron = require("node-cron");
 
-const fetch = require("node-fetch");
+// 🧠 Helper: Planyo API call with hash + retry on invalid timestamp
+async function planyoCall(method, params = {}) {
+  const buildUrl = (timestamp) => {
+    const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
+    const hashKey = crypto.createHash("md5").update(raw).digest("hex");
+
+    const searchParams = new URLSearchParams({
+      method,
+      api_key: process.env.PLANYO_API_KEY,
+      site_id: process.env.PLANYO_SITE_ID,
+      hash_timestamp: timestamp,
+      hash_key: hashKey,
+      ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
+    });
+
+    return `https://www.planyo.com/rest/?${searchParams.toString()}`;
+  };
+
+  let timestamp = Math.floor(Date.now() / 1000);
+  let url = buildUrl(timestamp);
+  let resp = await fetch(url);
+  let json = await resp.json();
+
+  // Retry once if timestamp invalid
+  if (json?.response_message?.includes("Invalid timestamp")) {
+    console.log("⚠️ Timestamp mismatch. Retrying with fresh timestamp...");
+    timestamp = Math.floor(Date.now() / 1000);
+    url = buildUrl(timestamp);
+    resp = await fetch(url);
+    json = await resp.json();
+  }
+
+  return { url, json };
+}
 
 // Run every day at 18:00 (6PM) UTC
 cron.schedule("0 18 * * *", async () => {
@@ -694,7 +727,7 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function (UPDATED to use planyoCall)
+// 🧠 Scheduler core function (uses planyoCall helper)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
@@ -709,7 +742,7 @@ async function runDepositScheduler(mode) {
     const from_time = Math.floor(tomorrow.setHours(0, 0, 0, 0) / 1000) - londonOffset;
     const to_time = Math.floor(tomorrow.setHours(23, 59, 59, 999) / 1000) - londonOffset;
 
-    // ✅ Call Planyo using helper (auto-sign + auto-retry on stale timestamp)
+    // ✅ Use helper to sign and auto-retry if timestamp mismatch
     const { url, json: data } = await planyoCall(method, {
       from_time,
       to_time,
@@ -720,7 +753,6 @@ async function runDepositScheduler(mode) {
     console.log("🌐 Fetching from Planyo:", url);
     console.log("🕒 From (London):", new Date(from_time * 1000).toLocaleString("en-GB", { timeZone: "Europe/London" }));
     console.log("🕒 To (London):", new Date(to_time * 1000).toLocaleString("en-GB", { timeZone: "Europe/London" }));
-
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
     if (data?.response_code === 0 && Array.isArray(data.data) && data.data.length > 0) {
@@ -754,7 +786,6 @@ async function runDepositScheduler(mode) {
 app.post("/planyo/callback", express.json(), async (req, res) => {
   try {
     const data = req.body || req.query;
-
     console.log("📩 Planyo callback received:", JSON.stringify(data, null, 2));
 
     // Only act on confirmed reservations
@@ -763,7 +794,7 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
       const email = data.email;
       console.log(`✅ Reservation confirmed #${bookingID} for ${email}`);
 
-      // Send the deposit link email (admin only until Nov 1)
+      // Send deposit link (admin only until Nov 1)
       await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
