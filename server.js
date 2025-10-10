@@ -704,32 +704,34 @@ cron.schedule("0 18 * * *", async () => {
   await runDepositScheduler("manual");
 })();
 
-/// ---------------------------------------------
-// 🧠 Scheduler core function (Final: correct UTC conversion for from_time/to_time)
+// ---------------------------------------------
+// 🧠 Scheduler core function (Fixed for MM/DD/YYYY sites)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
     const tz = "Europe/London";
 
-    // 🕒 Get tomorrow’s date in London time
-    const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
-    const tomorrowLondon = new Date(nowLondon);
-    tomorrowLondon.setDate(nowLondon.getDate() + 1);
+    // Tomorrow’s date in MM/DD/YYYY order
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
 
-    // Start/end of that day in London local time
-    const startLondon = new Date(tomorrowLondon);
-    startLondon.setHours(0, 0, 0, 0);
+    // Extract month/day/year properly (MM/DD/YYYY)
+    const mm = tomorrow.getMonth(); // 0-based
+    const dd = tomorrow.getDate();
+    const yyyy = tomorrow.getFullYear();
 
-    const endLondon = new Date(tomorrowLondon);
-    endLondon.setHours(23, 59, 59, 999);
+    // Build start & end UTC from explicit MM/DD/YYYY
+    const start = new Date(Date.UTC(yyyy, mm, dd, 0, 0, 0));
+    const end = new Date(Date.UTC(yyyy, mm, dd, 23, 59, 59));
 
-    // ✅ Convert London local times to UTC timestamps
-    const from_time = Math.floor(startLondon.getTime() / 1000) - (startLondon.getTimezoneOffset() * 60);
-    const to_time = Math.floor(endLondon.getTime() / 1000) - (endLondon.getTimezoneOffset() * 60);
+    const from_time = Math.floor(start.getTime() / 1000);
+    const to_time = Math.floor(end.getTime() / 1000);
 
-    // ✅ Call Planyo
+    // ✅ Call Planyo using helper
     const { url, json: data } = await planyoCall(method, {
+      site_id: process.env.PLANYO_SITE_ID,
       from_time,
       to_time,
       include_unconfirmed: 1,
@@ -737,16 +739,16 @@ async function runDepositScheduler(mode) {
     });
 
     console.log("🌐 Fetching from Planyo:", url);
-    console.log("🕒 From (London):", startLondon.toLocaleString("en-GB", { timeZone: tz }));
-    console.log("🕒 To (London):", endLondon.toLocaleString("en-GB", { timeZone: tz }));
-    console.log("🕒 UTC from_time:", from_time, "| UTC to_time:", to_time);
+    console.log("🕒 Site uses MM/DD/YYYY format");
+    console.log("🕒 UTC start:", start.toISOString());
+    console.log("🕒 UTC end:", end.toISOString());
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
     if (data?.response_code === 0 && Array.isArray(data.data) && data.data.length > 0) {
       for (const booking of data.data) {
         const bookingID = booking.reservation_id;
-        const amount = 100; // £1 test hold
-        console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
+        const amount = 100;
+        console.log(`📩 Sending deposit link for booking #${bookingID}`);
 
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
