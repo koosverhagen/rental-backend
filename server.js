@@ -303,7 +303,7 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
       <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715" alt="Equine Transport UK Logo"/>
     </div>
 
-    <h2>Deposit Hold (£${(amount/100).toFixed(2)})</h2>
+    <h2>Deposit Hold (£${(amount/40000).toFixed(2)})</h2>
     <p class="center">
       Booking <b>#${bookingID}</b><br/>
       ${booking.firstName} ${booking.lastName}<br/>
