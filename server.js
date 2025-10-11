@@ -706,41 +706,41 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — FIXED (UTC timestamps only)
-// ---------------------------------------------
-// 🧠 Scheduler core function
+// 🧠 Scheduler core function — NEW: use day/month/year params instead of Unix timestamps
 async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
     const tz = "Europe/London";
 
-    // 🗓 Tomorrow (Europe/London)
+    // 🗓 Tomorrow in Europe/London
     const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
     const tomorrow = new Date(nowLondon);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // Get start/end in London time (midnight → 23:59)
-    const fromLondon = new Date(tomorrow);
-    fromLondon.setHours(0, 0, 0, 0);
-    const toLondon = new Date(tomorrow);
-    toLondon.setHours(23, 59, 59, 999);
+    // From → midnight, To → next midnight
+    const from = new Date(tomorrow);
+    const to = new Date(tomorrow);
+    to.setDate(to.getDate() + 1);
 
-    // Convert to UTC timestamps
-    const from_time = Math.floor(fromLondon.getTime() / 1000) - (fromLondon.getTimezoneOffset() * 60);
-    const to_time = Math.floor(toLondon.getTime() / 1000) - (toLondon.getTimezoneOffset() * 60);
-
-    console.log("📅 Site uses Europe/London (UTC+1 in Oct)");
-    console.log("🕒 From (London):", fromLondon.toLocaleString("en-GB", { timeZone: tz }));
-    console.log("🕒 To (London):", toLondon.toLocaleString("en-GB", { timeZone: tz }));
-    console.log("🕒 UTC from_time:", from_time, "| UTC to_time:", to_time);
-
-    // ✅ Call Planyo API
-    const { url, json: data } = await planyoCall(method, {
-      from_time,
-      to_time,
+    // Extract the same fields as the dashboard URL
+    const params = {
+      from_day: from.getDate(),
+      from_month: from.getMonth() + 1, // JS months 0–11
+      from_year: from.getFullYear(),
+      to_day: to.getDate(),
+      to_month: to.getMonth() + 1,
+      to_year: to.getFullYear(),
+      req_status: 4, // confirmed
       include_unconfirmed: 1,
       list_by_creation_date: 0,
-    });
+    };
+
+    console.log("📅 Searching by date components (like dashboard view)");
+    console.log(`From: ${params.from_day}/${params.from_month}/${params.from_year}`);
+    console.log(`To: ${params.to_day}/${params.to_month}/${params.to_year}`);
+
+    // ✅ Call Planyo API
+    const { url, json: data } = await planyoCall(method, params);
 
     console.log("🌐 Fetching from Planyo:", url);
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
@@ -759,7 +759,7 @@ async function runDepositScheduler(mode) {
           body: JSON.stringify({
             bookingID,
             amount,
-            adminOnly: true,
+            adminOnly: true, // admin only until 1 Nov
           }),
         });
       }
