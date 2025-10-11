@@ -425,7 +425,7 @@ app.post("/deposit/send-link", async (req, res) => {
           <b>To:</b> ${booking.end}
         </p>
         <p style="font-size:18px; text-align:center;">
-          Deposit Required: <b>£${(amount/40000).toFixed(2)}</b>
+          Deposit Required: <b>£${(amount/100).toFixed(2)}</b>
         </p>
         <div style="text-align:center; margin:30px 0;">
           <a href="${link}"
