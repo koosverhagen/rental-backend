@@ -664,14 +664,15 @@ async function planyoCall(method, params = {}) {
     return `https://www.planyo.com/rest/?${query.toString()}`;
   };
 
-  async function doFetch() {
-    const timestamp = Math.floor(Date.now() / 1000); // generate at last possible moment
-    const url = buildUrl(timestamp);
-    console.log("🧠 Using hash_timestamp:", timestamp);
-    const resp = await fetch(url);
-    const json = await resp.json();
-    return { url, json, timestamp };
-  }
+ async function doFetch() {
+  // 🕒 Generate timestamp slightly behind real time to avoid drift errors
+  const timestamp = Math.floor(Date.now() / 1000) - 120;
+  const url = buildUrl(timestamp);
+  console.log("🧠 Using hash_timestamp:", timestamp);
+  const resp = await fetch(url);
+  const json = await resp.json();
+  return { url, json, timestamp };
+}
 
   // First attempt
   let { url, json, timestamp } = await doFetch();
