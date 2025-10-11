@@ -719,7 +719,7 @@ async function runDepositScheduler(mode) {
     const tomorrow = new Date(nowLondon);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-   // 🔹 Search tomorrow’s confirmed bookings (start time 07:00–19:00)
+  // 🔹 Search tomorrow’s confirmed bookings (based on start date)
 const params = {
   filter: "starttime_with_date",
   from_day: tomorrow.getDate(),
@@ -728,9 +728,8 @@ const params = {
   to_day: tomorrow.getDate(),
   to_month: tomorrow.getMonth() + 1,
   to_year: tomorrow.getFullYear(),
-  start_time: 7,
-  end_time: 19,
-  req_status: 4, // confirmed bookings only
+  req_status: 4, // confirmed
+  calendar: process.env.PLANYO_SITE_ID, // site_id must also be sent as calendar param
   include_unconfirmed: 1,
   list_by_creation_date: 0,
 };
