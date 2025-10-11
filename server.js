@@ -642,7 +642,6 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 
 
 
-
 /**
  * Generic Planyo API call wrapper.
  * Automatically signs with hash_key + timestamp.
@@ -666,8 +665,9 @@ async function planyoCall(method, params = {}) {
   };
 
   async function doFetch() {
-    const timestamp = Math.floor(Date.now() / 1000);
+    const timestamp = Math.floor(Date.now() / 1000); // generate at last possible moment
     const url = buildUrl(timestamp);
+    console.log("🧠 Using hash_timestamp:", timestamp);
     const resp = await fetch(url);
     const json = await resp.json();
     return { url, json, timestamp };
@@ -676,14 +676,15 @@ async function planyoCall(method, params = {}) {
   // First attempt
   let { url, json, timestamp } = await doFetch();
 
-  // Retry if timestamp invalid
+  // Retry instantly if timestamp invalid
   if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || "")) {
-    console.log("⚠️ Invalid timestamp — retrying with fresh timestamp...");
+    console.log("⚠️ Invalid timestamp — retrying immediately with fresh timestamp...");
     ({ url, json, timestamp } = await doFetch());
   }
 
   return { url, json, timestamp };
 }
+
 
 // ---------------------------------------------
 // 🕓 Automatic deposit link scheduler (Planyo → /deposit/send-link)
