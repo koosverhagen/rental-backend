@@ -712,19 +712,28 @@ async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
 
-    // 🕒 Tomorrow in pure UTC (ignore locale format differences)
-    const now = new Date();
-    const tomorrowUTC = new Date(Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate() + 1,
-      0, 0, 0
-    ));
+    // 🕒 Use Europe/London time directly (no offset math)
+    const tz = "Europe/London";
+    const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
+    const tomorrow = new Date(nowLondon);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const from_time = Math.floor(tomorrowUTC.getTime() / 1000);
-    const to_time = from_time + 86399; // +23h59m59s (one full day)
+    // Midnight → 23:59:59 in London
+    const fromLondon = new Date(tomorrow);
+    fromLondon.setHours(0, 0, 0, 0);
+    const toLondon = new Date(tomorrow);
+    toLondon.setHours(23, 59, 59, 999);
 
-    // ✅ Call Planyo with UTC-safe times
+    // Convert to UNIX timestamps (Planyo expects UTC-based seconds)
+    const from_time = Math.floor(fromLondon.getTime() / 1000);
+    const to_time = Math.floor(toLondon.getTime() / 1000);
+
+    console.log("📅 Site uses Europe/London timezone");
+    console.log("🕒 From (London):", fromLondon.toLocaleString("en-GB", { timeZone: tz }));
+    console.log("🕒 To (London):", toLondon.toLocaleString("en-GB", { timeZone: tz }));
+    console.log("🕒 UTC from_time:", from_time, "| UTC to_time:", to_time);
+
+    // ✅ Call Planyo
     const { url, json: data } = await planyoCall(method, {
       from_time,
       to_time,
@@ -733,15 +742,14 @@ async function runDepositScheduler(mode) {
     });
 
     console.log("🌐 Fetching from Planyo:", url);
-    console.log("🕒 UTC from_time:", from_time, "|", new Date(from_time * 1000).toISOString());
-    console.log("🕒 UTC to_time:", to_time, "|", new Date(to_time * 1000).toISOString());
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
     if (data?.response_code === 0 && Array.isArray(data.data) && data.data.length > 0) {
+      console.log(`✅ Found ${data.data.length} bookings for tomorrow (${mode} run).`);
       for (const booking of data.data) {
         const bookingID = booking.reservation_id;
         const amount = 100; // £1 test hold
-        console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
+        console.log(`📩 Auto-sending deposit link for booking #${bookingID}`);
 
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
@@ -749,7 +757,7 @@ async function runDepositScheduler(mode) {
           body: JSON.stringify({
             bookingID,
             amount,
-            adminOnly: true, // admin-only for now
+            adminOnly: true,
           }),
         });
       }
