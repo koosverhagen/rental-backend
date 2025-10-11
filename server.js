@@ -425,7 +425,7 @@ app.post("/deposit/send-link", async (req, res) => {
           <b>To:</b> ${booking.end}
         </p>
         <p style="font-size:18px; text-align:center;">
-          Deposit Required: <b>£${(amount/100).toFixed(2)}</b>
+          Deposit Required: <b>£${(amount/40000).toFixed(2)}</b>
         </p>
         <div style="text-align:center; margin:30px 0;">
           <a href="${link}"
@@ -582,7 +582,7 @@ app.post("/email/deposit-confirmation", async (req, res) => {
         <p><b>Note:</b> This is a <b>pre-authorisation (hold)</b>. <b>No money has been taken</b> from your account.</p>
 
         <p>Dear ${booking.firstName} ${booking.lastName},</p>
-        <p>We have successfully placed a deposit hold of <b>£${(amount/100).toFixed(2)}</b> for your booking <b>#${bookingID}</b>.</p>
+        <p>We have successfully placed a deposit hold of <b>£${(amount/40000).toFixed(2)}</b> for your booking <b>#${bookingID}</b>.</p>
 
         <h3>Booking Details</h3>
         <ul>
@@ -790,7 +790,7 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bookingID,
-          amount: 100,   // £1 hold
+          amount: 40000,   // £400 hold
           adminOnly: true,
         }),
       });
