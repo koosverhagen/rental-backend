@@ -706,7 +706,8 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — NEW: use day/month/year params instead of Unix timestamps
+// 🧠 Scheduler core function — include rental time (07:00–19:00)
+// ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
@@ -717,36 +718,36 @@ async function runDepositScheduler(mode) {
     const tomorrow = new Date(nowLondon);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // From → midnight, To → next midnight
-    const from = new Date(tomorrow);
-    const to = new Date(tomorrow);
-    to.setDate(to.getDate() + 1);
+    const nextDay = new Date(tomorrow);
+    nextDay.setDate(nextDay.getDate() + 1);
 
-    // Extract the same fields as the dashboard URL
+    // 🔹 Extract the same fields Planyo uses in your dashboard query
     const params = {
-      from_day: from.getDate(),
-      from_month: from.getMonth() + 1, // JS months 0–11
-      from_year: from.getFullYear(),
-      to_day: to.getDate(),
-      to_month: to.getMonth() + 1,
-      to_year: to.getFullYear(),
-      req_status: 4, // confirmed
+      from_day: tomorrow.getDate(),
+      from_month: tomorrow.getMonth() + 1,
+      from_year: tomorrow.getFullYear(),
+      to_day: nextDay.getDate(),
+      to_month: nextDay.getMonth() + 1,
+      to_year: nextDay.getFullYear(),
+      start_time: 7,   // <-- critical
+      end_time: 19,    // <-- critical
+      req_status: 4,   // confirmed only
       include_unconfirmed: 1,
       list_by_creation_date: 0,
     };
 
-    console.log("📅 Searching by date components (like dashboard view)");
-    console.log(`From: ${params.from_day}/${params.from_month}/${params.from_year}`);
-    console.log(`To: ${params.to_day}/${params.to_month}/${params.to_year}`);
+    console.log("📅 Searching bookings with fixed rental time (07:00–19:00)");
+    console.log(`From: ${params.from_day}/${params.from_month}/${params.from_year} 07:00`);
+    console.log(`To: ${params.to_day}/${params.to_month}/${params.to_year} 19:00`);
 
-    // ✅ Call Planyo API
+    // ✅ Call Planyo API (with hash timestamp auto-handled)
     const { url, json: data } = await planyoCall(method, params);
 
     console.log("🌐 Fetching from Planyo:", url);
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
     if (data?.response_code === 0 && Array.isArray(data.data) && data.data.length > 0) {
-      console.log(`✅ Found ${data.data.length} bookings for tomorrow`);
+      console.log(`✅ Found ${data.data.length} booking(s) for tomorrow`);
       for (const booking of data.data) {
         const bookingID = booking.reservation_id;
         const amount = 100; // £1 test hold
@@ -759,7 +760,7 @@ async function runDepositScheduler(mode) {
           body: JSON.stringify({
             bookingID,
             amount,
-            adminOnly: true, // admin only until 1 Nov
+            adminOnly: true,
           }),
         });
       }
