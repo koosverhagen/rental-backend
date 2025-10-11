@@ -705,33 +705,26 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function (Fixed for MM/DD/YYYY sites)
+// 🧠 Scheduler core function — FIXED (UTC timestamps only)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
-    const tz = "Europe/London";
 
-    // Tomorrow’s date in MM/DD/YYYY order
+    // 🕒 Tomorrow in pure UTC (ignore locale format differences)
     const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(now.getDate() + 1);
+    const tomorrowUTC = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() + 1,
+      0, 0, 0
+    ));
 
-    // Extract month/day/year properly (MM/DD/YYYY)
-    const mm = tomorrow.getMonth(); // 0-based
-    const dd = tomorrow.getDate();
-    const yyyy = tomorrow.getFullYear();
+    const from_time = Math.floor(tomorrowUTC.getTime() / 1000);
+    const to_time = from_time + 86399; // +23h59m59s (one full day)
 
-    // Build start & end UTC from explicit MM/DD/YYYY
-    const start = new Date(Date.UTC(yyyy, mm, dd, 0, 0, 0));
-    const end = new Date(Date.UTC(yyyy, mm, dd, 23, 59, 59));
-
-    const from_time = Math.floor(start.getTime() / 1000);
-    const to_time = Math.floor(end.getTime() / 1000);
-
-    // ✅ Call Planyo using helper
+    // ✅ Call Planyo with UTC-safe times
     const { url, json: data } = await planyoCall(method, {
-      site_id: process.env.PLANYO_SITE_ID,
       from_time,
       to_time,
       include_unconfirmed: 1,
@@ -739,16 +732,15 @@ async function runDepositScheduler(mode) {
     });
 
     console.log("🌐 Fetching from Planyo:", url);
-    console.log("🕒 Site uses MM/DD/YYYY format");
-    console.log("🕒 UTC start:", start.toISOString());
-    console.log("🕒 UTC end:", end.toISOString());
+    console.log("🕒 UTC from_time:", from_time, "|", new Date(from_time * 1000).toISOString());
+    console.log("🕒 UTC to_time:", to_time, "|", new Date(to_time * 1000).toISOString());
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
     if (data?.response_code === 0 && Array.isArray(data.data) && data.data.length > 0) {
       for (const booking of data.data) {
         const bookingID = booking.reservation_id;
-        const amount = 100;
-        console.log(`📩 Sending deposit link for booking #${bookingID}`);
+        const amount = 100; // £1 test hold
+        console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
 
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
@@ -756,7 +748,7 @@ async function runDepositScheduler(mode) {
           body: JSON.stringify({
             bookingID,
             amount,
-            adminOnly: true,
+            adminOnly: true, // admin-only for now
           }),
         });
       }
