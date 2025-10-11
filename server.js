@@ -719,20 +719,21 @@ async function runDepositScheduler(mode) {
     const tomorrow = new Date(nowLondon);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // 🔹 Build parameters for that single day
-    const params = {
-      from_day: tomorrow.getDate(),
-      from_month: tomorrow.getMonth() + 1,
-      from_year: tomorrow.getFullYear(),
-      to_day: tomorrow.getDate(),
-      to_month: tomorrow.getMonth() + 1,
-      to_year: tomorrow.getFullYear(),
-      start_time: 7,
-      end_time: 19,
-      req_status: 4,  // confirmed bookings
-      include_unconfirmed: 1,
-      list_by_creation_date: 0,
-    };
+   // 🔹 Search tomorrow’s confirmed bookings (start time 07:00–19:00)
+const params = {
+  filter: "starttime_with_date",
+  from_day: tomorrow.getDate(),
+  from_month: tomorrow.getMonth() + 1,
+  from_year: tomorrow.getFullYear(),
+  to_day: tomorrow.getDate(),
+  to_month: tomorrow.getMonth() + 1,
+  to_year: tomorrow.getFullYear(),
+  start_time: 7,
+  end_time: 19,
+  req_status: 4, // confirmed bookings only
+  include_unconfirmed: 1,
+  list_by_creation_date: 0,
+};
 
     console.log("📅 Searching bookings for tomorrow (07:00–19:00)");
     console.log(`From: ${params.from_day}/${params.from_month}/${params.from_year} 07:00`);
