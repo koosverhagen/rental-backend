@@ -233,7 +233,7 @@ app.post("/deposit/create-intent", async (req, res) => {
 // ---------------------------------------------
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
-  const amount = 100; // £400 hold
+  const amount = 40000; // £400 hold
 
   const booking = await fetchPlanyoBooking(bookingID);
 
@@ -705,8 +705,8 @@ cron.schedule("0 18 * * *", async () => {
   await runDepositScheduler("manual");
 })();
 
-// ---------------------------------------------
-// 🧠 Scheduler core function — corrected to same-day (07:00–19:00)
+/// ---------------------------------------------
+// 🧠 Scheduler core function — LIVE MODE (07:00–19:00, £400 deposit, send to customer + admin)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
@@ -718,7 +718,7 @@ async function runDepositScheduler(mode) {
     const tomorrow = new Date(nowLondon);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // 🔹 Build parameters for that single day
+    // 🔹 Search only that day’s bookings (07:00–19:00)
     const params = {
       from_day: tomorrow.getDate(),
       from_month: tomorrow.getMonth() + 1,
@@ -728,7 +728,7 @@ async function runDepositScheduler(mode) {
       to_year: tomorrow.getFullYear(),
       start_time: 7,
       end_time: 19,
-      req_status: 4,  // confirmed bookings
+      req_status: 4, // confirmed
       include_unconfirmed: 1,
       list_by_creation_date: 0,
     };
@@ -741,21 +741,24 @@ async function runDepositScheduler(mode) {
     console.log("🌐 Fetching from Planyo:", url);
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
+    // 🟢 Process valid results
     if (data?.response_code === 0 && data.data?.results?.length > 0) {
       const results = data.data.results;
       console.log(`✅ Found ${results.length} booking(s) for tomorrow`);
+
       for (const booking of results) {
         const bookingID = booking.reservation_id;
-        const amount = 100;
-        console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
+        const amount = 40000; // £400 hold
+        console.log(`📩 Sending deposit link for booking #${bookingID} (£400)`);
 
+        // Send deposit link to BOTH customer + admin
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             bookingID,
             amount,
-            adminOnly: true,
+            adminOnly: false, // 🚀 send to customer + admin
           }),
         });
       }
