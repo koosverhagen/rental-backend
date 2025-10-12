@@ -705,7 +705,7 @@ cron.schedule("0 18 * * *", async () => {
   await runDepositScheduler("manual");
 })();
 
-// 🧠 Scheduler core function — reliable using get_reservation_data for each booking
+// 🧠 Scheduler core function — robust (uses 7-day window + get_reservation_data)
 async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
@@ -720,16 +720,23 @@ async function runDepositScheduler(mode) {
 
     console.log(`📅 Checking all bookings for tomorrow (${tomorrowDateStr})`);
 
-    // 1️⃣ Get all recent reservations (no date filter)
+    // 1️⃣ get list for the coming 7 days
+    const from_time = Math.floor(Date.now() / 1000) - 86400;       // yesterday
+    const to_time = from_time + 86400 * 7;                         // +7 days
+
     const { json: listData } = await planyoCall("list_reservations", {
+      from_time,
+      to_time,
       include_unconfirmed: 1,
       list_by_creation_date: 0,
     });
 
     if (!listData?.data || !Array.isArray(listData.data) || listData.data.length === 0) {
-      console.log("ℹ️ No reservations found in general list.");
+      console.log("ℹ️ No reservations returned by Planyo list_reservations.");
       return;
     }
+
+    console.log(`📦 Fetched ${listData.data.length} total reservations from Planyo.`);
 
     // 2️⃣ Loop through and fetch each reservation’s details
     for (const item of listData.data) {
@@ -739,10 +746,12 @@ async function runDepositScheduler(mode) {
       });
 
       const res = bookingData?.data;
-      if (!res) continue;
+      if (!res || !res.start_time) continue;
 
-      const startTime = res.start_time; // "2025-10-13 07:00"
-      if (startTime && startTime.startsWith(tomorrowDateStr)) {
+      const startTime = res.start_time; // e.g. "2025-10-13 07:00"
+      console.log(`🔍 Checking #${bookingID} → ${startTime}`);
+
+      if (startTime.startsWith(tomorrowDateStr)) {
         const amount = 100; // £1 test hold
         console.log(`📩 Found booking for tomorrow: #${bookingID} (${startTime}) — sending link`);
 
