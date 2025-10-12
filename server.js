@@ -706,7 +706,7 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — corrected to same-day (07:00–19:00)
+// 🧠 Scheduler core function — fixed to filter by START time (07:00–19:00)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
@@ -718,25 +718,29 @@ async function runDepositScheduler(mode) {
     const tomorrow = new Date(nowLondon);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // 🔹 Build parameters for that single day
+    const from_day = tomorrow.getDate();
+    const from_month = tomorrow.getMonth() + 1;
+    const from_year = tomorrow.getFullYear();
+
+    console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [07:00–19:00]`);
+
+    // ✅ Must explicitly include `filter=starttime_with_date`
     const params = {
-      from_day: tomorrow.getDate(),
-      from_month: tomorrow.getMonth() + 1,
-      from_year: tomorrow.getFullYear(),
-      to_day: tomorrow.getDate(),
-      to_month: tomorrow.getMonth() + 1,
-      to_year: tomorrow.getFullYear(),
+      filter: "starttime_with_date",
+      from_day,
+      from_month,
+      from_year,
+      to_day: from_day,
+      to_month: from_month,
+      to_year: from_year,
       start_time: 7,
       end_time: 19,
-      req_status: 4,  // confirmed bookings
+      req_status: 4,
       include_unconfirmed: 1,
       list_by_creation_date: 0,
+      calendar: process.env.PLANYO_SITE_ID,
     };
 
-    console.log("📅 Searching bookings for tomorrow (07:00–19:00)");
-    console.log(`From: ${params.from_day}/${params.from_month}/${params.from_year} 07:00`);
-
-    // ✅ Call Planyo API
     const { url, json: data } = await planyoCall(method, params);
     console.log("🌐 Fetching from Planyo:", url);
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
@@ -746,7 +750,7 @@ async function runDepositScheduler(mode) {
       console.log(`✅ Found ${results.length} booking(s) for tomorrow`);
       for (const booking of results) {
         const bookingID = booking.reservation_id;
-        const amount = 100;
+        const amount = 100; // £1 test hold
         console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
 
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
@@ -760,7 +764,7 @@ async function runDepositScheduler(mode) {
         });
       }
     } else {
-      console.log(`ℹ️ No bookings found for tomorrow in ${mode} run.`);
+      console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year} in ${mode} run.`);
     }
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
