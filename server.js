@@ -713,44 +713,62 @@ cron.schedule("0 18 * * *", async () => {
 async function runDepositScheduler(mode) {
     try {
         const method = "list_reservations";
-        const tz = "Europe/London"; 
-
+        const resourceIDs = [
+            "239201", "234303", "234304", "234305", "234306"
+        ];
+        
         // 🗓 Calculate Tomorrow's Date reliably
         const today = new Date();
         const tomorrow = new Date(today.getTime() + (24 * 60 * 60 * 1000));
         
         const from_day = tomorrow.getDate();
-        const from_month = tomorrow.getMonth() + 1; // getMonth() is 0-indexed
+        const from_month = tomorrow.getMonth() + 1;
         const from_year = tomorrow.getFullYear();
+        
+        // Array to hold all bookings found across all resources
+        let allBookings = [];
 
-        console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [07:00–19:00]`);
+        console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [All Day] across ${resourceIDs.length} resources.`);
 
-        // ✅ Core parameters
-        const params = {
-            from_day,
-            from_month,
-            from_year,
-            to_day: from_day,
-            to_month: from_month,
-            to_year: from_year,
-            start_time: 7,
-            end_time: 19,
-            req_status: 4, // confirmed bookings
-            include_unconfirmed: 1,
-            // ❌ REMOVED: 'list_by_creation_date: 0' as requested to ensure filtering by start date
-            calendar: process.env.PLANYO_SITE_ID,
-        };
+        for (const resourceID of resourceIDs) {
+            
+            // ✅ Core parameters - Times are relaxed to span the entire day
+            const params = {
+                from_day,
+                from_month,
+                from_year,
+                to_day: from_day,
+                to_month: from_month,
+                to_year: from_year,
+                start_time: 0,    // 00:00 - Start of the day
+                end_time: 24,     // 24:00 - End of the day
+                req_status: 4,    // confirmed bookings
+                include_unconfirmed: 1,
+                resource_id: resourceID, // 🔑 Filter by the current Resource ID
+                calendar: process.env.PLANYO_SITE_ID,
+            };
 
-        // ✅ Call Planyo
-        const { url, json: data } = await planyoCall(method, params);
-        console.log("🌐 Fetching from Planyo:", url);
-        console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
+            // ✅ Call Planyo
+            const { url, json: data } = await planyoCall(method, params);
+            // console.log("🌐 Fetching from Planyo:", url); // Log can be very noisy in a loop
 
-        if (data?.response_code === 0 && data.data?.results?.length > 0) {
-            console.log(`✅ Found ${data.data.results.length} booking(s) for tomorrow`);
-            for (const booking of data.data.results) {
+            if (data?.response_code === 0 && data.data?.results?.length > 0) {
+                console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
+                allBookings.push(...data.data.results);
+            }
+        }
+        
+        // ----------------------------------------
+        // Process Final List of Bookings
+        // ----------------------------------------
+
+        if (allBookings.length > 0) {
+            console.log(`✅ Total confirmed bookings found for tomorrow: ${allBookings.length}`);
+            
+            for (const booking of allBookings) {
                 const bookingID = booking.reservation_id;
-                const amount = 100; // £1 test hold
+                // Keeping £1 test hold. Change to 40000 for live £400 hold.
+                const amount = 100; 
                 console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
 
                 await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
@@ -764,12 +782,13 @@ async function runDepositScheduler(mode) {
                 });
             }
         } else {
-            console.log(`ℹ️ No bookings found for tomorrow in ${mode} run.`);
+            console.log(`ℹ️ No bookings found for tomorrow in ${mode} run across all specified resources.`);
         }
     } catch (err) {
         console.error("❌ Deposit scheduler error:", err);
     }
 }
+
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
 // ----------------------------------------------------
