@@ -757,6 +757,28 @@ async function runDepositScheduler(mode) {
       }
     }
 
+    // ✅ Handle found bookings
+    if (allBookings.length > 0) {
+      console.log(`✅ Total departures found for tomorrow: ${allBookings.length}`);
+      for (const booking of allBookings) {
+        const bookingID = booking.reservation_id;
+        const amount = 100; // £1 test
+        console.log(`📩 Sending deposit link for booking #${bookingID}`);
+        await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bookingID, amount, adminOnly: true }),
+        });
+      }
+    } else {
+      console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year} (${mode} run).`);
+    }
+
+  } catch (err) {
+    console.error("❌ Deposit scheduler error:", err);
+  }
+} // ✅ this closes the function properly
+
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
 // ----------------------------------------------------
@@ -765,19 +787,17 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
     const data = req.body || req.query;
     console.log("📩 Planyo callback received:", JSON.stringify(data, null, 2));
 
-    // Only act on confirmed reservations
     if (data.notification_type === "reservation_confirmed") {
       const bookingID = data.reservation;
       const email = data.email;
       console.log(`✅ Reservation confirmed #${bookingID} for ${email}`);
 
-      // Send the deposit link email (admin only until Nov 1)
       await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bookingID,
-          amount: 100,   // £1 hold
+          amount: 100, // £1 hold
           adminOnly: true,
         }),
       });
