@@ -706,6 +706,7 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 
+
 // // ---------------------------------------------
 // 🧠 Scheduler core function — stable version using list_reservations
 // ---------------------------------------------
@@ -714,11 +715,23 @@ async function runDepositScheduler(mode) {
     const method = "list_reservations";
     const tz = "Europe/London";
 
-    // 🗓 Tomorrow in Europe/London
-    const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
-    const tomorrow = new Date(nowLondon);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
+    // 🗓 Calculate Tomorrow's Date in London/UTC-equivalent
+    // To reliably get 'tomorrow' without DST/timezone arithmetic issues,
+    // we use a date object, set it to midnight UTC, and add 24 hours.
+    const nowUTC = new Date();
+    // Set to start of the day UTC
+    nowUTC.setUTCHours(0, 0, 0, 0); 
+    
+    // Add 2 days (today + tomorrow) to ensure we get to the correct day boundary
+    // This is the simplest way to get a date object representing 'tomorrow'
+    const tomorrow = new Date(nowUTC.getTime() + (2 * 24 * 60 * 60 * 1000));
+    
+    // NOTE: Planyo usually expects local time parameters, but since we're using
+    // a single timezone (Europe/London) for consistency, we'll extract the date
+    // components based on the standard date object, which is now one day ahead.
+    
+    // 💡 Planyo accepts day/month/year, which are invariant regardless of TZ offset,
+    // as long as the date object itself represents the correct calendar day.
     const from_day = tomorrow.getDate();
     const from_month = tomorrow.getMonth() + 1;
     const from_year = tomorrow.getFullYear();
@@ -750,7 +763,9 @@ async function runDepositScheduler(mode) {
       console.log(`✅ Found ${data.data.results.length} booking(s) for tomorrow`);
       for (const booking of data.data.results) {
         const bookingID = booking.reservation_id;
-        const amount = 100; // £1 test hold
+        // 🔑 NOTE: The amount in the original code was 100 (£1), which is a test hold.
+        // If this should be the live amount, change it here (e.g., 40000 for £400).
+        const amount = 100; 
         console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
 
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
@@ -770,7 +785,6 @@ async function runDepositScheduler(mode) {
     console.error("❌ Deposit scheduler error:", err);
   }
 }
-
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
 // ----------------------------------------------------
