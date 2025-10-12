@@ -1,4 +1,4 @@
-// server.js
+/// server.js
 const express = require("express");
 const cors = require("cors");
 const Stripe = require("stripe");
@@ -14,8 +14,9 @@ const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 // ✅ SendGrid with API key
 sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
 
+
 // ---------------------------------------------
-// 🔧 Helper: fetch booking info from Planyo (for emails)
+// 🔧 Helper: fetch booking info from Planyo
 // ---------------------------------------------
 async function fetchPlanyoBooking(bookingID) {
   try {
@@ -24,16 +25,14 @@ async function fetchPlanyoBooking(bookingID) {
     const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
 
-    const url = `https://www.planyo.com/rest/?method=${method}` +
-                `&api_key=${process.env.PLANYO_API_KEY}` +
-                `&reservation_id=${bookingID}` +
-                `&hash_timestamp=${timestamp}` +
-                `&hash_key=${hashKey}`;
+    const url =
+      `https://www.planyo.com/rest/?method=${method}` +
+      `&api_key=${process.env.PLANYO_API_KEY}` +
+      `&reservation_id=${bookingID}` +
+      `&hash_timestamp=${timestamp}` +
+      `&hash_key=${hashKey}`;
 
     const resp = await fetch(url);
-    if (!resp.ok) {
-      throw new Error(`Planyo API failed with status ${resp.status}`);
-    }
     const data = await resp.json();
 
     if (data && data.response_code === 0 && data.data) {
@@ -58,59 +57,6 @@ async function fetchPlanyoBooking(bookingID) {
     email: null,
   };
 }
-
-// ---------------------------------------------
-// 🧠 Planyo API Helper (Final, Guaranteed Order Fix for list_reservations)
-// ---------------------------------------------
-async function planyoCall(method, params = {}) {
-    
-    const buildUrl = (timestamp) => {
-        const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
-        const hashKey = crypto.createHash("md5").update(raw).digest("hex");
-        
-        // 1. Manually construct the mandatory Planyo AUTH part of the URL.
-        // This guarantees 'method', 'api_key', hash, and timestamp are first.
-        let url = `https://www.planyo.com/rest/?method=${method}` +
-                  `&api_key=${process.env.PLANYO_API_KEY}` +
-                  `&hash_timestamp=${timestamp}` +
-                  `&hash_key=${hashKey}`;
-
-        // 2. Add the dynamic filter parameters (passed via the 'params' object).
-        const filterParams = { ...params };
-
-        const query = new URLSearchParams(
-            Object.fromEntries(Object.entries(filterParams).map(([k, v]) => [k, String(v)]))
-        );
-        
-        // Append all filters to the URL after the authentication parameters
-        if (query.toString()) {
-            url += `&${query.toString()}`;
-        }
-        
-        return url;
-    };
-
-    async function doFetch() {
-        const timestamp = Math.floor(Date.now() / 1000); 
-        const url = buildUrl(timestamp);
-        console.log(`🧠 Using hash_timestamp: ${timestamp}`);
-        const resp = await fetch(url);
-        const json = await resp.json();
-        return { url, json, timestamp };
-    }
-
-    // First attempt
-    let { url, json, timestamp } = await doFetch();
-
-    // Retry if timestamp invalid (critical for reliability)
-    if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || "")) {
-        console.log("⚠️ Invalid timestamp — retrying immediately with fresh timestamp...");
-        ({ url, json, timestamp } = await doFetch());
-    }
-
-    return { url, json, timestamp };
-}
-
 
 // ---------------------------------------------
 // ✅ Stripe Webhook (raw body required)
@@ -164,6 +110,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
             </div>
           `;
 
+          // Customer email
           await sendgrid.send({
             to: booking.email,
             from: "Equine Transport UK <info@equinetransportuk.com>",
@@ -171,6 +118,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
             html: htmlBody,
           });
 
+          // Admin email
           await sendgrid.send({
             to: "kverhagen@mac.com",
             from: "Equine Transport UK <info@equinetransportuk.com>",
@@ -179,6 +127,10 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
           });
         }
       }
+      break;
+
+    case "charge.succeeded":
+      console.log("✅ Charge succeeded:", pi.id);
       break;
 
     case "charge.refunded":
@@ -204,6 +156,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
             </div>
           `;
 
+          // Customer email
           await sendgrid.send({
             to: booking.email,
             from: "Equine Transport UK <info@equinetransportuk.com>",
@@ -211,6 +164,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
             html: htmlBody,
           });
 
+          // Admin email
           await sendgrid.send({
             to: "kverhagen@mac.com",
             from: "Equine Transport UK <info@equinetransportuk.com>",
@@ -279,7 +233,7 @@ app.post("/deposit/create-intent", async (req, res) => {
 // ---------------------------------------------
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
-  const amount = 40000; // £400 deposit hold
+  const amount = 100; // £400 hold
 
   const booking = await fetchPlanyoBooking(bookingID);
 
@@ -386,8 +340,8 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
   </div>
 
   <script>
-    const stripe = Stripe(\`${process.env.STRIPE_PUBLISHABLE_KEY}\`);
-    const clientSecret = \`${intent.client_secret}\`;
+    const stripe = Stripe("${process.env.STRIPE_PUBLISHABLE_KEY}");
+    const clientSecret = "${intent.client_secret}";
     const elements = stripe.elements({ style: { base: { fontSize: "15px", fontFamily:"Helvetica Neue, Arial, sans-serif" } } });
 
     const cardNumber = elements.create("cardNumber");
@@ -418,16 +372,16 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
         resultDiv.textContent = "✅ Hold Successful. Redirecting…";
 
         // Trigger confirmation email
-        fetch(\`${process.env.SERVER_URL}/email/deposit-confirmation\`, {
+        fetch("${process.env.SERVER_URL}/email/deposit-confirmation", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ bookingID: "${bookingID}", amount: ${amount} })
         }).catch(()=>{});
 
-        // Redirect after 2 seconds
-        setTimeout(() => {
-          window.location.href = \`https://www.equinetransportuk.com/thank-you?bookingID=${bookingID}&amount=${amount}\`;
-        }, 2000);
+       // 🔥 Redirect after 2 seconds — correctly pass bookingID and amount
+setTimeout(() => {
+  window.location.href = "https://www.equinetransportuk.com/thank-you?bookingID=" + ${JSON.stringify(bookingID)} + "&amount=" + ${amount};
+}, 2000);
       } else {
         resultDiv.textContent = "ℹ️ Status: " + paymentIntent.status;
       }
@@ -437,7 +391,6 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
 </html>
   `);
 });
-
 // ---------------------------------------------
 // ✅ 4) Send hosted link via email
 // ---------------------------------------------
@@ -494,6 +447,7 @@ app.post("/deposit/send-link", async (req, res) => {
       </div>
     `;
 
+    // Customer email
     await sendgrid.send({
       to: booking.email,
       from: "Equine Transport UK <info@equinetransportuk.com>",
@@ -501,6 +455,7 @@ app.post("/deposit/send-link", async (req, res) => {
       html: htmlBody,
     });
 
+    // Admin email
     await sendgrid.send({
       to: "kverhagen@mac.com",
       from: "Equine Transport UK <info@equinetransportuk.com>",
@@ -658,6 +613,7 @@ app.post("/email/deposit-confirmation", async (req, res) => {
       </div>
     `;
 
+    // Customer email
     await sendgrid.send({
       to: booking.email,
       from: "Equine Transport UK <info@equinetransportuk.com>",
@@ -665,6 +621,7 @@ app.post("/email/deposit-confirmation", async (req, res) => {
       html: htmlBody,
     });
 
+    // Admin email
     await sendgrid.send({
       to: "kverhagen@mac.com",
       from: "Equine Transport UK <info@equinetransportuk.com>",
@@ -679,101 +636,144 @@ app.post("/email/deposit-confirmation", async (req, res) => {
   }
 });
 
-
 // ---------------------------------------------
-// 🧠 Scheduler core function — stable version using list_reservations
+// 🧠 Helper: Planyo API call (auto-refresh hash_timestamp + local time handling)
 // ---------------------------------------------
-async function runDepositScheduler(mode) {
-    try {
-        const method = "list_reservations";
-        // ✅ Your specific Resource IDs
-        const resourceIDs = [
-            "239201", "234303", "234304", "234305", "234306"
-        ];
-        
-        // 🗓 Calculate Tomorrow's Date (Today is 12/10/2025, Tomorrow is 13/10/2025)
-        const today = new Date();
-        const tomorrow = new Date(today.getTime() + (24 * 60 * 60 * 1000));
-        
-        const from_day = tomorrow.getDate();
-        const from_month = tomorrow.getMonth() + 1;
-        const from_year = tomorrow.getFullYear();
-        
-        let allBookings = [];
 
-        console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [All Day] across ${resourceIDs.length} resources.`);
 
-        // 🔄 Loop through each resource ID and make a separate API call
-        for (const resourceID of resourceIDs) {
-            
-            // ✅ Core parameters
-            const params = {
-from_day: tomorrow.getDate(),
-from_month: tomorrow.getMonth() + 1,
-from_year: tomorrow.getFullYear(),
-      to_day: nextDay.getDate(),
-      to_month: nextDay.getMonth() + 1,
-      to_year: nextDay.getFullYear(),
-      start_time: 7,   // <-- critical
-      end_time: 19,    // <-- critical
-      req_status: 4,   // confirmed only
-      to_day: tomorrow.getDate(),
-      to_month: tomorrow.getMonth() + 1,
-      to_year: tomorrow.getFullYear(),
-      start_time: 7,
-      end_time: 19,
-      req_status: 4,  // confirmed bookings
-include_unconfirmed: 1,
-list_by_creation_date: 0,
-};
-            // ✅ Call Planyo (using the order-guaranteed helper)
-            const { url, json: data } = await planyoCall(method, params);
-            
-            if (data?.response_code === 0 && data.data?.results?.length > 0) {
-                console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
-                allBookings.push(...data.data.results);
-            }
-        }
-        
-        // ----------------------------------------
-        // Process Final List of Bookings
-        // ----------------------------------------
 
-        if (allBookings.length > 0) {
-            // Deduplicate to be safe
-            const uniqueBookings = Array.from(new Set(allBookings.map(b => b.reservation_id)))
-                .map(id => allBookings.find(b => b.reservation_id === id));
-                
-            console.log(`✅ Total unique confirmed bookings found for tomorrow: ${uniqueBookings.length}`);
-            
-            for (const booking of uniqueBookings) {
-                const bookingID = booking.reservation_id;
-                // Keeping £1 test hold. Change to 40000 for live £400 hold.
-                const amount = 100; 
-                console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
+/**
+ * Generic Planyo API call wrapper.
+ * Automatically signs with hash_key + timestamp.
+ * Retries if Planyo rejects due to timestamp drift.
+ */
+async function planyoCall(method, params = {}) {
+  const buildUrl = (timestamp) => {
+    const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
+    const hashKey = crypto.createHash("md5").update(raw).digest("hex");
 
-                await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        bookingID,
-                        amount,
-                        adminOnly: true,
-                    }),
-                });
-            }
-        } else {
-            console.log(`ℹ️ No bookings found for tomorrow in ${mode} run across all specified resources.`);
-        }
-    } catch (err) {
-        console.error("❌ Deposit scheduler error:", err);
-    }
+    const query = new URLSearchParams({
+      method,
+      api_key: process.env.PLANYO_API_KEY,
+      site_id: process.env.PLANYO_SITE_ID,
+      hash_timestamp: timestamp,
+      hash_key: hashKey,
+      ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
+    });
+
+    return `https://www.planyo.com/rest/?${query.toString()}`;
+  };
+
+  async function doFetch() {
+    const timestamp = Math.floor(Date.now() / 1000); // generate at last possible moment
+    const url = buildUrl(timestamp);
+    console.log("🧠 Using hash_timestamp:", timestamp);
+    const resp = await fetch(url);
+    const json = await resp.json();
+    return { url, json, timestamp };
+  }
+
+  // First attempt
+  let { url, json, timestamp } = await doFetch();
+
+  // Retry instantly if timestamp invalid
+  if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || "")) {
+    console.log("⚠️ Invalid timestamp — retrying immediately with fresh timestamp...");
+    ({ url, json, timestamp } = await doFetch());
+  }
+
+  return { url, json, timestamp };
 }
 
 
 // ---------------------------------------------
-// 📬 Planyo Webhook (Notification Callback)
+// 🕓 Automatic deposit link scheduler (Planyo → /deposit/send-link)
+// TEST MODE – Admin Only (until 1 Nov)
 // ---------------------------------------------
+
+// Run every day at 18:00 (6PM) UTC
+cron.schedule("0 18 * * *", async () => {
+  console.log("🕕 [TEST MODE – Admin Only] Checking upcoming bookings for automatic deposit emails...");
+  await runDepositScheduler("auto");
+});
+
+// ---------------------------------------------
+// ⚡ Manual test (runs once on startup)
+// ---------------------------------------------
+(async () => {
+  console.log("⚡ Manual test: running deposit scheduler immediately... [TEST MODE – Admin Only]");
+  await runDepositScheduler("manual");
+})();
+
+// ---------------------------------------------
+// 🧠 Scheduler core function — fixed to filter by START time (07:00–19:00)
+// ---------------------------------------------
+async function runDepositScheduler(mode) {
+  try {
+    const method = "list_reservations";
+    const tz = "Europe/London";
+
+    // 🗓 Tomorrow in Europe/London
+    const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
+    const tomorrow = new Date(nowLondon);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const from_day = tomorrow.getDate();
+    const from_month = tomorrow.getMonth() + 1;
+    const from_year = tomorrow.getFullYear();
+
+    console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [07:00–19:00]`);
+
+    // ✅ Must explicitly include `filter=starttime_with_date`
+    const params = {
+      filter: "starttime_with_date",
+      from_day,
+      from_month,
+      from_year,
+      to_day: from_day,
+      to_month: from_month,
+      to_year: from_year,
+      start_time: 7,
+      end_time: 19,
+      req_status: 4,
+      include_unconfirmed: 1,
+      list_by_creation_date: 0,
+      calendar: process.env.PLANYO_SITE_ID,
+    };
+
+    const { url, json: data } = await planyoCall(method, params);
+    console.log("🌐 Fetching from Planyo:", url);
+    console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
+
+    if (data?.response_code === 0 && data.data?.results?.length > 0) {
+      const results = data.data.results;
+      console.log(`✅ Found ${results.length} booking(s) for tomorrow`);
+      for (const booking of results) {
+        const bookingID = booking.reservation_id;
+        const amount = 100; // £1 test hold
+        console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
+
+        await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            bookingID,
+            amount,
+            adminOnly: true,
+          }),
+        });
+      }
+    } else {
+      console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year} in ${mode} run.`);
+    }
+  } catch (err) {
+    console.error("❌ Deposit scheduler error:", err);
+  }
+}
+
+// ----------------------------------------------------
+// 📬 Planyo Webhook (Notification Callback)
+// ----------------------------------------------------
 app.post("/planyo/callback", express.json(), async (req, res) => {
   try {
     const data = req.body || req.query;
@@ -791,7 +791,7 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bookingID,
-          amount: 40000,   // £400 hold
+          amount: 100,   // £1 hold
           adminOnly: true,
         }),
       });
@@ -803,25 +803,6 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
     res.status(500).send("Error");
   }
 });
-
-// ---------------------------------------------
-// 🕓 Automatic deposit link scheduler
-// ---------------------------------------------
-
-// Run every day at 18:00 (6PM) UTC
-cron.schedule("0 18 * * *", async () => {
-  console.log("🕕 [TEST MODE – Admin Only] Checking upcoming bookings for automatic deposit emails...");
-  await runDepositScheduler("auto");
-});
-
-// ---------------------------------------------
-// ⚡ Manual test (runs once on startup)
-// ---------------------------------------------
-(async () => {
-  console.log("⚡ Manual test: running deposit scheduler immediately... [TEST MODE – Admin Only]");
-  await runDepositScheduler("manual");
-})();
-
 
 // ---------------------------------------------
 const PORT = process.env.PORT || 4242;
