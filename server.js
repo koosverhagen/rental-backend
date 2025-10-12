@@ -766,7 +766,6 @@ console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 const bookingID = booking.reservation_id;
         const amount = 100; // £1 test hold
 
-        const amount = 100;
 console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
 
 await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
