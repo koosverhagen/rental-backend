@@ -24,12 +24,11 @@ async function fetchPlanyoBooking(bookingID) {
     const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
 
-    const url =
-      https://www.planyo.com/rest/?method=${method} +
-      &api_key=${process.env.PLANYO_API_KEY} +
-      &reservation_id=${bookingID} +
-      &hash_timestamp=${timestamp} +
-      &hash_key=${hashKey};
+    const url = `https://www.planyo.com/rest/?method=${method}` +
+            `&api_key=${process.env.PLANYO_API_KEY}` +
+            `&reservation_id=${bookingID}` +
+            `&hash_timestamp=${timestamp}` +
+            `&hash_key=${hashKey}`;
 
     const resp = await fetch(url);
     const data = await resp.json();
