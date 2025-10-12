@@ -708,20 +708,24 @@ async function runDepositScheduler(mode) {
             
             // ✅ Core parameters
             const params = {
-                from_day,
-                from_month,
-                from_year,
-                to_day: from_day,
-                to_month: from_month,
-                to_year: from_year,
-                start_time: 0,    
-                end_time: 24,     
-                req_status: 4,    // confirmed bookings
-                include_unconfirmed: 1,
-                resource_id: resourceID, 
-                calendar: process.env.PLANYO_SITE_ID, // Passed explicitly as a filter
-            };
-
+from_day: tomorrow.getDate(),
+from_month: tomorrow.getMonth() + 1,
+from_year: tomorrow.getFullYear(),
+      to_day: nextDay.getDate(),
+      to_month: nextDay.getMonth() + 1,
+      to_year: nextDay.getFullYear(),
+      start_time: 7,   // <-- critical
+      end_time: 19,    // <-- critical
+      req_status: 4,   // confirmed only
+      to_day: tomorrow.getDate(),
+      to_month: tomorrow.getMonth() + 1,
+      to_year: tomorrow.getFullYear(),
+      start_time: 7,
+      end_time: 19,
+      req_status: 4,  // confirmed bookings
+include_unconfirmed: 1,
+list_by_creation_date: 0,
+};
             // ✅ Call Planyo (using the order-guaranteed helper)
             const { url, json: data } = await planyoCall(method, params);
             
