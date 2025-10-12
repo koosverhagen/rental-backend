@@ -263,32 +263,48 @@ app.post("/deposit/send-link", async (req, res) => {
 });
 
 // ---------------------------------------------
-// 🧠 Scheduler core
+// 🧠 Planyo API Helper (Restored Retry Logic)
 // ---------------------------------------------
 async function planyoCall(method, params = {}) {
-  const buildUrl = (timestamp) => {
-    const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
-    const hashKey = crypto.createHash("md5").update(raw).digest("hex");
-    const query = new URLSearchParams({
-      method,
-      api_key: process.env.PLANYO_API_KEY,
-      site_id: process.env.PLANYO_SITE_ID,
-      hash_timestamp: timestamp,
-      hash_key: hashKey,
-      ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
-    });
-    return `https://www.planyo.com/rest/?${query.toString()}`;
-  };
+    
+    const buildUrl = (timestamp) => {
+        const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
+        const hashKey = crypto.createHash("md5").update(raw).digest("hex");
+        
+        const query = new URLSearchParams({
+            method,
+            api_key: process.env.PLANYO_API_KEY,
+            site_id: process.env.PLANYO_SITE_ID,
+            hash_timestamp: timestamp,
+            hash_key: hashKey,
+            ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
+        });
+        return `https://www.planyo.com/rest/?${query.toString()}`;
+    };
 
-  const timestamp = Math.floor(Date.now() / 1000);
-  const url = buildUrl(timestamp);
-  console.log(`🧠 Using hash_timestamp: ${timestamp}`);
-  const resp = await fetch(url);
-  const json = await resp.json();
-  return { url, json, timestamp };
+    async function doFetch() {
+        // Generate timestamp just before fetch for accuracy
+        const timestamp = Math.floor(Date.now() / 1000); 
+        const url = buildUrl(timestamp);
+        console.log(`🧠 Using hash_timestamp: ${timestamp}`);
+        const resp = await fetch(url);
+        const json = await resp.json();
+        return { url, json, timestamp };
+    }
+
+    // 1. First attempt
+    let { url, json, timestamp } = await doFetch();
+
+    // 2. Retry if timestamp invalid (critical for reliability)
+    if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || "")) {
+        console.log("⚠️ Invalid timestamp — retrying immediately with fresh timestamp...");
+        ({ url, json, timestamp } = await doFetch());
+    }
+
+    return { url, json, timestamp };
 }
 
-// // ---------------------------------------------
+// ---------------------------------------------
 // 🧠 Scheduler core function — stable version using list_reservations
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
@@ -324,29 +340,30 @@ async function runDepositScheduler(mode) {
                 req_status: 4,
                 include_unconfirmed: 1,
                 resource_id: resourceID, 
-                // 🛑 FINAL FIX: The 'calendar' parameter MUST NOT be here.
+                // 'calendar' parameter is correctly omitted here
             };
 
             const { url, json: data } = await planyoCall(method, params);
-            // ... (log and booking collection logic)
+            
             if (data?.response_code === 0 && data.data?.results?.length > 0) {
                 console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
                 allBookings.push(...data.data.results);
             }
         }
         
-        // ... (Processing logic) ...
-        
-    } catch (err) {
-        console.error("❌ Deposit scheduler error:", err);
-    }
-}        
         // ----------------------------------------
         // Process Final List of Bookings
         // ----------------------------------------
 
         if (allBookings.length > 0) {
-            // ... (success logic) ...
+            // Deduplication logic (optional but safe)
+            const uniqueBookings = Array.from(new Set(allBookings.map(b => b.reservation_id)))
+                .map(id => allBookings.find(b => b.reservation_id === id));
+                
+            console.log(`✅ Total unique confirmed bookings found for tomorrow: ${uniqueBookings.length}`);
+            
+            // ... (Your deposit sending fetch loop logic goes here) ...
+
         } else {
             console.log(`ℹ️ No bookings found for tomorrow in ${mode} run across all specified resources.`);
         }
@@ -354,15 +371,15 @@ async function runDepositScheduler(mode) {
         console.error("❌ Deposit scheduler error:", err);
     }
 }
+
 cron.schedule("0 18 * * *", async () => {
-  console.log("🕕 Auto scheduler triggered...");
-  await runDepositScheduler("auto");
+    console.log("🕕 Auto scheduler triggered...");
+    await runDepositScheduler("auto");
 });
 
 (async () => {
-  console.log("⚡ Manual test run...");
-  await runDepositScheduler("manual");
+    console.log("⚡ Manual test run...");
+    await runDepositScheduler("manual");
 })();
-
 const PORT = process.env.PORT || 4242;
 app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
