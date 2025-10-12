@@ -707,17 +707,18 @@ cron.schedule("0 18 * * *", async () => {
 
 
 
-// // ---------------------------------------------
+// ---------------------------------------------
 // 🧠 Scheduler core function — stable version using list_reservations
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
     try {
         const method = "list_reservations";
+        // ✅ Your specific Resource IDs are listed here:
         const resourceIDs = [
             "239201", "234303", "234304", "234305", "234306"
         ];
         
-        // 🗓 Calculate Tomorrow's Date reliably
+        // 🗓 Calculate Tomorrow's Date reliably (Tomorrow is 13/10/2025)
         const today = new Date();
         const tomorrow = new Date(today.getTime() + (24 * 60 * 60 * 1000));
         
@@ -730,9 +731,10 @@ async function runDepositScheduler(mode) {
 
         console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [All Day] across ${resourceIDs.length} resources.`);
 
+        // 🔄 Loop through each resource ID and make a separate API call
         for (const resourceID of resourceIDs) {
             
-            // ✅ Core parameters - Times are relaxed to span the entire day
+            // ✅ Core parameters - Times are relaxed to span the entire day (00:00 to 24:00)
             const params = {
                 from_day,
                 from_month,
@@ -740,17 +742,17 @@ async function runDepositScheduler(mode) {
                 to_day: from_day,
                 to_month: from_month,
                 to_year: from_year,
-                start_time: 0,    // 00:00 - Start of the day
-                end_time: 24,     // 24:00 - End of the day
+                start_time: 0,    // 00:00 - Start of the day (Relaxed filter)
+                end_time: 24,     // 24:00 - End of the day (Relaxed filter)
                 req_status: 4,    // confirmed bookings
                 include_unconfirmed: 1,
-                resource_id: resourceID, // 🔑 Filter by the current Resource ID
+                resource_id: resourceID, // Filter by the current Resource ID
                 calendar: process.env.PLANYO_SITE_ID,
             };
 
-            // ✅ Call Planyo
+            // ✅ Call Planyo (using the working helper function)
             const { url, json: data } = await planyoCall(method, params);
-            // console.log("🌐 Fetching from Planyo:", url); // Log can be very noisy in a loop
+            // console.log("🌐 Fetching from Planyo:", url); // Uncomment for detailed debug
 
             if (data?.response_code === 0 && data.data?.results?.length > 0) {
                 console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
@@ -763,11 +765,15 @@ async function runDepositScheduler(mode) {
         // ----------------------------------------
 
         if (allBookings.length > 0) {
-            console.log(`✅ Total confirmed bookings found for tomorrow: ${allBookings.length}`);
+            // Deduplicate if a booking somehow appeared across multiple resources (unlikely with resource_id filter, but safe)
+            const uniqueBookings = Array.from(new Set(allBookings.map(b => b.reservation_id)))
+                .map(id => allBookings.find(b => b.reservation_id === id));
+                
+            console.log(`✅ Total unique confirmed bookings found for tomorrow: ${uniqueBookings.length}`);
             
-            for (const booking of allBookings) {
+            for (const booking of uniqueBookings) {
                 const bookingID = booking.reservation_id;
-                // Keeping £1 test hold. Change to 40000 for live £400 hold.
+                // Currently set to £1 test hold. Change to 40000 for live £400 hold.
                 const amount = 100; 
                 console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
 
