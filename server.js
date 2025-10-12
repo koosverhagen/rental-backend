@@ -707,83 +707,60 @@ await runDepositScheduler("manual");
 
 // ---------------------------------------------
 // 🧠 Scheduler core function — include rental time (07:00–19:00)
-// 🧠 Scheduler core function — corrected to same-day (07:00–19:00)
-// ---------------------------------------------
 async function runDepositScheduler(mode) {
-try {
-const method = "list_reservations";
-const tz = "Europe/London";
+  try {
+    const method = "search_reservations";
+    const tz = "Europe/London";
 
-// 🗓 Tomorrow in Europe/London
-const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
-const tomorrow = new Date(nowLondon);
-tomorrow.setDate(tomorrow.getDate() + 1);
+    const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
+    const tomorrow = new Date(nowLondon);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const nextDay = new Date(tomorrow);
-    nextDay.setDate(nextDay.getDate() + 1);
-
-    // 🔹 Extract the same fields Planyo uses in your dashboard query
-    // 🔹 Build parameters for that single day
-const params = {
-from_day: tomorrow.getDate(),
-from_month: tomorrow.getMonth() + 1,
-from_year: tomorrow.getFullYear(),
-      to_day: nextDay.getDate(),
-      to_month: nextDay.getMonth() + 1,
-      to_year: nextDay.getFullYear(),
-      start_time: 7,   // <-- critical
-      end_time: 19,    // <-- critical
-      req_status: 4,   // confirmed only
+    const params = {
+      filter: "starttime_with_date",
+      from_day: tomorrow.getDate(),
+      from_month: tomorrow.getMonth() + 1,
+      from_year: tomorrow.getFullYear(),
       to_day: tomorrow.getDate(),
       to_month: tomorrow.getMonth() + 1,
       to_year: tomorrow.getFullYear(),
-      start_time: 7,
-      end_time: 19,
-      req_status: 4,  // confirmed bookings
-include_unconfirmed: 1,
-list_by_creation_date: 0,
-};
+      req_status: 4,
+      calendar: process.env.PLANYO_SITE_ID,
+      include_unconfirmed: 1,
+    };
 
-    console.log("📅 Searching bookings with fixed rental time (07:00–19:00)");
-    console.log("📅 Searching bookings for tomorrow (07:00–19:00)");
-console.log(`From: ${params.from_day}/${params.from_month}/${params.from_year} 07:00`);
-    console.log(`To: ${params.to_day}/${params.to_month}/${params.to_year} 19:00`);
+    console.log("📅 Searching confirmed bookings for tomorrow:");
+    console.log(`➡️ ${params.from_day}/${params.from_month}/${params.from_year}`);
 
-    // ✅ Call Planyo API (with hash timestamp auto-handled)
-    // ✅ Call Planyo API
-const { url, json: data } = await planyoCall(method, params);
+    const { url, json: data } = await planyoCall(method, params);
+    console.log("🌐 Fetching from Planyo:", url);
+    console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
-console.log("🌐 Fetching from Planyo:", url);
-console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
-
-    if (data?.response_code === 0 && Array.isArray(data.data) && data.data.length > 0) {
-      console.log(`✅ Found ${data.data.length} booking(s) for tomorrow`);
-      for (const booking of data.data) {
     if (data?.response_code === 0 && data.data?.results?.length > 0) {
       const results = data.data.results;
       console.log(`✅ Found ${results.length} booking(s) for tomorrow`);
+
       for (const booking of results) {
-const bookingID = booking.reservation_id;
-        const amount = 100; // £1 test hold
+        const bookingID = booking.reservation_id;
+        const amount = 40000; // £400 hold
+        console.log(`📩 Sending deposit link for booking #${bookingID} (£400)`);
 
-console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
-
-await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
-method: "POST",
-headers: { "Content-Type": "application/json" },
-body: JSON.stringify({
-bookingID,
-amount,
-adminOnly: true,
-}),
-});
-}
-} else {
-console.log(`ℹ️ No bookings found for tomorrow in ${mode} run.`);
-}
-} catch (err) {
-console.error("❌ Deposit scheduler error:", err);
-}
+        await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            bookingID,
+            amount,
+            adminOnly: false,
+          }),
+        });
+      }
+    } else {
+      console.log(`ℹ️ No bookings found for tomorrow in ${mode} run.`);
+    }
+  } catch (err) {
+    console.error("❌ Deposit scheduler error:", err);
+  }
 }
 
 // ----------------------------------------------------
