@@ -702,24 +702,25 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — fixed London date
+//// ---------------------------------------------
+// 🧠 Scheduler core function — fixed to use search_reservations
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
-    const method = "list_reservations";
+    const method = "search_reservations"; // ✅ Correct method
     const tz = "Europe/London";
 
-    // ✅ Get tomorrow in London correctly
+    // ✅ Compute tomorrow’s date in London timezone
     const now = new Date();
     const londonNow = new Date(now.toLocaleString("en-US", { timeZone: tz }));
-    const tomorrowLondon = new Date(londonNow);
-    tomorrowLondon.setDate(londonNow.getDate() + 1);
+    const tomorrow = new Date(londonNow);
+    tomorrow.setDate(londonNow.getDate() + 1);
 
-    const day = tomorrowLondon.getDate();
-    const month = tomorrowLondon.getMonth() + 1;
-    const year = tomorrowLondon.getFullYear();
+    const day = tomorrow.getDate();
+    const month = tomorrow.getMonth() + 1;
+    const year = tomorrow.getFullYear();
 
-    console.log(`📅 Searching bookings for tomorrow (${day}/${month}/${year}) [07:00–19:00]`);
+    console.log(`📅 Searching confirmed bookings for tomorrow (${day}/${month}/${year}) [07:00–19:00]`);
 
     const params = {
       filter: "starttime_with_date",
@@ -731,34 +732,28 @@ async function runDepositScheduler(mode) {
       to_year: year,
       start_time: 7,
       end_time: 19,
-      req_status: 4,
+      req_status: 4, // confirmed
       include_unconfirmed: 1,
       calendar: process.env.PLANYO_SITE_ID,
     };
 
-    // ✅ Call Planyo API
+    // ✅ Planyo API call
     const { url, json: data } = await planyoCall(method, params);
     console.log("🌐 Fetching from Planyo:", url);
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
-    // 🟢 If results found
+    // ✅ Process results
     if (data?.response_code === 0 && data.data?.results?.length > 0) {
-      const results = data.data.results;
-      console.log(`✅ Found ${results.length} booking(s) for tomorrow`);
-
-      for (const booking of results) {
+      console.log(`✅ Found ${data.data.results.length} booking(s) for tomorrow`);
+      for (const booking of data.data.results) {
         const bookingID = booking.reservation_id;
-        const amount = 100; // £1 test hold (change to 40000 for £400 later)
+        const amount = 100; // £1 test hold
         console.log(`📩 Sending deposit link for booking #${bookingID}`);
 
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            bookingID,
-            amount,
-            adminOnly: false,
-          }),
+          body: JSON.stringify({ bookingID, amount, adminOnly: false }),
         });
       }
     } else {
