@@ -711,80 +711,72 @@ cron.schedule("0 18 * * *", async () => {
 // 🧠 Scheduler core function — stable version using list_reservations
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
-  try {
-    const method = "list_reservations";
-    const tz = "Europe/London";
+    try {
+        const method = "list_reservations";
+        // The timezone is only relevant for display/logging, Planyo accepts day/month/year
+        const tz = "Europe/London"; 
 
-    // 🗓 Calculate Tomorrow's Date in London/UTC-equivalent
-    // To reliably get 'tomorrow' without DST/timezone arithmetic issues,
-    // we use a date object, set it to midnight UTC, and add 24 hours.
-    const nowUTC = new Date();
-    // Set to start of the day UTC
-    nowUTC.setUTCHours(0, 0, 0, 0); 
-    
-    // Add 2 days (today + tomorrow) to ensure we get to the correct day boundary
-    // This is the simplest way to get a date object representing 'tomorrow'
-    const tomorrow = new Date(nowUTC.getTime() + (2 * 24 * 60 * 60 * 1000));
-    
-    // NOTE: Planyo usually expects local time parameters, but since we're using
-    // a single timezone (Europe/London) for consistency, we'll extract the date
-    // components based on the standard date object, which is now one day ahead.
-    
-    // 💡 Planyo accepts day/month/year, which are invariant regardless of TZ offset,
-    // as long as the date object itself represents the correct calendar day.
-    const from_day = tomorrow.getDate();
-    const from_month = tomorrow.getMonth() + 1;
-    const from_year = tomorrow.getFullYear();
+        // 🗓 Calculate Tomorrow's Date reliably
+        const today = new Date();
+        
+        // 1. Get the current time in milliseconds.
+        // 2. Add 24 hours (1 day) worth of milliseconds.
+        const tomorrow = new Date(today.getTime() + (24 * 60 * 60 * 1000));
 
-    console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [07:00–19:00]`);
+        // NOTE: Since the Planyo API uses day/month/year parameters (local time parts),
+        // we can safely extract these components directly from the 'tomorrow' date object.
+        const from_day = tomorrow.getDate();
+        const from_month = tomorrow.getMonth() + 1; // getMonth() is 0-indexed
+        const from_year = tomorrow.getFullYear();
 
-    // ✅ Core parameters that work in dashboard and API
-    const params = {
-      from_day,
-      from_month,
-      from_year,
-      to_day: from_day,
-      to_month: from_month,
-      to_year: from_year,
-      start_time: 7,
-      end_time: 19,
-      req_status: 4, // confirmed bookings
-      include_unconfirmed: 1,
-      list_by_creation_date: 0, // 🔑 force filter by start time, not creation date
-      calendar: process.env.PLANYO_SITE_ID,
-    };
+        console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [07:00–19:00]`);
 
-    // ✅ Call Planyo
-    const { url, json: data } = await planyoCall(method, params);
-    console.log("🌐 Fetching from Planyo:", url);
-    console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
+        // ✅ Core parameters that work in dashboard and API
+        const params = {
+            from_day,
+            from_month,
+            from_year,
+            to_day: from_day,
+            to_month: from_month,
+            to_year: from_year,
+            start_time: 7,
+            end_time: 19,
+            req_status: 4, // confirmed bookings
+            include_unconfirmed: 1,
+            list_by_creation_date: 0, // 🔑 force filter by start time, not creation date
+            calendar: process.env.PLANYO_SITE_ID,
+        };
 
-    if (data?.response_code === 0 && data.data?.results?.length > 0) {
-      console.log(`✅ Found ${data.data.results.length} booking(s) for tomorrow`);
-      for (const booking of data.data.results) {
-        const bookingID = booking.reservation_id;
-        // 🔑 NOTE: The amount in the original code was 100 (£1), which is a test hold.
-        // If this should be the live amount, change it here (e.g., 40000 for £400).
-        const amount = 100; 
-        console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
+        // ✅ Call Planyo
+        const { url, json: data } = await planyoCall(method, params);
+        console.log("🌐 Fetching from Planyo:", url);
+        console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
-        await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            bookingID,
-            amount,
-            adminOnly: true,
-          }),
-        });
-      }
-    } else {
-      console.log(`ℹ️ No bookings found for tomorrow in ${mode} run.`);
+        if (data?.response_code === 0 && data.data?.results?.length > 0) {
+            console.log(`✅ Found ${data.data.results.length} booking(s) for tomorrow`);
+            for (const booking of data.data.results) {
+                const bookingID = booking.reservation_id;
+                const amount = 100; // £1 test hold
+                console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
+
+                await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        bookingID,
+                        amount,
+                        adminOnly: true,
+                    }),
+                });
+            }
+        } else {
+            console.log(`ℹ️ No bookings found for tomorrow in ${mode} run.`);
+        }
+    } catch (err) {
+        console.error("❌ Deposit scheduler error:", err);
     }
-  } catch (err) {
-    console.error("❌ Deposit scheduler error:", err);
-  }
 }
+
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
 // ----------------------------------------------------
