@@ -263,7 +263,7 @@ app.post("/deposit/send-link", async (req, res) => {
 });
 
 // ---------------------------------------------
-// 🧠 Planyo API Helper (Restored Retry Logic)
+// 🧠 Planyo API Helper (Refined for list_reservations)
 // ---------------------------------------------
 async function planyoCall(method, params = {}) {
     
@@ -271,17 +271,38 @@ async function planyoCall(method, params = {}) {
         const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
         const hashKey = crypto.createHash("md5").update(raw).digest("hex");
         
-        const query = new URLSearchParams({
-            method,
-            api_key: process.env.PLANYO_API_KEY,
-            site_id: process.env.PLANYO_SITE_ID,
-            hash_timestamp: timestamp,
-            hash_key: hashKey,
-            ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
-        });
-        return `https://www.planyo.com/rest/?${query.toString()}`;
-    };
+        let url = `https://www.planyo.com/rest/?method=${method}` +
+                  `&api_key=${process.env.PLANYO_API_KEY}` +
+                  `&site_id=${process.env.PLANYO_SITE_ID}` +
+                  `&hash_timestamp=${timestamp}` +
+                  `&hash_key=${hashKey}`;
 
+        // 🚨 CRITICAL FIX: Manually append list_reservations parameters in exact order
+        if (method === 'list_reservations') {
+            const dateParams = [
+                'from_day', 'from_month', 'from_year', 
+                'to_day', 'to_month', 'to_year',
+                'start_time', 'end_time', 
+                'req_status', 'include_unconfirmed',
+                'resource_id' // Must be included last before any optional parameters
+            ];
+
+            for (const key of dateParams) {
+                if (params[key] !== undefined) {
+                    url += `&${key}=${String(params[key])}`;
+                }
+            }
+            // If there are any other parameters (unlikely for the scheduler) they can be added here
+        } else {
+            // For simple calls (like get_reservation_data), we fall back to URLSearchParams
+            const query = new URLSearchParams(Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])));
+            url += `&${query.toString()}`;
+        }
+        
+        return url;
+    };
+    
+    // ... (doFetch and retry logic remains the same as previously corrected) ...
     async function doFetch() {
         // Generate timestamp just before fetch for accuracy
         const timestamp = Math.floor(Date.now() / 1000); 
@@ -303,6 +324,7 @@ async function planyoCall(method, params = {}) {
 
     return { url, json, timestamp };
 }
+
 
 // ---------------------------------------------
 // 🧠 Scheduler core function — stable version using list_reservations
@@ -327,23 +349,20 @@ async function runDepositScheduler(mode) {
         console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [All Day] across ${resourceIDs.length} resources.`);
 
         for (const resourceID of resourceIDs) {
-            
-            const params = {
-                from_day,
-                from_month,
-                from_year,
-                to_day: from_day,
-                to_month: from_month,
-                to_year: from_year,
-                start_time: 0,
-                end_time: 24,
-                req_status: 4,
-                include_unconfirmed: 1,
-                resource_id: resourceID, 
-                // 'calendar' parameter is correctly omitted here
-            };
-
-            const { url, json: data } = await planyoCall(method, params);
+        const params = {
+            from_day,
+            from_month,
+            from_year,
+            to_day: from_day,
+            to_month: from_month,
+            to_year: from_year,
+            start_time: 0,
+            end_time: 24,
+            req_status: 4,
+            include_unconfirmed: 1,
+            resource_id: resourceID, // <-- All necessary keys are here
+        };
+        const { url, json: data } = await planyoCall(method, params);
             
             if (data?.response_code === 0 && data.data?.results?.length > 0) {
                 console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
