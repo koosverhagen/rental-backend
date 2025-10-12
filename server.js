@@ -707,34 +707,25 @@ cron.schedule("0 18 * * *", async () => {
 
 
 
-// ---------------------------------------------
+/// // ---------------------------------------------
 // 🧠 Scheduler core function — stable version using list_reservations
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
     try {
         const method = "list_reservations";
-        // ✅ Your specific Resource IDs are listed here:
         const resourceIDs = [
             "239201", "234303", "234304", "234305", "234306"
         ];
         
-        // 🗓 Calculate Tomorrow's Date reliably (Tomorrow is 13/10/2025)
-        const today = new Date();
-        const tomorrow = new Date(today.getTime() + (24 * 60 * 60 * 1000));
-        
-        const from_day = tomorrow.getDate();
-        const from_month = tomorrow.getMonth() + 1;
-        const from_year = tomorrow.getFullYear();
-        
-        // Array to hold all bookings found across all resources
+        // ... (Date calculation logic remains the same) ...
+
         let allBookings = [];
 
         console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [All Day] across ${resourceIDs.length} resources.`);
 
-        // 🔄 Loop through each resource ID and make a separate API call
         for (const resourceID of resourceIDs) {
             
-            // ✅ Core parameters - Times are relaxed to span the entire day (00:00 to 24:00)
+            // ✅ Core parameters - Times are relaxed to span the entire day
             const params = {
                 from_day,
                 from_month,
@@ -742,17 +733,18 @@ async function runDepositScheduler(mode) {
                 to_day: from_day,
                 to_month: from_month,
                 to_year: from_year,
-                start_time: 0,    // 00:00 - Start of the day (Relaxed filter)
-                end_time: 24,     // 24:00 - End of the day (Relaxed filter)
+                start_time: 0,    // 00:00 - Start of the day
+                end_time: 24,     // 24:00 - End of the day
                 req_status: 4,    // confirmed bookings
                 include_unconfirmed: 1,
                 resource_id: resourceID, // Filter by the current Resource ID
-                calendar: process.env.PLANYO_SITE_ID,
+                // ❌ FIX: REMOVED THE REDUNDANT 'calendar' PARAMETER:
+                // calendar: process.env.PLANYO_SITE_ID,
             };
 
-            // ✅ Call Planyo (using the working helper function)
+            // ✅ Call Planyo
             const { url, json: data } = await planyoCall(method, params);
-            // console.log("🌐 Fetching from Planyo:", url); // Uncomment for detailed debug
+            // ... (rest of the loop logic remains the same) ...
 
             if (data?.response_code === 0 && data.data?.results?.length > 0) {
                 console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
@@ -760,6 +752,12 @@ async function runDepositScheduler(mode) {
             }
         }
         
+        // ... (Process Final List of Bookings logic remains the same) ...
+        
+    } catch (err) {
+        console.error("❌ Deposit scheduler error:", err);
+    }
+}        
         // ----------------------------------------
         // Process Final List of Bookings
         // ----------------------------------------
