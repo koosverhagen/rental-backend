@@ -694,36 +694,43 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 /// ---------------------------------------------
-// 🧠 Scheduler core function — Corrected to search by start date (not creation date)
+// 🧠 Scheduler core function — uses proper London time math
 async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
     const tz = "Europe/London";
 
-    // 🗓 Tomorrow in London time
-    const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
-    const tomorrow = new Date(nowLondon);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    // 🕓 Get London time offset in minutes
+    const nowUTC = new Date();
+    const nowLondon = new Date(nowUTC.toLocaleString("en-GB", { timeZone: tz }));
 
-    // 🔹 Build params to match working Planyo dashboard search
+    // 🗓 Calculate "tomorrow" properly in London
+    const tomorrowLondon = new Date(nowLondon);
+    tomorrowLondon.setDate(nowLondon.getDate() + 1);
+
+    const day = tomorrowLondon.getDate();
+    const month = tomorrowLondon.getMonth() + 1;
+    const year = tomorrowLondon.getFullYear();
+
+    console.log(`📅 Searching bookings starting tomorrow (${day}/${month}/${year}) [07:00–19:00]`);
+
+    // 🔹 Build query exactly like your working Planyo dashboard search
     const params = {
-      filter: "starttime_with_date",  // ✅ SEARCH BY START DATE
-      from_day: tomorrow.getDate(),
-      from_month: tomorrow.getMonth() + 1,
-      from_year: tomorrow.getFullYear(),
-      to_day: tomorrow.getDate(),
-      to_month: tomorrow.getMonth() + 1,
-      to_year: tomorrow.getFullYear(),
+      filter: "starttime_with_date",
+      from_day: day,
+      from_month: month,
+      from_year: year,
+      to_day: day,
+      to_month: month,
+      to_year: year,
       start_time: 7,
       end_time: 19,
-      req_status: 4, // confirmed only
+      req_status: 4,
       include_unconfirmed: 1,
-      calendar: process.env.PLANYO_SITE_ID
+      calendar: process.env.PLANYO_SITE_ID,
     };
 
-    console.log(`📅 Searching bookings starting tomorrow (${tomorrow.toLocaleDateString("en-GB")}) [07:00–19:00]`);
-
-    // ✅ Call Planyo API
+    // ✅ Fetch from Planyo
     const { url, json: data } = await planyoCall(method, params);
     console.log("🌐 Fetching from Planyo:", url);
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
@@ -734,7 +741,7 @@ async function runDepositScheduler(mode) {
 
       for (const booking of results) {
         const bookingID = booking.reservation_id;
-        const amount = 100; // £1 test hold
+        const amount = 100; // £1 test
         console.log(`📩 Sending deposit link for booking #${bookingID} (£1)`);
 
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
@@ -743,12 +750,12 @@ async function runDepositScheduler(mode) {
           body: JSON.stringify({
             bookingID,
             amount,
-            adminOnly: false
+            adminOnly: false,
           }),
         });
       }
     } else {
-      console.log(`ℹ️ No bookings found for tomorrow (${tomorrow.toLocaleDateString("en-GB")}) in ${mode} run.`);
+      console.log(`ℹ️ No bookings found for tomorrow (${day}/${month}/${year}) in ${mode} run.`);
     }
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
