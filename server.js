@@ -705,10 +705,10 @@ cron.schedule("0 18 * * *", async () => {
   await runDepositScheduler("manual");
 })();
 
-// 🧠 Scheduler core function — correct (matches Planyo dashboard)
+// 🧠 Scheduler core function — correct Planyo API method + tomorrow (07:00–19:00)
 async function runDepositScheduler(mode) {
   try {
-    const method = "search_reservations";
+    const method = "list_reservations_advanced"; // ✅ correct method name
     const tz = "Europe/London";
 
     // 🗓 Determine tomorrow in UK time
@@ -730,13 +730,15 @@ async function runDepositScheduler(mode) {
       to_day: from_day,
       to_month: from_month,
       to_year: from_year,
-      req_status: 4, // confirmed
+      start_time: 7,
+      end_time: 19,
+      req_status: 4,
       calendar: process.env.PLANYO_SITE_ID,
       include_unconfirmed: 1,
       list_by_creation_date: 0,
     };
 
-    // ✅ Call Planyo with correct method
+    // ✅ Call Planyo API
     const { url, json: data } = await planyoCall(method, params);
     console.log("🌐 Fetching from Planyo:", url);
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
