@@ -713,16 +713,22 @@ async function runDepositScheduler(mode) {
     const method = "list_reservations";
     const tz = "Europe/London";
 
-    // 🗓 Tomorrow in Europe/London
-    const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
-    const tomorrow = new Date(nowLondon);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    // 🗓 Calculate "Tomorrow" in London time — matches Planyo's $(date_diff+1:$(date))
+const londonNow = new Date(
+  new Date().toLocaleString("en-GB", { timeZone: "Europe/London" })
+);
+const tomorrowLondon = new Date(londonNow);
+tomorrowLondon.setDate(londonNow.getDate() + 1);
 
-    const from_day = tomorrow.getDate();
-    const from_month = tomorrow.getMonth() + 1;
-    const from_year = tomorrow.getFullYear();
+// Extract components for API
+const from_day = tomorrowLondon.getDate();
+const from_month = tomorrowLondon.getMonth() + 1;
+const from_year = tomorrowLondon.getFullYear();
 
-    console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [07:00–19:00]`);
+// Optional debug log — shows exact London "today" & "tomorrow"
+console.log(
+  `🕓 London now: ${londonNow.toISOString()} | Searching for bookings on ${from_day}/${from_month}/${from_year}`
+);
 
     // ✅ Must explicitly include `filter=starttime_with_date`
     const params = {
