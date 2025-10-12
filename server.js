@@ -705,62 +705,57 @@ cron.schedule("0 18 * * *", async () => {
   await runDepositScheduler("manual");
 })();
 
-// 🧠 Scheduler core function — correct Planyo API method + tomorrow (07:00–19:00)
+// 🧠 Scheduler core function — reliable using get_reservation_data for each booking
 async function runDepositScheduler(mode) {
   try {
-    const method = "list_reservations_advanced"; // ✅ correct method name
     const tz = "Europe/London";
-
-    // 🗓 Determine tomorrow in UK time
     const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
     const tomorrow = new Date(nowLondon);
     tomorrow.setDate(nowLondon.getDate() + 1);
 
-    const from_day = tomorrow.getDate();
-    const from_month = tomorrow.getMonth() + 1;
-    const from_year = tomorrow.getFullYear();
+    const yyyy = tomorrow.getFullYear();
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
+    const dd = String(tomorrow.getDate()).padStart(2, "0");
+    const tomorrowDateStr = `${yyyy}-${mm}-${dd}`; // e.g. 2025-10-13
 
-    console.log(`📅 Searching confirmed bookings for tomorrow (${from_day}/${from_month}/${from_year}) [07:00–19:00]`);
+    console.log(`📅 Checking all bookings for tomorrow (${tomorrowDateStr})`);
 
-    const params = {
-      filter: "starttime_with_date",
-      from_day,
-      from_month,
-      from_year,
-      to_day: from_day,
-      to_month: from_month,
-      to_year: from_year,
-      start_time: 7,
-      end_time: 19,
-      req_status: 4,
-      calendar: process.env.PLANYO_SITE_ID,
+    // 1️⃣ Get all recent reservations (no date filter)
+    const { json: listData } = await planyoCall("list_reservations", {
       include_unconfirmed: 1,
       list_by_creation_date: 0,
-    };
+    });
 
-    // ✅ Call Planyo API
-    const { url, json: data } = await planyoCall(method, params);
-    console.log("🌐 Fetching from Planyo:", url);
-    console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
+    if (!listData?.data || !Array.isArray(listData.data) || listData.data.length === 0) {
+      console.log("ℹ️ No reservations found in general list.");
+      return;
+    }
 
-    // 🟢 Process valid results
-    if (data?.response_code === 0 && Array.isArray(data.data?.results) && data.data.results.length > 0) {
-      const results = data.data.results;
-      console.log(`✅ Found ${results.length} booking(s) for tomorrow`);
+    // 2️⃣ Loop through and fetch each reservation’s details
+    for (const item of listData.data) {
+      const bookingID = item.reservation_id;
+      const { json: bookingData } = await planyoCall("get_reservation_data", {
+        reservation_id: bookingID,
+      });
 
-      for (const booking of results) {
-        const bookingID = booking.reservation_id;
+      const res = bookingData?.data;
+      if (!res) continue;
+
+      const startTime = res.start_time; // "2025-10-13 07:00"
+      if (startTime && startTime.startsWith(tomorrowDateStr)) {
         const amount = 100; // £1 test hold
-        console.log(`📩 Sending deposit link for booking #${bookingID} (£1 TEST)`);
+        console.log(`📩 Found booking for tomorrow: #${bookingID} (${startTime}) — sending link`);
 
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bookingID, amount, adminOnly: false }),
+          body: JSON.stringify({
+            bookingID,
+            amount,
+            adminOnly: false,
+          }),
         });
       }
-    } else {
-      console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year} in ${mode} run.`);
     }
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
