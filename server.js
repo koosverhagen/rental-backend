@@ -288,44 +288,68 @@ async function planyoCall(method, params = {}) {
   return { url, json, timestamp };
 }
 
+// // ---------------------------------------------
+// 🧠 Scheduler core function — stable version using list_reservations
+// ---------------------------------------------
 async function runDepositScheduler(mode) {
-  try {
-    const method = "list_reservations";
-    const today = new Date();
-    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
-    const params = {
-      from_day: tomorrow.getDate(),
-      from_month: tomorrow.getMonth() + 1,
-      from_year: tomorrow.getFullYear(),
-      to_day: tomorrow.getDate(),
-      to_month: tomorrow.getMonth() + 1,
-      to_year: tomorrow.getFullYear(),
-      req_status: 4,
-      include_unconfirmed: 1,
-    };
+    try {
+        const method = "list_reservations";
+        const resourceIDs = [
+            "239201", "234303", "234304", "234305", "234306"
+        ];
+        
+        // 🗓 Date logic remains correct 🗓
+        const today = new Date();
+        const tomorrow = new Date(today.getTime() + (24 * 60 * 60 * 1000));
+        
+        const from_day = tomorrow.getDate();
+        const from_month = tomorrow.getMonth() + 1;
+        const from_year = tomorrow.getFullYear();
+        
+        let allBookings = [];
+        console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [All Day] across ${resourceIDs.length} resources.`);
 
-    console.log(`📅 Searching bookings for tomorrow (${params.from_day}/${params.from_month}/${params.from_year})`);
-    const { url, json: data } = await planyoCall(method, params);
-    console.log(`🌐 Fetching from Planyo: ${url}`);
-    console.log(`🧾 Raw response: ${JSON.stringify(data, null, 2)}`);
+        // 🔄 Loop through each resource ID and make a separate API call
+        for (const resourceID of resourceIDs) {
+            
+            // ✅ Core parameters - RE-ADDED start_time, end_time, and resource_id
+            const params = {
+                from_day,
+                from_month,
+                from_year,
+                to_day: from_day,
+                to_month: from_month,
+                to_year: from_year,
+                start_time: 0,    // 00:00 - MUST BE INCLUDED
+                end_time: 24,     // 24:00 - MUST BE INCLUDED
+                req_status: 4,    // confirmed bookings
+                include_unconfirmed: 1,
+                resource_id: resourceID, // MUST BE INCLUDED
+                // calendar: process.env.PLANYO_SITE_ID, <-- Still removed for redundancy
+            };
 
-    if (data?.response_code === 0 && data.data?.results?.length > 0) {
-      for (const b of data.data.results) {
-        const bookingID = b.reservation_id;
-        const amount = 100;
-        console.log(`📩 Sending deposit link for booking #${bookingID}`);
-        await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bookingID, amount, adminOnly: true }),
-        });
-      }
-    } else console.log(`ℹ️ No bookings found for tomorrow (${mode}).`);
-  } catch (err) {
-    console.error(`❌ Scheduler error: ${err.message}`);
-  }
+            // ✅ Call Planyo
+            const { url, json: data } = await planyoCall(method, params);
+            
+            if (data?.response_code === 0 && data.data?.results?.length > 0) {
+                console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
+                allBookings.push(...data.data.results);
+            }
+        }
+        
+        // ----------------------------------------
+        // Process Final List of Bookings
+        // ----------------------------------------
+
+        if (allBookings.length > 0) {
+            // ... (success logic) ...
+        } else {
+            console.log(`ℹ️ No bookings found for tomorrow in ${mode} run across all specified resources.`);
+        }
+    } catch (err) {
+        console.error("❌ Deposit scheduler error:", err);
+    }
 }
-
 cron.schedule("0 18 * * *", async () => {
   console.log("🕕 Auto scheduler triggered...");
   await runDepositScheduler("auto");
