@@ -262,6 +262,9 @@ app.post("/deposit/send-link", async (req, res) => {
   }
 });
 
+// NOTE: This code assumes the 'crypto', 'fetch', 'cron', 'app', 
+// and environment variables are defined earlier in your server.js file.
+
 // ---------------------------------------------
 // 🧠 Planyo API Helper (Final Refinement: Removed site_id from helper)
 // ---------------------------------------------
@@ -287,7 +290,6 @@ async function planyoCall(method, params = {}) {
         return `https://www.planyo.com/rest/?${query.toString()}`;
     };
 
-    // ... (doFetch and retry logic remains the same) ...
     async function doFetch() {
         const timestamp = Math.floor(Date.now() / 1000); 
         const url = buildUrl(timestamp);
@@ -317,31 +319,13 @@ async function runDepositScheduler(mode) {
             "239201", "234303", "234304", "234305", "234306"
         ];
         
-        // 🗓 Date calculation remains correct (searching for Oct 13th)
+        // 🗓 Date calculation (Tomorrow is 13/10/2025)
         const today = new Date();
         const tomorrow = new Date(today.getTime() + (24 * 60 * 60 * 1000));
         
         const from_day = tomorrow.getDate();
         const from_month = tomorrow.getMonth() + 1;
         const from_year = tomorrow.getFullYear();
-        
-        let allBookings = [];
-
-        console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [All Day] across ${resourceIDs.length} resources.`);
-
-        
-
-// ---------------------------------------------
-// 🧠 Scheduler core function (Final Version)
-// ---------------------------------------------
-async function runDepositScheduler(mode) {
-    try {
-        const method = "list_reservations";
-        const resourceIDs = [
-            "239201", "234303", "234304", "234305", "234306"
-        ];
-        
-        // ... (Date calculation) ...
         
         let allBookings = [];
 
@@ -361,7 +345,7 @@ async function runDepositScheduler(mode) {
                 req_status: 4,
                 include_unconfirmed: 1,
                 resource_id: resourceID, 
-                calendar: process.env.PLANYO_SITE_ID, // ✅ Re-introduced calendar to supply site ID
+                calendar: process.env.PLANYO_SITE_ID, // ✅ Re-introduced calendar
             };
 
             const { url, json: data } = await planyoCall(method, params);
@@ -370,7 +354,8 @@ async function runDepositScheduler(mode) {
                 console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
                 allBookings.push(...data.data.results);
             }
-        }        
+        }
+        
         // ----------------------------------------
         // Process Final List of Bookings
         // ----------------------------------------
@@ -392,6 +377,10 @@ async function runDepositScheduler(mode) {
     }
 }
 
+// ---------------------------------------------
+// 🕓 Scheduler and Manual Run
+// ---------------------------------------------
+
 cron.schedule("0 18 * * *", async () => {
     console.log("🕕 Auto scheduler triggered...");
     await runDepositScheduler("auto");
@@ -401,5 +390,17 @@ cron.schedule("0 18 * * *", async () => {
     console.log("⚡ Manual test run...");
     await runDepositScheduler("manual");
 })();
+
+// ---------------------------------------------
+// 💻 Server Start (Assuming 'app' is defined globally)
+// ---------------------------------------------
+
 const PORT = process.env.PORT || 4242;
-app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
+// NOTE: Make sure 'app' is defined before this line
+// Example: const app = require('express')();
+if (typeof app !== 'undefined' && app.listen) {
+    app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
+} else {
+    // Fallback/Warning if 'app' isn't defined in the provided snippet's context
+    console.log(`⚠️ App not defined. Scheduler functions are defined, but server won't start automatically.`);
+}
