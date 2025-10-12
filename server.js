@@ -303,7 +303,7 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
       <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715" alt="Equine Transport UK Logo"/>
     </div>
 
-    <h2>Deposit Hold (£${(amount/100).toFixed(2)})</h2>
+    <h2>Deposit Hold (£${(amount/40000).toFixed(2)})</h2>
     <p class="center">
       Booking <b>#${bookingID}</b><br/>
       ${booking.firstName} ${booking.lastName}<br/>
@@ -582,7 +582,7 @@ app.post("/email/deposit-confirmation", async (req, res) => {
         <p><b>Note:</b> This is a <b>pre-authorisation (hold)</b>. <b>No money has been taken</b> from your account.</p>
 
         <p>Dear ${booking.firstName} ${booking.lastName},</p>
-        <p>We have successfully placed a deposit hold of <b>£${(amount/100).toFixed(2)}</b> for your booking <b>#${bookingID}</b>.</p>
+        <p>We have successfully placed a deposit hold of <b>£${(amount/40000).toFixed(2)}</b> for your booking <b>#${bookingID}</b>.</p>
 
         <h3>Booking Details</h3>
         <ul>
@@ -705,66 +705,65 @@ cron.schedule("0 18 * * *", async () => {
   await runDepositScheduler("manual");
 })();
 
-// 🧠 Scheduler core function — robust (uses 7-day window + get_reservation_data)
+/// ---------------------------------------------
+// 🧠 Scheduler core function — LIVE MODE (07:00–19:00, £400 deposit, send to customer + admin)
+// ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
+    const method = "list_reservations";
     const tz = "Europe/London";
+
+    // 🗓 Tomorrow in Europe/London
     const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
     const tomorrow = new Date(nowLondon);
-    tomorrow.setDate(nowLondon.getDate() + 1);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const yyyy = tomorrow.getFullYear();
-    const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
-    const dd = String(tomorrow.getDate()).padStart(2, "0");
-    const tomorrowDateStr = `${yyyy}-${mm}-${dd}`; // e.g. 2025-10-13
-
-    console.log(`📅 Checking all bookings for tomorrow (${tomorrowDateStr})`);
-
-    // 1️⃣ get list for the coming 7 days
-    const from_time = Math.floor(Date.now() / 1000) - 86400;       // yesterday
-    const to_time = from_time + 86400 * 7;                         // +7 days
-
-    const { json: listData } = await planyoCall("list_reservations", {
-      from_time,
-      to_time,
+    // 🔹 Search only that day’s bookings (07:00–19:00)
+    const params = {
+      from_day: tomorrow.getDate(),
+      from_month: tomorrow.getMonth() + 1,
+      from_year: tomorrow.getFullYear(),
+      to_day: tomorrow.getDate(),
+      to_month: tomorrow.getMonth() + 1,
+      to_year: tomorrow.getFullYear(),
+      start_time: 7,
+      end_time: 19,
+      req_status: 4, // confirmed
       include_unconfirmed: 1,
       list_by_creation_date: 0,
-    });
+    };
 
-    if (!listData?.data || !Array.isArray(listData.data) || listData.data.length === 0) {
-      console.log("ℹ️ No reservations returned by Planyo list_reservations.");
-      return;
-    }
+    console.log("📅 Searching bookings for tomorrow (07:00–19:00)");
+    console.log(`From: ${params.from_day}/${params.from_month}/${params.from_year} 07:00`);
 
-    console.log(`📦 Fetched ${listData.data.length} total reservations from Planyo.`);
+    // ✅ Call Planyo API
+    const { url, json: data } = await planyoCall(method, params);
+    console.log("🌐 Fetching from Planyo:", url);
+    console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
-    // 2️⃣ Loop through and fetch each reservation’s details
-    for (const item of listData.data) {
-      const bookingID = item.reservation_id;
-      const { json: bookingData } = await planyoCall("get_reservation_data", {
-        reservation_id: bookingID,
-      });
+    // 🟢 Process valid results
+    if (data?.response_code === 0 && data.data?.results?.length > 0) {
+      const results = data.data.results;
+      console.log(`✅ Found ${results.length} booking(s) for tomorrow`);
 
-      const res = bookingData?.data;
-      if (!res || !res.start_time) continue;
+      for (const booking of results) {
+        const bookingID = booking.reservation_id;
+        const amount = 40000; // £400 hold
+        console.log(`📩 Sending deposit link for booking #${bookingID} (£400)`);
 
-      const startTime = res.start_time; // e.g. "2025-10-13 07:00"
-      console.log(`🔍 Checking #${bookingID} → ${startTime}`);
-
-      if (startTime.startsWith(tomorrowDateStr)) {
-        const amount = 100; // £1 test hold
-        console.log(`📩 Found booking for tomorrow: #${bookingID} (${startTime}) — sending link`);
-
+        // Send deposit link to BOTH customer + admin
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             bookingID,
             amount,
-            adminOnly: false,
+            adminOnly: false, // 🚀 send to customer + admin
           }),
         });
       }
+    } else {
+      console.log(`ℹ️ No bookings found for tomorrow in ${mode} run.`);
     }
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
@@ -791,7 +790,7 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bookingID,
-          amount: 100,   // £1 hold
+          amount: 40000,   // £400 hold
           adminOnly: true,
         }),
       });
