@@ -637,21 +637,11 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 });
 
 // ---------------------------------------------
-// 🧠 Helper: Planyo API call (auto-refresh hash_timestamp + local time handling)
-// ---------------------------------------------
-
-
-
-/**
- * Generic Planyo API call wrapper.
- * Automatically signs with hash_key + timestamp.
- * Retries if Planyo rejects due to timestamp drift.
- */
+// 🧠 Helper: Planyo API call with auto timestamp refresh
 async function planyoCall(method, params = {}) {
   const buildUrl = (timestamp) => {
     const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
-
     const query = new URLSearchParams({
       method,
       api_key: process.env.PLANYO_API_KEY,
@@ -660,12 +650,11 @@ async function planyoCall(method, params = {}) {
       hash_key: hashKey,
       ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
     });
-
     return `https://www.planyo.com/rest/?${query.toString()}`;
   };
 
   async function doFetch() {
-    const timestamp = Math.floor(Date.now() / 1000); // generate at last possible moment
+    const timestamp = Math.floor(Date.now() / 1000); // ⏱️ fresh right now
     const url = buildUrl(timestamp);
     console.log("🧠 Using hash_timestamp:", timestamp);
     const resp = await fetch(url);
@@ -673,10 +662,10 @@ async function planyoCall(method, params = {}) {
     return { url, json, timestamp };
   }
 
-  // First attempt
+  // first attempt
   let { url, json, timestamp } = await doFetch();
 
-  // Retry instantly if timestamp invalid
+  // if timestamp invalid, retry instantly with new one
   if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || "")) {
     console.log("⚠️ Invalid timestamp — retrying immediately with fresh timestamp...");
     ({ url, json, timestamp } = await doFetch());
@@ -684,7 +673,6 @@ async function planyoCall(method, params = {}) {
 
   return { url, json, timestamp };
 }
-
 
 // ---------------------------------------------
 // 🕓 Automatic deposit link scheduler (Planyo → /deposit/send-link)
