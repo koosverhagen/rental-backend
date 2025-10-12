@@ -71,7 +71,8 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
     );
   } catch (err) {
     console.error("❌ Webhook verification failed:", err.message);
-    return res.status(400).send(Webhook Error: ${err.message});
+return res.status(400).send(`Webhook Error: ${err.message}`);
+
   }
 
   const pi = event.data.object;
