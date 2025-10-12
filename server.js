@@ -705,8 +705,9 @@ cron.schedule("0 18 * * *", async () => {
   await runDepositScheduler("manual");
 })();
 
-// ---------------------------------------------
-// 🧠 Scheduler core function — fixed to filter by START time (07:00–19:00)
+
+// // ---------------------------------------------
+// 🧠 Scheduler core function — stable version using list_reservations
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
@@ -724,9 +725,8 @@ async function runDepositScheduler(mode) {
 
     console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [07:00–19:00]`);
 
-    // ✅ Must explicitly include `filter=starttime_with_date`
+    // ✅ Core parameters that work in dashboard and API
     const params = {
-      filter: "starttime_with_date",
       from_day,
       from_month,
       from_year,
@@ -735,20 +735,20 @@ async function runDepositScheduler(mode) {
       to_year: from_year,
       start_time: 7,
       end_time: 19,
-      req_status: 4,
+      req_status: 4, // confirmed bookings
       include_unconfirmed: 1,
-      list_by_creation_date: 0,
+      list_by_creation_date: 0, // 🔑 force filter by start time, not creation date
       calendar: process.env.PLANYO_SITE_ID,
     };
 
+    // ✅ Call Planyo
     const { url, json: data } = await planyoCall(method, params);
     console.log("🌐 Fetching from Planyo:", url);
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
     if (data?.response_code === 0 && data.data?.results?.length > 0) {
-      const results = data.data.results;
-      console.log(`✅ Found ${results.length} booking(s) for tomorrow`);
-      for (const booking of results) {
+      console.log(`✅ Found ${data.data.results.length} booking(s) for tomorrow`);
+      for (const booking of data.data.results) {
         const bookingID = booking.reservation_id;
         const amount = 100; // £1 test hold
         console.log(`📩 [TEST MODE – Admin Only] Sending deposit link for booking #${bookingID}`);
@@ -764,7 +764,7 @@ async function runDepositScheduler(mode) {
         });
       }
     } else {
-      console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year} in ${mode} run.`);
+      console.log(`ℹ️ No bookings found for tomorrow in ${mode} run.`);
     }
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
