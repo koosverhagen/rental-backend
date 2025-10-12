@@ -705,45 +705,44 @@ cron.schedule("0 18 * * *", async () => {
   await runDepositScheduler("manual");
 })();
 
-// 🧠 Scheduler core function — always search tomorrow (07:00–19:00, Europe/London)
+// 🧠 Scheduler core function — correct (matches Planyo dashboard)
 async function runDepositScheduler(mode) {
   try {
-    const method = "list_reservations";
+    const method = "search_reservations";
     const tz = "Europe/London";
 
-    // 🗓 Determine "tomorrow" correctly in UK time
+    // 🗓 Determine tomorrow in UK time
     const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
-    const tomorrowLondon = new Date(nowLondon);
-    tomorrowLondon.setDate(nowLondon.getDate() + 1);
+    const tomorrow = new Date(nowLondon);
+    tomorrow.setDate(nowLondon.getDate() + 1);
 
-    const from_day = tomorrowLondon.getDate();
-    const from_month = tomorrowLondon.getMonth() + 1;
-    const from_year = tomorrowLondon.getFullYear();
+    const from_day = tomorrow.getDate();
+    const from_month = tomorrow.getMonth() + 1;
+    const from_year = tomorrow.getFullYear();
 
-    console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [07:00–19:00]`);
+    console.log(`📅 Searching confirmed bookings for tomorrow (${from_day}/${from_month}/${from_year}) [07:00–19:00]`);
 
     const params = {
+      filter: "starttime_with_date",
       from_day,
       from_month,
       from_year,
       to_day: from_day,
       to_month: from_month,
       to_year: from_year,
-      start_time: 7,
-      end_time: 19,
-      req_status: 4,
+      req_status: 4, // confirmed
+      calendar: process.env.PLANYO_SITE_ID,
       include_unconfirmed: 1,
       list_by_creation_date: 0,
-      site_id: process.env.PLANYO_SITE_ID,
     };
 
-    // ✅ Call Planyo
+    // ✅ Call Planyo with correct method
     const { url, json: data } = await planyoCall(method, params);
     console.log("🌐 Fetching from Planyo:", url);
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
 
-    // 🟢 Process valid bookings
-    if (data?.response_code === 0 && data.data?.results?.length > 0) {
+    // 🟢 Process valid results
+    if (data?.response_code === 0 && Array.isArray(data.data?.results) && data.data.results.length > 0) {
       const results = data.data.results;
       console.log(`✅ Found ${results.length} booking(s) for tomorrow`);
 
