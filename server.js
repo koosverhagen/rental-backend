@@ -703,41 +703,40 @@ cron.schedule("0 18 * * *", async () => {
 
 // ---------------------------------------------
 //// ---------------------------------------------
-// 🧠 Scheduler core function — fixed to use search_reservations
+// 🧠 Scheduler core function — REST API compatible (uses from_time / to_time)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
-    const method = "search_reservations"; // ✅ Correct method
+    const method = "list_reservations";
     const tz = "Europe/London";
 
-    // ✅ Compute tomorrow’s date in London timezone
-    const now = new Date();
-    const londonNow = new Date(now.toLocaleString("en-US", { timeZone: tz }));
+    // ✅ Compute tomorrow’s date range in UTC, 07:00–19:00 London time
+    const londonNow = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
     const tomorrow = new Date(londonNow);
     tomorrow.setDate(londonNow.getDate() + 1);
 
-    const day = tomorrow.getDate();
-    const month = tomorrow.getMonth() + 1;
-    const year = tomorrow.getFullYear();
+    // Create start and end times in that timezone
+    const startLondon = new Date(`${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}T07:00:00`);
+    const endLondon = new Date(`${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}T19:00:00`);
 
-    console.log(`📅 Searching confirmed bookings for tomorrow (${day}/${month}/${year}) [07:00–19:00]`);
+    // Convert to UTC timestamps (seconds)
+    const from_time = Math.floor(startLondon.getTime() / 1000);
+    const to_time = Math.floor(endLondon.getTime() / 1000);
+
+    console.log(`📅 Checking bookings for tomorrow (${tomorrow.toDateString()}) [07:00–19:00]`);
+    console.log(`🕒 from_time=${from_time} | to_time=${to_time}`);
 
     const params = {
-      filter: "starttime_with_date",
-      from_day: day,
-      from_month: month,
-      from_year: year,
-      to_day: day,
-      to_month: month,
-      to_year: year,
-      start_time: 7,
-      end_time: 19,
-      req_status: 4, // confirmed
+      api_key: process.env.PLANYO_API_KEY,
+      site_id: process.env.PLANYO_SITE_ID,
+      from_time,
+      to_time,
       include_unconfirmed: 1,
-      calendar: process.env.PLANYO_SITE_ID,
+      list_by_creation_date: 0,
+      req_status: 4,
     };
 
-    // ✅ Planyo API call
+    // ✅ Call Planyo API
     const { url, json: data } = await planyoCall(method, params);
     console.log("🌐 Fetching from Planyo:", url);
     console.log("🧾 Raw Planyo API response:", JSON.stringify(data, null, 2));
@@ -757,7 +756,7 @@ async function runDepositScheduler(mode) {
         });
       }
     } else {
-      console.log(`ℹ️ No bookings found for ${day}/${month}/${year} in ${mode} run.`);
+      console.log(`ℹ️ No bookings found for tomorrow (${tomorrow.toDateString()}) in ${mode} run.`);
     }
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
