@@ -298,7 +298,7 @@ async function runDepositScheduler(mode) {
             "239201", "234303", "234304", "234305", "234306"
         ];
         
-        // 🗓 Date logic remains correct 🗓
+        // 🗓 Date calculation remains correct (searching for Oct 13th)
         const today = new Date();
         const tomorrow = new Date(today.getTime() + (24 * 60 * 60 * 1000));
         
@@ -307,12 +307,11 @@ async function runDepositScheduler(mode) {
         const from_year = tomorrow.getFullYear();
         
         let allBookings = [];
+
         console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [All Day] across ${resourceIDs.length} resources.`);
 
-        // 🔄 Loop through each resource ID and make a separate API call
         for (const resourceID of resourceIDs) {
             
-            // ✅ Core parameters - RE-ADDED start_time, end_time, and resource_id
             const params = {
                 from_day,
                 from_month,
@@ -320,23 +319,28 @@ async function runDepositScheduler(mode) {
                 to_day: from_day,
                 to_month: from_month,
                 to_year: from_year,
-                start_time: 0,    // 00:00 - MUST BE INCLUDED
-                end_time: 24,     // 24:00 - MUST BE INCLUDED
-                req_status: 4,    // confirmed bookings
+                start_time: 0,
+                end_time: 24,
+                req_status: 4,
                 include_unconfirmed: 1,
-                resource_id: resourceID, // MUST BE INCLUDED
-                // calendar: process.env.PLANYO_SITE_ID, <-- Still removed for redundancy
+                resource_id: resourceID, 
+                // 🛑 FINAL FIX: The 'calendar' parameter MUST NOT be here.
             };
 
-            // ✅ Call Planyo
             const { url, json: data } = await planyoCall(method, params);
-            
+            // ... (log and booking collection logic)
             if (data?.response_code === 0 && data.data?.results?.length > 0) {
                 console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
                 allBookings.push(...data.data.results);
             }
         }
         
+        // ... (Processing logic) ...
+        
+    } catch (err) {
+        console.error("❌ Deposit scheduler error:", err);
+    }
+}        
         // ----------------------------------------
         // Process Final List of Bookings
         // ----------------------------------------
