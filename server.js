@@ -713,25 +713,19 @@ cron.schedule("0 18 * * *", async () => {
 async function runDepositScheduler(mode) {
     try {
         const method = "list_reservations";
-        // The timezone is only relevant for display/logging, Planyo accepts day/month/year
         const tz = "Europe/London"; 
 
         // 🗓 Calculate Tomorrow's Date reliably
         const today = new Date();
-        
-        // 1. Get the current time in milliseconds.
-        // 2. Add 24 hours (1 day) worth of milliseconds.
         const tomorrow = new Date(today.getTime() + (24 * 60 * 60 * 1000));
-
-        // NOTE: Since the Planyo API uses day/month/year parameters (local time parts),
-        // we can safely extract these components directly from the 'tomorrow' date object.
+        
         const from_day = tomorrow.getDate();
         const from_month = tomorrow.getMonth() + 1; // getMonth() is 0-indexed
         const from_year = tomorrow.getFullYear();
 
         console.log(`📅 Searching bookings for tomorrow (${from_day}/${from_month}/${from_year}) [07:00–19:00]`);
 
-        // ✅ Core parameters that work in dashboard and API
+        // ✅ Core parameters
         const params = {
             from_day,
             from_month,
@@ -743,7 +737,7 @@ async function runDepositScheduler(mode) {
             end_time: 19,
             req_status: 4, // confirmed bookings
             include_unconfirmed: 1,
-            list_by_creation_date: 0, // 🔑 force filter by start time, not creation date
+            // ❌ REMOVED: 'list_by_creation_date: 0' as requested to ensure filtering by start date
             calendar: process.env.PLANYO_SITE_ID,
         };
 
@@ -776,7 +770,6 @@ async function runDepositScheduler(mode) {
         console.error("❌ Deposit scheduler error:", err);
     }
 }
-
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
 // ----------------------------------------------------
