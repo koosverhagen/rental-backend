@@ -705,26 +705,26 @@ cron.schedule("0 18 * * *", async () => {
   await runDepositScheduler("manual");
 })();
 
-// 🧠 Scheduler core function — LIVE MODE (07:00–19:00, £400 deposit, send to customer + admin)
+// 🧠 Scheduler core function — TEST MODE (£1 deposit, tomorrow 07:00–19:00)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
-    const method = "search_reservations";
+    const method = "list_reservations"; // ✅ correct Planyo REST method
     const tz = "Europe/London";
 
-    // 🕒 Always use LONDON TIME for tomorrow (not UTC!)
+    // 🕒 Get tomorrow’s date in London time
     const nowLondon = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
     const tomorrow = new Date(nowLondon);
-    tomorrow.setDate(nowLondon.getDate() + 1); // one day ahead in London time
+    tomorrow.setDate(nowLondon.getDate() + 1);
 
     const from_day = tomorrow.getDate();
     const from_month = tomorrow.getMonth() + 1;
     const from_year = tomorrow.getFullYear();
 
-    console.log("📅 Searching bookings for tomorrow (07:00–19:00)");
-    console.log(`From: ${from_day}/${from_month}/${from_year} 07:00 (Europe/London)`);
+    console.log("📅 Searching for confirmed bookings tomorrow (07:00–19:00)");
+    console.log(`➡️ Date: ${from_day}/${from_month}/${from_year} (Europe/London)`);
 
-    // 🔹 Use same parameters as Planyo dashboard filter
+    // ✅ Match Planyo Dashboard search URL
     const params = {
       filter: "starttime_with_date",
       from_day,
@@ -733,9 +733,7 @@ async function runDepositScheduler(mode) {
       to_day: from_day,
       to_month: from_month,
       to_year: from_year,
-      start_time: 7,
-      end_time: 19,
-      req_status: 4, // confirmed bookings
+      req_status: 4, // confirmed
       calendar: process.env.PLANYO_SITE_ID,
       include_unconfirmed: 1,
       list_by_creation_date: 0,
@@ -753,8 +751,8 @@ async function runDepositScheduler(mode) {
 
       for (const booking of results) {
         const bookingID = booking.reservation_id;
-        const amount = 40000; // £400 hold
-        console.log(`📩 Sending deposit link for booking #${bookingID} (£400)`);
+        const amount = 100; // 💷 £1 test hold
+        console.log(`📩 Sending deposit link for booking #${bookingID} (£1 TEST)`);
 
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
@@ -762,7 +760,7 @@ async function runDepositScheduler(mode) {
           body: JSON.stringify({
             bookingID,
             amount,
-            adminOnly: false, // send to both customer + admin
+            adminOnly: false, // send to customer + admin
           }),
         });
       }
