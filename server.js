@@ -636,56 +636,51 @@ app.post("/email/deposit-confirmation", async (req, res) => {
   }
 });
 
-// ---------------------------------------------
-// 🧠 Helper: Planyo API call (auto-refresh hash_timestamp + local time handling)
-// ---------------------------------------------
-
-
-
-/**
- * Generic Planyo API call wrapper.
- * Automatically signs with hash_key + timestamp.
- * Retries if Planyo rejects due to timestamp drift.
- */
+// -----------------------------
+// Robust Planyo caller with auto-retry on timestamp drift
+// -----------------------------
 async function planyoCall(method, params = {}) {
-  const buildUrl = (timestamp) => {
-    const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
+  const buildUrl = (ts) => {
+    const raw = process.env.PLANYO_HASH_KEY + ts + method;
     const hashKey = crypto.createHash("md5").update(raw).digest("hex");
-
     const query = new URLSearchParams({
       method,
       api_key: process.env.PLANYO_API_KEY,
       site_id: process.env.PLANYO_SITE_ID,
-      hash_timestamp: timestamp,
+      hash_timestamp: ts,
       hash_key: hashKey,
+      rnd: String(ts), // cache buster
       ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
     });
-
     return `https://www.planyo.com/rest/?${query.toString()}`;
   };
 
- async function doFetch() {
-  // 🕒 Generate timestamp slightly behind real time to avoid drift errors
-  const timestamp = Math.floor(Date.now() / 1000) - 120;
-  const url = buildUrl(timestamp);
-  console.log("🧠 Using hash_timestamp:", timestamp);
-  const resp = await fetch(url);
-  const json = await resp.json();
-  return { url, json, timestamp };
-}
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // First attempt
-  let { url, json, timestamp } = await doFetch();
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const ts = Math.floor(Date.now() / 1000);
+    const url = buildUrl(ts);
+    const resp = await fetch(url, { method: "GET" });
+    const json = await resp.json();
 
-  // Retry instantly if timestamp invalid
-  if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || "")) {
-    console.log("⚠️ Invalid timestamp — retrying immediately with fresh timestamp...");
-    ({ url, json, timestamp } = await doFetch());
+    // Success or non-timestamp error → return immediately
+    if (!(json?.response_code === 1 && /Invalid timestamp/i.test(json?.response_message || ""))) {
+      if (attempt > 1) {
+        console.log(`✅ Planyo call recovered on attempt ${attempt}`);
+      }
+      return { url, json, timestamp: ts };
+    }
+
+    // Timestamp drift → retry with fresh ts
+    console.warn(`⚠️ Invalid timestamp from Planyo (attempt ${attempt}/3). Server says: ${json.response_message}`);
+    if (attempt < 3) await sleep(400); // short pause, then try again
   }
 
-  return { url, json, timestamp };
+  // If we reach here, all attempts failed with timestamp error
+  const finalTs = Math.floor(Date.now() / 1000);
+  const finalUrl = buildUrl(finalTs);
+  return { url: finalUrl, json: { response_code: 1, response_message: "Invalid timestamp after retries" }, timestamp: finalTs };
 }
-
 
 // ---------------------------------------------
 // 🕓 Automatic deposit link scheduler (Planyo → /deposit/send-link)
