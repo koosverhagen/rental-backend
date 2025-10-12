@@ -710,7 +710,7 @@ cron.schedule("0 18 * * *", async () => {
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
-    const method = "search_reservations"; // ✅ Correct Planyo method for searching by start time
+    const method = "list_reservations"; // ✅ Correct Planyo method for listing by start time
     const tz = "Europe/London";
 
     // 🕓 Compute tomorrow in London time (so you get local tomorrow, not UTC)
@@ -739,8 +739,8 @@ async function runDepositScheduler(mode) {
         to_day: from_day,
         to_month: from_month,
         to_year: from_year,
-        start_time: 0,      // start of day (00:00)
-        end_time: 24,       // end of day (24:00)
+        start_time: 7,      // start of day (07:00)
+        end_time: 19,       // end of day (19:00)
         req_status: 4,      // confirmed
         include_unconfirmed: 1,
         resource_id: resourceID,
