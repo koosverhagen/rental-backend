@@ -266,7 +266,7 @@ app.post("/deposit/send-link", async (req, res) => {
 // and environment variables are defined earlier in your server.js file.
 
 // ---------------------------------------------
-// 🧠 Planyo API Helper (Final Refinement: Removed site_id from helper)
+// 🧠 Planyo API Helper (Final, Guaranteed Order Fix)
 // ---------------------------------------------
 async function planyoCall(method, params = {}) {
     
@@ -274,22 +274,31 @@ async function planyoCall(method, params = {}) {
         const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
         const hashKey = crypto.createHash("md5").update(raw).digest("hex");
         
-        // 🚨 CRITICAL CHANGE: site_id is REMOVED from the core URL creation here. 
-        // It is passed via the 'calendar' parameter in the scheduler params.
-        const baseParams = {
-            method,
-            api_key: process.env.PLANYO_API_KEY,
-            hash_timestamp: timestamp,
-            hash_key: hashKey,
-            ...params // params now MUST include the 'calendar' or 'site_id'
-        };
+        // 1. Define the mandatory Planyo AUTH parameters (must be first)
+        let url = `https://www.planyo.com/rest/?method=${method}` +
+                  `&api_key=${process.env.PLANYO_API_KEY}` +
+                  `&hash_timestamp=${timestamp}` +
+                  `&hash_key=${hashKey}`;
+
+        // 2. Add the dynamic parameters (filters) using URLSearchParams for safety
+        // Ensure 'calendar' is included in the params object from the scheduler
+        
+        // Exclude parameters already added above
+        const filterParams = { ...params };
 
         const query = new URLSearchParams(
-            Object.fromEntries(Object.entries(baseParams).map(([k, v]) => [k, String(v)]))
+            Object.fromEntries(Object.entries(filterParams).map(([k, v]) => [k, String(v)]))
         );
-        return `https://www.planyo.com/rest/?${query.toString()}`;
+        
+        // Append all filters to the URL
+        if (query.toString()) {
+            url += `&${query.toString()}`;
+        }
+        
+        return url;
     };
 
+    // ... (doFetch and retry logic remains the same) ...
     async function doFetch() {
         const timestamp = Math.floor(Date.now() / 1000); 
         const url = buildUrl(timestamp);
@@ -308,6 +317,7 @@ async function planyoCall(method, params = {}) {
 
     return { url, json, timestamp };
 }
+
 
 // ---------------------------------------------
 // 🧠 Scheduler core function — stable version using list_reservations
