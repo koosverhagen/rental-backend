@@ -636,17 +636,6 @@ app.post("/email/deposit-confirmation", async (req, res) => {
   }
 });
 
-// ---------------------------------------------
-// 🧠 Helper: Planyo API call (auto-refresh hash_timestamp + local time handling)
-// ---------------------------------------------
-
-
-
-/**
- * Generic Planyo API call wrapper.
- * Automatically signs with hash_key + timestamp.
- * Retries if Planyo rejects due to timestamp drift.
- */
 async function planyoCall(method, params = {}) {
   const buildUrl = (timestamp) => {
     const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
@@ -664,23 +653,34 @@ async function planyoCall(method, params = {}) {
     return `https://www.planyo.com/rest/?${query.toString()}`;
   };
 
-  async function doFetch() {
-    const timestamp = Math.floor(Date.now() / 1000); // generate at last possible moment
+  async function doFetch(label = "initial") {
+    const timestamp = Math.floor(Date.now() / 1000);
     const url = buildUrl(timestamp);
-    console.log("🧠 Using hash_timestamp:", timestamp);
+    console.log(`🧠 [${label}] Using hash_timestamp:`, timestamp);
     const resp = await fetch(url);
     const json = await resp.json();
     return { url, json, timestamp };
   }
 
-  // First attempt
+  // 1️⃣ Try first time
   let { url, json, timestamp } = await doFetch();
 
-  // Retry instantly if timestamp invalid
-  if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || "")) {
-    console.log("⚠️ Invalid timestamp — retrying immediately with fresh timestamp...");
-    ({ url, json, timestamp } = await doFetch());
+  // 2️⃣ Retry up to 3 times if Planyo rejects the timestamp
+  let retryCount = 0;
+  while (
+    json?.response_code === 1 &&
+    /Invalid timestamp/i.test(json.response_message || "") &&
+    retryCount < 3
+  ) {
+    retryCount++;
+    console.warn(`⚠️ Invalid timestamp — retrying (#${retryCount}) with fresh timestamp...`);
+    await new Promise((r) => setTimeout(r, 1000)); // wait 1s to sync closer to Planyo clock
+    ({ url, json, timestamp } = await doFetch(`retry-${retryCount}`));
   }
+
+  // Log result for debugging
+  console.log(`🌍 Final Planyo URL: ${url}`);
+  console.log("🧾 Raw response:", JSON.stringify(json, null, 2));
 
   return { url, json, timestamp };
 }
