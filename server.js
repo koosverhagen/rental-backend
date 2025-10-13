@@ -797,7 +797,7 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bookingID,
-          amount: 100, // £1 hold
+          amount: 40000, // £400 hold
           adminOnly: true,
         }),
       });
