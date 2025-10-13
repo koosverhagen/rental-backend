@@ -706,45 +706,44 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — bookings starting in next 24 hours
+// 🧠 Scheduler core function — bookings starting in next 24 hours (cross-platform safe)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
-    const tz = "Europe/London";
+    const tzOffsetLondon = 60; // London is UTC+1 during BST, 0 otherwise (we’ll detect dynamically)
 
-    // 🕓 Get London time
-    const now = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
+    // 🕓 Get UTC and approximate London time safely
+    const utcNow = new Date();
+    const isBST = new Date().toLocaleString("en", { timeZone: "Europe/London" }).includes("GMT+1");
+    const offsetMinutes = isBST ? 60 : 0;
 
-    // 🕓 24 hours from now
-    const later = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const londonNow = new Date(utcNow.getTime() + offsetMinutes * 60 * 1000);
+    const later = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
 
-    console.log("🕓 London now:", now.toISOString());
+    console.log("🕓 London now:", londonNow.toISOString());
     console.log("⏩ Checking bookings starting between now and:", later.toISOString());
 
-    const from_day = now.getDate();
-    const from_month = now.getMonth() + 1;
-    const from_year = now.getFullYear();
+    const from_day = londonNow.getDate();
+    const from_month = londonNow.getMonth() + 1;
+    const from_year = londonNow.getFullYear();
 
     const to_day = later.getDate();
     const to_month = later.getMonth() + 1;
     const to_year = later.getFullYear();
 
-    const start_hour = now.getHours();
+    const start_hour = londonNow.getHours();
     const end_hour = later.getHours();
 
-    console.log(
-      `📅 Searching range ${from_day}/${from_month}/${from_year} ${start_hour}:00 → ${to_day}/${to_month}/${to_year} ${end_hour}:00`
-    );
+    console.log(`📅 Searching range ${from_day}/${from_month}/${from_year} ${start_hour}:00 → ${to_day}/${to_month}/${to_year} ${end_hour}:00`);
 
     // ✅ Resource IDs
     const resourceIDs = ["239201", "234303", "234304", "234305", "234306"];
     let allBookings = [];
 
-    // 🔄 Loop through each resource
     for (const resourceID of resourceIDs) {
       const params = {
-        filter: "starttime_with_date", // search by start time
+        filter: "starttime_with_date",
         from_day,
         from_month,
         from_year,
@@ -752,8 +751,8 @@ async function runDepositScheduler(mode) {
         to_month,
         to_year,
         start_time: start_hour,
-        end_time: 24, // until midnight of next day
-        req_status: 4, // confirmed
+        end_time: 24, // until midnight
+        req_status: 4,
         include_unconfirmed: 1,
         list_by_creation_date: 0,
         resource_id: resourceID,
@@ -770,7 +769,6 @@ async function runDepositScheduler(mode) {
       }
     }
 
-    // ✅ Handle found bookings
     if (allBookings.length > 0) {
       console.log(`✅ Total bookings in next 24h: ${allBookings.length}`);
       for (const booking of allBookings) {
@@ -785,12 +783,13 @@ async function runDepositScheduler(mode) {
         });
       }
     } else {
-      console.log(`ℹ️ No bookings found in next 24 hours (${mode} run).`);
+      console.log("ℹ️ No bookings found in next 24 hours.");
     }
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
   }
 }
+
 
 
 // ----------------------------------------------------
