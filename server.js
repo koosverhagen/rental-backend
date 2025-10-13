@@ -233,7 +233,7 @@ app.post("/deposit/create-intent", async (req, res) => {
 // ---------------------------------------------
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
-  const amount = 100; // £400 hold
+  const amount = 40000; // £400 hold
 
   const booking = await fetchPlanyoBooking(bookingID);
 
@@ -762,7 +762,7 @@ async function runDepositScheduler(mode) {
       console.log(`✅ Total departures found for tomorrow: ${allBookings.length}`);
       for (const booking of allBookings) {
         const bookingID = booking.reservation_id;
-        const amount = 100; // £1 test
+        const amount = 40000; // £400
         console.log(`📩 Sending deposit link for booking #${bookingID}`);
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
