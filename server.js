@@ -705,19 +705,24 @@ cron.schedule("0 18 * * *", async () => {
   await runDepositScheduler("manual");
 })();
 
-// ---------------------------------------------
 // 🧠 Scheduler core function — fixed to filter by START time (07:00–19:00)
-// ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations"; // ✅ Correct Planyo method for listing by start time
     const tz = "Europe/London";
 
     // 🕓 Compute tomorrow in London time (so you get local tomorrow, not UTC)
-    const now = new Date();
-    const londonNow = new Date(now.toLocaleString("en-US", { timeZone: tz }));
+
+    // Get now in London
+    const londonNow = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
+
+    // Create midnight (00:00) for *tomorrow* in London time
     const tomorrow = new Date(londonNow);
+    tomorrow.setHours(0, 0, 0, 0);
     tomorrow.setDate(londonNow.getDate() + 1);
+
+    // Log for clarity
+    console.log("🕓 London now:", londonNow.toISOString(), "| Searching for bookings on:", tomorrow.toDateString());
 
     const from_day = tomorrow.getDate();
     const from_month = tomorrow.getMonth() + 1;
@@ -777,7 +782,8 @@ async function runDepositScheduler(mode) {
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
   }
-} // ✅ this closes the function properly
+} // ✅ function closed properly
+operly
 
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
