@@ -715,9 +715,7 @@ async function runDepositScheduler(mode) {
 
     // 🕓 Get UTC time and convert to London time manually
     const utcNow = new Date();
-    const londonNow = new Date(
-      utcNow.toLocaleString("en-US", { timeZone: tz })
-    );
+    const londonNow = new Date(utcNow.toLocaleString("en-US", { timeZone: tz }));
 
     // 🧭 Create a proper "tomorrow" in London time (no locale parsing)
     const tomorrow = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
@@ -744,33 +742,31 @@ async function runDepositScheduler(mode) {
 
     // 🔄 Loop through each resource
     for (const resourceID of resourceIDs) {
-     for (const resourceID of resourceIDs) {
-  const params = {
-    from_day,
-    from_month,
-    from_year,
-    to_day: from_day,
-    to_month: from_month,
-    to_year: from_year,
-    start_time: 7,
-    end_time: 19,
-    req_status: 4,
-    include_unconfirmed: 1,
-    list_by_creation_date: 0, // ✅ must be 0 for date-based search
-    resource_id: resourceID,
-  };
+      const params = {
+        from_day,
+        from_month,
+        from_year,
+        to_day: from_day,
+        to_month: from_month,
+        to_year: from_year,
+        start_time: 7,
+        end_time: 19,
+        req_status: 4,
+        include_unconfirmed: 1,
+        list_by_creation_date: 0, // ✅ must be 0 for date-based search
+        resource_id: resourceID,
+      };
 
-  const { url, json: data } = await planyoCall(method, params);
-  console.log(`🌐 Checked resource ${resourceID} → ${url}`);
+      const { url, json: data } = await planyoCall(method, params);
+      console.log(`🌐 Checked resource ${resourceID} → ${url}`);
 
-  if (data?.response_code === 0 && data.data?.results?.length > 0) {
-    console.log(`✅ Found ${data.data.results.length} departure(s) for resource ${resourceID}`);
-    allBookings.push(...data.data.results);
-  } else {
-    console.log(`ℹ️ No departures found for resource ${resourceID}`);
-  }
-}
-
+      if (data?.response_code === 0 && data.data?.results?.length > 0) {
+        console.log(`✅ Found ${data.data.results.length} departure(s) for resource ${resourceID}`);
+        allBookings.push(...data.data.results);
+      } else {
+        console.log(`ℹ️ No departures found for resource ${resourceID}`);
+      }
+    }
 
     // ✅ Handle found bookings
     if (allBookings.length > 0) {
@@ -793,7 +789,7 @@ async function runDepositScheduler(mode) {
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
   }
-}
+} // ✅ this closes the function properly
 
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
