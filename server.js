@@ -706,34 +706,35 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — fixed timezone and date math (works cross-platform)
+// 🧠 Scheduler core function — bookings starting in next 24 hours
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
     const tz = "Europe/London";
 
-    // 🕓 Get UTC time and convert to London time manually
-    const utcNow = new Date();
-    const londonNow = new Date(utcNow.toLocaleString("en-US", { timeZone: tz }));
+    // 🕓 Get London time
+    const now = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
 
-    // 🧭 Create a proper "tomorrow" in London time (no locale parsing)
-    const tomorrow = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
-    tomorrow.setHours(0, 0, 0, 0);
+    // 🕓 24 hours from now
+    const later = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    console.log("🕓 London now:", now.toISOString());
+    console.log("⏩ Checking bookings starting between now and:", later.toISOString());
+
+    const from_day = now.getDate();
+    const from_month = now.getMonth() + 1;
+    const from_year = now.getFullYear();
+
+    const to_day = later.getDate();
+    const to_month = later.getMonth() + 1;
+    const to_year = later.getFullYear();
+
+    const start_hour = now.getHours();
+    const end_hour = later.getHours();
 
     console.log(
-      "🕓 London now:",
-      londonNow.toISOString(),
-      "| Searching for bookings on:",
-      tomorrow.toDateString()
-    );
-
-    const from_day = tomorrow.getDate();
-    const from_month = tomorrow.getMonth() + 1;
-    const from_year = tomorrow.getFullYear();
-
-    console.log(
-      `📅 Checking DEPARTURES for ${from_day}/${from_month}/${from_year} (07:00–19:00 London time)`
+      `📅 Searching range ${from_day}/${from_month}/${from_year} ${start_hour}:00 → ${to_day}/${to_month}/${to_year} ${end_hour}:00`
     );
 
     // ✅ Resource IDs
@@ -743,17 +744,18 @@ async function runDepositScheduler(mode) {
     // 🔄 Loop through each resource
     for (const resourceID of resourceIDs) {
       const params = {
+        filter: "starttime_with_date", // search by start time
         from_day,
         from_month,
         from_year,
-        to_day: from_day,
-        to_month: from_month,
-        to_year: from_year,
-        start_time: 7,
-        end_time: 19,
-        req_status: 4,
+        to_day,
+        to_month,
+        to_year,
+        start_time: start_hour,
+        end_time: 24, // until midnight of next day
+        req_status: 4, // confirmed
         include_unconfirmed: 1,
-        list_by_creation_date: 0, // ✅ must be 0 for date-based search
+        list_by_creation_date: 0,
         resource_id: resourceID,
       };
 
@@ -761,20 +763,21 @@ async function runDepositScheduler(mode) {
       console.log(`🌐 Checked resource ${resourceID} → ${url}`);
 
       if (data?.response_code === 0 && data.data?.results?.length > 0) {
-        console.log(`✅ Found ${data.data.results.length} departure(s) for resource ${resourceID}`);
+        console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
         allBookings.push(...data.data.results);
       } else {
-        console.log(`ℹ️ No departures found for resource ${resourceID}`);
+        console.log(`ℹ️ No bookings found for resource ${resourceID}`);
       }
     }
 
     // ✅ Handle found bookings
     if (allBookings.length > 0) {
-      console.log(`✅ Total departures found for tomorrow: ${allBookings.length}`);
+      console.log(`✅ Total bookings in next 24h: ${allBookings.length}`);
       for (const booking of allBookings) {
         const bookingID = booking.reservation_id;
-        const amount = 40000; // £400
+        const amount = 40000; // £400 hold
         console.log(`📩 Sending deposit link for booking #${bookingID}`);
+
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -782,14 +785,13 @@ async function runDepositScheduler(mode) {
         });
       }
     } else {
-      console.log(
-        `ℹ️ No bookings found for ${from_day}/${from_month}/${from_year} (${mode} run).`
-      );
+      console.log(`ℹ️ No bookings found in next 24 hours (${mode} run).`);
     }
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
   }
-} // ✅ this closes the function properly
+}
+
 
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
