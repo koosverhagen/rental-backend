@@ -705,23 +705,21 @@ cron.schedule("0 18 * * *", async () => {
   await runDepositScheduler("manual");
 })();
 
+// ---------------------------------------------
+//// ---------------------------------------------
 // 🧠 Scheduler core function — fixed to filter by START time (07:00–19:00)
+// ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
-    const method = "list_reservations"; // ✅ Correct Planyo method for listing by start time
+    const method = "list_reservations"; // ✅ Correct Planyo method
     const tz = "Europe/London";
 
-    // 🕓 Compute tomorrow in London time (so you get local tomorrow, not UTC)
-
-    // Get now in London
+    // 🕓 Compute tomorrow in London time (avoid duplicate tz declaration)
     const londonNow = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
-
-    // Create midnight (00:00) for *tomorrow* in London time
     const tomorrow = new Date(londonNow);
-    tomorrow.setHours(0, 0, 0, 0);
     tomorrow.setDate(londonNow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0); // midnight London
 
-    // Log for clarity
     console.log("🕓 London now:", londonNow.toISOString(), "| Searching for bookings on:", tomorrow.toDateString());
 
     const from_day = tomorrow.getDate();
@@ -734,19 +732,19 @@ async function runDepositScheduler(mode) {
     const resourceIDs = ["239201", "234303", "234304", "234305", "234306"];
     let allBookings = [];
 
-    // 🔄 Loop through each resource to ensure full coverage
+    // 🔄 Loop through each resource
     for (const resourceID of resourceIDs) {
       const params = {
-        filter: "starttime_with_date",  // 🔥 filter by departure (start time)
+        filter: "starttime_with_date",
         from_day,
         from_month,
         from_year,
         to_day: from_day,
         to_month: from_month,
         to_year: from_year,
-        start_time: 7,      // start of day (07:00)
-        end_time: 19,       // end of day (19:00)
-        req_status: 4,      // confirmed
+        start_time: 7,
+        end_time: 19,
+        req_status: 4,
         include_unconfirmed: 1,
         resource_id: resourceID,
       };
@@ -782,8 +780,7 @@ async function runDepositScheduler(mode) {
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
   }
-} // ✅ function closed properly
-operly
+}
 
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
