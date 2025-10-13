@@ -706,63 +706,54 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — uses search_reservations_by_form_item (works with date filter)
+// 🧠 Scheduler core function — search by Duration text (works with limited API key)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
-    const method = "search_reservations_by_form_item"; // ✅ Correct method for your API key
+    const method = "search_reservations_by_form_item";
     const tz = "Europe/London";
 
-    const utcNow = new Date();
-    const londonNow = new Date(utcNow.toLocaleString("en-US", { timeZone: tz }));
+    // 🕓 Compute tomorrow’s date in London time
+    const londonNow = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
     const tomorrow = new Date(londonNow);
     tomorrow.setDate(londonNow.getDate() + 1);
 
-    console.log("🕓 London now:", londonNow.toISOString());
-    console.log("📅 Searching for bookings on:", tomorrow.toDateString());
+    // Format like “14 October 2025”
+    const dateString = tomorrow.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric"
+    });
 
-    const from_day = tomorrow.getDate();
-    const from_month = tomorrow.getMonth() + 1;
-    const from_year = tomorrow.getFullYear();
+    console.log(`📅 Searching for bookings whose duration contains: "${dateString}"`);
 
-    const start_hour = 7;
-    const end_hour = 19;
-
-    console.log(`🔍 Checking DEPARTURES for ${from_day}/${from_month}/${from_year} (${start_hour}:00–${end_hour}:00)`);
-
+    // ✅ Resource IDs to loop through
     const resourceIDs = ["239201", "234303", "234304", "234305", "234306"];
     let allBookings = [];
 
     for (const resourceID of resourceIDs) {
       const params = {
-        filter: "starttime_with_date",
-        from_day,
-        from_month,
-        from_year,
-        to_day: from_day,
-        to_month: from_month,
-        to_year: from_year,
-        start_time: start_hour,
-        end_time: end_hour,
-        req_status: 4,
+        form_item_name: "duration",          // your form field name
+        form_item_value: dateString,         // e.g. “14 October 2025”
+        req_status: 4,                       // confirmed
         include_unconfirmed: 1,
         resource_id: resourceID,
       };
 
       const { url, json: data } = await planyoCall(method, params);
       console.log(`🌐 Checked resource ${resourceID} → ${url}`);
-      console.log("🧾 Raw:", JSON.stringify(data, null, 2));
 
       if (data?.response_code === 0 && data.data?.results?.length > 0) {
-        console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
+        console.log(`✅ Found ${data.data.results.length} booking(s) for ${dateString}`);
         allBookings.push(...data.data.results);
       } else {
         console.log(`ℹ️ No bookings found for resource ${resourceID}`);
       }
     }
 
+    // ✅ Handle results
     if (allBookings.length > 0) {
-      console.log(`✅ Total bookings found for tomorrow: ${allBookings.length}`);
+      console.log(`✅ Total bookings found: ${allBookings.length}`);
       for (const booking of allBookings) {
         const bookingID = booking.reservation_id;
         const amount = 40000; // £400
@@ -774,13 +765,14 @@ async function runDepositScheduler(mode) {
         });
       }
     } else {
-      console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year} (${mode} run).`);
+      console.log(`ℹ️ No bookings found containing "${dateString}" (${mode} run).`);
     }
 
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
   }
 }
+
 
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
