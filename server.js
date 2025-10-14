@@ -706,46 +706,34 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — finds bookings in next 24 hours (no filter param)
+// 🧠 Scheduler core function — now uses Start date property
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
-    const method = "list_reservations";
+    const method = "search_reservations_by_form_item";
     const tz = "Europe/London";
 
-    // 🕓 Compute 24h window in London time
+    // 🕓 Compute tomorrow in London time
     const now = new Date();
-    const londonNow = new Date(now.toLocaleString("en-US", { timeZone: tz }));
-    const later = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
+    const londonNow = new Date(now.toLocaleString("en-GB", { timeZone: tz }));
+    const tomorrow = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
+    const yyyy = tomorrow.getFullYear();
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
+    const dd = String(tomorrow.getDate()).padStart(2, "0");
+    const dateValue = `${yyyy}-${mm}-${dd}`;
 
-    const from_day = londonNow.getDate();
-    const from_month = londonNow.getMonth() + 1;
-    const from_year = londonNow.getFullYear();
+    console.log(`📅 Searching for bookings with Start date = ${dateValue}`);
 
-    const to_day = later.getDate();
-    const to_month = later.getMonth() + 1;
-    const to_year = later.getFullYear();
-
-    console.log(`🕓 London now: ${londonNow.toISOString()} → Next 24h ends: ${later.toISOString()}`);
-    console.log(`📅 Checking bookings between ${from_day}/${from_month}/${from_year} and ${to_day}/${to_month}/${to_year}`);
-
-    // ✅ Resource IDs
+    // ✅ Your resource IDs
     const resourceIDs = ["239201", "234303", "234304", "234305", "234306"];
     let allBookings = [];
 
     for (const resourceID of resourceIDs) {
       const params = {
-        from_day,
-        from_month,
-        from_year,
-        to_day,
-        to_month,
-        to_year,
-        start_time: 0,
-        end_time: 24,
+        form_item_name: "Start date",
+        form_item_value: dateValue,
         req_status: 4,
         include_unconfirmed: 1,
-        list_by_creation_date: 0,
         resource_id: resourceID,
       };
 
@@ -760,8 +748,9 @@ async function runDepositScheduler(mode) {
       }
     }
 
+    // ✅ Send deposit links
     if (allBookings.length > 0) {
-      console.log(`✅ Total bookings found in next 24 hours: ${allBookings.length}`);
+      console.log(`✅ Total bookings found: ${allBookings.length}`);
       for (const booking of allBookings) {
         const bookingID = booking.reservation_id;
         const amount = 40000; // £400 hold
@@ -773,9 +762,8 @@ async function runDepositScheduler(mode) {
         });
       }
     } else {
-      console.log(`ℹ️ No bookings found in next 24h (${mode} run).`);
+      console.log(`ℹ️ No bookings found with Start date ${dateValue}`);
     }
-
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
   }
