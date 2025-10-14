@@ -687,24 +687,21 @@ async function planyoCall(method, params = {}) {
 
 // ---------------------------------------------
 // 🕓 Automatic deposit link scheduler (Planyo → /deposit/send-link)
-// Runs 5x daily and catches bookings starting within the next 24 hours
 // ---------------------------------------------
 
-const processedBookings = new Set(); // prevents duplicates
-
-// 🕕 Run every day at 06:00, 10:00, 12:00, 14:00, and 18:00 UTC
+// Run every day at 06:00, 10:00, 12:00, 14:00, and 18:00 UTC (London time)
 cron.schedule("0 6,10,12,14,18 * * *", async () => {
-  console.log("🕕 Scheduled run: checking upcoming bookings (next 24 hours)...");
+  console.log("🕕 [AUTO] Checking upcoming bookings for automatic deposit emails...");
   await runDepositScheduler("auto");
 });
 
-// ---------------------------------------------
-// ⚡ Manual test (runs once on startup)
-// ---------------------------------------------
-(async () => {
-  console.log("⚡ Manual test: running deposit scheduler immediately... [TEST MODE – Admin Only]");
-  await runDepositScheduler("manual");
-})();
+// ⚡ Manual test on startup (disabled unless STARTUP_TEST=true)
+if (process.env.STARTUP_TEST === "true") {
+  (async () => {
+    console.log("⚡ Manual test: running deposit scheduler immediately... [TEST MODE – Admin Only]");
+    await runDepositScheduler("manual");
+  })();
+}
 
 // ---------------------------------------------
 // 🧠 Scheduler core function — robust & uses get_reservation_data per result
