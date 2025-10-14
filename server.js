@@ -758,48 +758,59 @@ if (process.env.STARTUP_TEST === "true") {
 async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
-
-    // 🕓 Get current London time safely
     const now = new Date();
-    const londonNow = new Date(now.toLocaleString("en-GB", { timeZone: tz }));
 
-    // ➕ Compute next 24-hour window
-    const fromDate = new Date(londonNow);
-    const toDate = new Date(londonNow);
-    toDate.setDate(londonNow.getDate() + 1);
+    // ✅ Get London offset in ms (via Intl)
+    const londonOffset = -new Date().toLocaleString("en-US", { timeZone: tz });
+    const londonNow = new Date(
+      now.toLocaleString("en-GB", { timeZone: tz })
+    );
 
-    // Convert to valid ISO format for Planyo (remove ms and timezone)
-    const start_time = fromDate.toISOString().slice(0, 19);
-    const end_time = toDate.toISOString().slice(0, 19);
+    if (isNaN(londonNow)) {
+      throw new Error("Invalid London date conversion");
+    }
 
-    console.log(`🕓 London now: ${londonNow.toISOString()}`);
+    // ✅ Create a 24-hour window (next 24 hours)
+    const fromDate = new Date(londonNow.getTime());
+    const toDate = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
+
+    // ✅ Format to “YYYY-MM-DD HH:MM:SS” (Planyo requires this)
+    const formatForPlanyo = (d) =>
+      d
+        .toISOString()
+        .replace("T", " ")
+        .split(".")[0]; // remove milliseconds and Z
+
+    const start_time = formatForPlanyo(fromDate);
+    const end_time = formatForPlanyo(toDate);
+
+    console.log("🕓 [Scheduler] London now:", londonNow.toISOString());
     console.log(`📅 Checking bookings between ${start_time} → ${end_time}`);
 
-    // ✅ Build API parameters
+    // ✅ Request params for Planyo
     const listParams = {
       start_time,
       end_time,
-      req_status: 4,               // confirmed
+      req_status: 4,
       include_unconfirmed: 1,
       list_by_creation_date: 0,
-      resource_ids: "239201,234303,234304,234305,234306", // all lorries
+      site_id: 68785,
+      resource_ids: "239201,234303,234304,234305,234306",
     };
 
     const { url, json: listData } = await planyoCall("list_reservations", listParams);
-    console.log(`🌐 List call → ${url}`);
+    console.log(`🌐 Planyo list_reservations → ${url}`);
     console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
 
     if (!listData?.data?.results?.length) {
-      console.log("ℹ️ No bookings found for this 24-hour window");
+      console.log(`ℹ️ No bookings found for 24-hour window`);
       return;
     }
 
     console.log(`✅ Found ${listData.data.results.length} booking(s)`);
 
-    // Process each booking
     for (const item of listData.data.results) {
       const bookingID = item.reservation_id;
-
       const { json: bookingData } = await planyoCall("get_reservation_data", {
         reservation_id: bookingID,
       });
