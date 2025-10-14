@@ -741,104 +741,74 @@ async function planyoCall(method, params = {}) {
   return { url, json };
 }
 
-// ---------------------------------------------
-// 🕓 Automatic deposit link scheduler
-// Every 30 minutes (05:00–19:00 London)
-// ---------------------------------------------
+// 🕓 Automatic deposit link scheduler (every 30 min between 05:00–19:00 London)
 cron.schedule("0,30 4-18 * * *", async () => {
   console.log("🕓 [AUTO] Every 30 min (05:00–19:00 London) → Checking upcoming bookings...");
   await runDepositScheduler("auto");
 });
 
-// ⚡ Manual test on startup (only if STARTUP_TEST=true)
+// ⚡ Manual test on startup (disabled unless STARTUP_TEST=true)
 if (process.env.STARTUP_TEST === "true") {
   (async () => {
-    console.log("⚡ Manual test run [TEST MODE – Admin Only]");
+    console.log("⚡ Manual test: running deposit scheduler immediately... [TEST MODE – Admin Only]");
     await runDepositScheduler("manual");
   })();
 }
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — stable, always hits Planyo
+// 🧠 Scheduler core function — using proper DateTime for list_reservations
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
-    console.log("🚀 Scheduler triggered (mode:", mode, ")");
-
     const tz = "Europe/London";
 
-    // 🕓 Safe date creation with explicit fallback
-    let londonNow;
-    try {
-      const localeStr = new Date().toLocaleString("en-GB", { timeZone: tz });
-      londonNow = new Date(localeStr);
-    } catch (e) {
-      console.error("⚠️ London time conversion failed, using UTC as fallback:", e);
-      londonNow = new Date();
-    }
-
-    if (isNaN(londonNow.getTime())) {
-      console.warn("⚠️ londonNow invalid → using current UTC instead");
-      londonNow = new Date();
-    }
-
-    // ➕ Tomorrow 00:00 London time
+    // 🕓 Compute London time safely
+    const londonNow = new Date(
+      new Date().toLocaleString("en-GB", { timeZone: tz })
+    );
     const tomorrow = new Date(londonNow);
     tomorrow.setDate(londonNow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
 
-    const from_day = tomorrow.getDate();
-    const from_month = tomorrow.getMonth() + 1;
-    const from_year = tomorrow.getFullYear();
+    const yyyy = tomorrow.getFullYear();
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
+    const dd = String(tomorrow.getDate()).padStart(2, "0");
 
-    console.log(
-      `🕓 London now: ${londonNow.toISOString()} | Target: ${from_day}/${from_month}/${from_year}`
-    );
+    const start_time = `${yyyy}-${mm}-${dd} 00:00:00`;
+    const end_time = `${yyyy}-${mm}-${dd} 23:59:59`;
 
-    // ✅ Prepare Planyo request
+    console.log(`🕓 London now: ${londonNow.toISOString()} | Checking bookings for ${start_time} → ${end_time}`);
+
+    // ✅ Correct parameters for Planyo
     const listParams = {
-      filter: "starttime_with_date",
-      from_day,
-      from_month,
-      from_year,
-      to_day: from_day,
-      to_month: from_month,
-      to_year: from_year,
-      start_time: 0,
-      end_time: 24,
-      req_status: 4,
+      start_time,
+      end_time,
+      req_status: 4, // confirmed
       include_unconfirmed: 1,
       list_by_creation_date: 0,
     };
 
-    console.log("🌍 Calling Planyo API list_reservations with params:", listParams);
-
     const { url, json: listData } = await planyoCall("list_reservations", listParams);
-
-    console.log(`🌐 Planyo list call → ${url}`);
+    console.log(`🌐 List call → ${url}`);
     console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
 
-    // ✅ Process results
-    const results = listData?.data?.results || [];
-    if (!results.length) {
-      console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year}`);
+    if (!listData?.data?.results?.length) {
+      console.log(`ℹ️ No bookings found for ${yyyy}-${mm}-${dd}`);
       return;
     }
 
-    console.log(`✅ Found ${results.length} booking(s)`);
+    console.log(`✅ Found ${listData.data.results.length} booking(s)`);
 
-    for (const item of results) {
+    for (const item of listData.data.results) {
       const bookingID = item.reservation_id;
-      console.log(`🔍 Fetching details for booking #${bookingID}`);
 
       const { json: bookingData } = await planyoCall("get_reservation_data", {
         reservation_id: bookingID,
       });
 
       const start = bookingData?.data?.start_time || "N/A";
+      const email = bookingData?.data?.email || "N/A";
       const status = bookingData?.data?.status || "unknown";
       const resource = bookingData?.data?.name || "N/A";
-      const email = bookingData?.data?.email || "N/A";
 
       console.log(`📦 Booking #${bookingID} (${resource}) → ${start} (${email})`);
 
