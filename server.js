@@ -750,39 +750,43 @@ if (process.env.STARTUP_TEST === "true") {
   })();
 }
 
-// ---------------------------------------------
-// 🧠 Core scheduler — finds bookings starting within 24 h
+/// ---------------------------------------------
+// 🧠 Scheduler core function — London-safe + NaN-proof
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
 
-    // 🕓 London time conversion
-    const now = new Date();
-    const londonNow = new Date(now.toLocaleString("en-GB", { timeZone: tz }));
-    const next24h = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
+    // 🕓 Build a reliable London time manually
+    const nowUTC = new Date();
+    const londonOffsetMin = new Date().toLocaleString("en-GB", { timeZone: tz });
+    const londonNow = new Date(londonOffsetMin);
 
-    // Extract from/to parts
-    const from_day = londonNow.getDate();
-    const from_month = londonNow.getMonth() + 1;
-    const from_year = londonNow.getFullYear();
-    const to_day = next24h.getDate();
-    const to_month = next24h.getMonth() + 1;
-    const to_year = next24h.getFullYear();
+    if (isNaN(londonNow.getTime())) {
+      throw new Error("Invalid London time conversion");
+    }
+
+    // ➕ Compute tomorrow in London safely
+    const tomorrow = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
+    tomorrow.setHours(0, 0, 0, 0);
+
+    const from_day = tomorrow.getDate();
+    const from_month = tomorrow.getMonth() + 1;
+    const from_year = tomorrow.getFullYear();
 
     console.log(
-      `🕓 London now: ${londonNow.toISOString()} → Searching bookings from ${from_day}/${from_month}/${from_year} to ${to_day}/${to_month}/${to_year}`
+      `🕓 London now: ${londonNow.toISOString()} | Checking bookings for ${from_day}/${from_month}/${from_year}`
     );
 
-    // ✅ Fetch confirmed bookings starting in next 24 h
+    // ✅ Fetch all confirmed bookings for tomorrow
     const listParams = {
       filter: "starttime_with_date",
       from_day,
       from_month,
       from_year,
-      to_day,
-      to_month,
-      to_year,
+      to_day: from_day,
+      to_month: from_month,
+      to_year: from_year,
       start_time: 0,
       end_time: 24,
       req_status: 4,
@@ -795,7 +799,7 @@ async function runDepositScheduler(mode) {
     console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
 
     if (!listData?.data?.results?.length) {
-      console.log("ℹ️ No bookings found in next 24 hours");
+      console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year}`);
       return;
     }
 
@@ -803,6 +807,7 @@ async function runDepositScheduler(mode) {
 
     for (const item of listData.data.results) {
       const bookingID = item.reservation_id;
+
       const { json: bookingData } = await planyoCall("get_reservation_data", {
         reservation_id: bookingID,
       });
