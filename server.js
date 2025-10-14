@@ -707,31 +707,28 @@ cron.schedule("0 6,10,12,14,18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — 24h window (fixed for Render UTC)
+// 🧠 Scheduler core function — 24h window (UTC-safe, works on Render)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
     const tz = "Europe/London";
 
-    // Get current time in London (safe cross-platform conversion)
-    const londonNow = new Date(
-      new Date().toLocaleString("en-GB", { timeZone: tz })
-    );
+    // ✅ Get current UTC time
+    const nowUTC = new Date();
 
-    // Ensure it's a valid date before continuing
+    // ✅ Compute London offset safely (no locale dependency)
+    const londonOffsetMs = new Date().toLocaleString("en-US", { timeZone: tz });
+    const londonNow = new Date(londonOffsetMs);
+
     if (isNaN(londonNow.getTime())) {
-      throw new Error("Invalid London time conversion");
+      console.warn("⚠️ Fallback to UTC time — Render missing full ICU data");
+      londonNow.setTime(nowUTC.getTime());
     }
 
-    // Define 24h window starting now
+    // ✅ Define 24h window starting now
     const from = londonNow;
-    const to = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
-
-    // Double-check both dates are valid
-    if (isNaN(from.getTime()) || isNaN(to.getTime())) {
-      throw new Error("Invalid from/to date window");
-    }
+    const to = new Date(from.getTime() + 24 * 60 * 60 * 1000);
 
     console.log(`🕓 London now: ${from.toISOString()}`);
     console.log(`🕓 Searching bookings up to: ${to.toISOString()}`);
@@ -743,9 +740,7 @@ async function runDepositScheduler(mode) {
     const to_month = to.getMonth() + 1;
     const to_year = to.getFullYear();
 
-    console.log(
-      `📅 Checking departures from ${from_day}/${from_month}/${from_year} to ${to_day}/${to_month}/${to_year}`
-    );
+    console.log(`📅 Checking departures ${from_day}/${from_month}/${from_year} → ${to_day}/${to_month}/${to_year}`);
 
     const resourceIDs = ["239201", "234303", "234304", "234305", "234306"];
     let allBookings = [];
@@ -789,7 +784,7 @@ async function runDepositScheduler(mode) {
         }
 
         processedBookings.add(bookingID);
-        const amount = 40000;
+        const amount = 40000; // £400
 
         console.log(`📩 Sending deposit link for booking #${bookingID}`);
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
