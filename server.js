@@ -706,7 +706,7 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — now uses Start date property
+// 🧠 Scheduler core function — uses Start date (custom property)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
@@ -717,22 +717,25 @@ async function runDepositScheduler(mode) {
     const now = new Date();
     const londonNow = new Date(now.toLocaleString("en-GB", { timeZone: tz }));
     const tomorrow = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
+
+    // ✅ Ensure valid date parts
     const yyyy = tomorrow.getFullYear();
     const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
     const dd = String(tomorrow.getDate()).padStart(2, "0");
-    const dateValue = `${yyyy}-${mm}-${dd}`;
+    const dateValue = `${yyyy}-${mm}-${dd}`; // example: 2025-10-15
 
-    console.log(`📅 Searching for bookings with Start date = ${dateValue}`);
+    console.log(`📅 Searching bookings with Start date = ${dateValue}`);
 
     // ✅ Your resource IDs
     const resourceIDs = ["239201", "234303", "234304", "234305", "234306"];
     let allBookings = [];
 
+    // 🔄 Check all resources
     for (const resourceID of resourceIDs) {
       const params = {
-        form_item_name: "Start date",
-        form_item_value: dateValue,
-        req_status: 4,
+        form_item_name: "Start date", // must match exact property name in Planyo
+        form_item_value: dateValue,   // e.g. "2025-10-15"
+        req_status: 4,                // confirmed
         include_unconfirmed: 1,
         resource_id: resourceID,
       };
@@ -748,12 +751,12 @@ async function runDepositScheduler(mode) {
       }
     }
 
-    // ✅ Send deposit links
+    // ✅ Process bookings
     if (allBookings.length > 0) {
       console.log(`✅ Total bookings found: ${allBookings.length}`);
       for (const booking of allBookings) {
         const bookingID = booking.reservation_id;
-        const amount = 40000; // £400 hold
+        const amount = 40000; // £400
         console.log(`📩 Sending deposit link for booking #${bookingID}`);
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
@@ -762,7 +765,7 @@ async function runDepositScheduler(mode) {
         });
       }
     } else {
-      console.log(`ℹ️ No bookings found with Start date ${dateValue}`);
+      console.log(`ℹ️ No bookings found for Start date ${dateValue}`);
     }
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
