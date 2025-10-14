@@ -690,7 +690,7 @@ async function planyoCall(method, params = {}) {
 // ---------------------------------------------
 
 // Run every day at 06:00, 10:00, 12:00, 14:00, and 18:00 UTC (London time)
-cron.schedule("0 6,10,12,14,18 * * *", async () => {
+cron.schedule("0 6,10,12,14,18 * * * ,18 12* * *", async () => {
   console.log("🕕 [AUTO] Checking upcoming bookings for automatic deposit emails...");
   await runDepositScheduler("auto");
 });
