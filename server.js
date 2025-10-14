@@ -635,55 +635,7 @@ app.post("/email/deposit-confirmation", async (req, res) => {
   }
 });
 
-async function planyoCall(method, params = {}) {
-  const buildUrl = (timestamp) => {
-    const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
-    const hashKey = crypto.createHash("md5").update(raw).digest("hex");
-
-    const query = new URLSearchParams({
-      method,
-      api_key: process.env.PLANYO_API_KEY,
-      site_id: process.env.PLANYO_SITE_ID,
-      hash_timestamp: timestamp,
-      hash_key: hashKey,
-      ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
-    });
-
-    return `https://www.planyo.com/rest/?${query.toString()}`;
-  };
-
-  async function doFetch(label = "initial") {
-    const timestamp = Math.floor(Date.now() / 1000);
-    const url = buildUrl(timestamp);
-    console.log(`🧠 [${label}] Using hash_timestamp:`, timestamp);
-    const resp = await fetch(url);
-    const json = await resp.json();
-    return { url, json, timestamp };
-  }
-
-  // 1️⃣ Try first time
-  let { url, json, timestamp } = await doFetch();
-
-  // 2️⃣ Retry up to 3 times if Planyo rejects the timestamp
-  let retryCount = 0;
-  while (
-    json?.response_code === 1 &&
-    /Invalid timestamp/i.test(json.response_message || "") &&
-    retryCount < 3
-  ) {
-    retryCount++;
-    console.warn(`⚠️ Invalid timestamp — retrying (#${retryCount}) with fresh timestamp...`);
-    await new Promise((r) => setTimeout(r, 1000)); // wait 1s to sync closer to Planyo clock
-    ({ url, json, timestamp } = await doFetch(`retry-${retryCount}`));
-  }
-
-  // Log result for debugging
-  console.log(`🌍 Final Planyo URL: ${url}`);
-  console.log("🧾 Raw response:", JSON.stringify(json, null, 2));
-
-  return { url, json, timestamp };
-}
-
+√
 
 // 🕓 Automatic deposit link scheduler (every 30 min between 05:00–19:00 London time)
 cron.schedule("0,30 4-18 * * *", async () => {
