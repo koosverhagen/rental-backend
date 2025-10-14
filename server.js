@@ -434,8 +434,7 @@ app.post("/deposit/send-link", async (req, res) => {
           </a>
         </div>
         <div style="background:#f0f7ff;border:1px solid #d6e7ff;color:#124a8a;padding:12px;border-radius:8px;margin-top:14px;font-size:14px">
-          <b>Note:</b> This is a <b>pre-authorisation (hold)</b>. No money is taken now. Funds remain reserved until we
-          release the hold (normally within 7 days of return) or capture part/all if required by your hire agreement.
+          <b>Note:</b> This is a <b>pre-authorisation (hold)</b>. No money is taken now. Funds remain reserved until we release the hold (normally straight after return) or capture part/all if vehicle is returned not refuelled or damaged.
         </div>
         <p style="margin-top:30px;">Kind regards,<br/>Koos & Avril<br/><b>Equine Transport UK</b></p>
         <hr style="margin:30px 0;"/>
