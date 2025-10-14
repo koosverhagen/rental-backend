@@ -755,36 +755,34 @@ if (process.env.STARTUP_TEST === "true") {
   })();
 }
 
-// ---------------------------------------------
-// 🧠 Scheduler core function — using proper DateTime for list_reservations
-// ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
 
-    // 🕓 Compute London time safely
-    const londonNow = new Date(
-      new Date().toLocaleString("en-GB", { timeZone: tz })
-    );
-    const tomorrow = new Date(londonNow);
-    tomorrow.setDate(londonNow.getDate() + 1);
+    // 🕓 Get current London time safely
+    const now = new Date();
+    const londonNow = new Date(now.toLocaleString("en-GB", { timeZone: tz }));
 
-    const yyyy = tomorrow.getFullYear();
-    const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
-    const dd = String(tomorrow.getDate()).padStart(2, "0");
+    // ➕ Compute next 24-hour window
+    const fromDate = new Date(londonNow);
+    const toDate = new Date(londonNow);
+    toDate.setDate(londonNow.getDate() + 1);
 
-    const start_time = `${yyyy}-${mm}-${dd} 00:00:00`;
-    const end_time = `${yyyy}-${mm}-${dd} 23:59:59`;
+    // Convert to valid ISO format for Planyo (remove ms and timezone)
+    const start_time = fromDate.toISOString().slice(0, 19);
+    const end_time = toDate.toISOString().slice(0, 19);
 
-    console.log(`🕓 London now: ${londonNow.toISOString()} | Checking bookings for ${start_time} → ${end_time}`);
+    console.log(`🕓 London now: ${londonNow.toISOString()}`);
+    console.log(`📅 Checking bookings between ${start_time} → ${end_time}`);
 
-    // ✅ Correct parameters for Planyo
+    // ✅ Build API parameters
     const listParams = {
       start_time,
       end_time,
-      req_status: 4, // confirmed
+      req_status: 4,               // confirmed
       include_unconfirmed: 1,
       list_by_creation_date: 0,
+      resource_ids: "239201,234303,234304,234305,234306", // all lorries
     };
 
     const { url, json: listData } = await planyoCall("list_reservations", listParams);
@@ -792,12 +790,13 @@ async function runDepositScheduler(mode) {
     console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
 
     if (!listData?.data?.results?.length) {
-      console.log(`ℹ️ No bookings found for ${yyyy}-${mm}-${dd}`);
+      console.log("ℹ️ No bookings found for this 24-hour window");
       return;
     }
 
     console.log(`✅ Found ${listData.data.results.length} booking(s)`);
 
+    // Process each booking
     for (const item of listData.data.results) {
       const bookingID = item.reservation_id;
 
