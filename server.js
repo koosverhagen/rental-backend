@@ -701,32 +701,48 @@ if (process.env.STARTUP_TEST === "true") {
   })();
 }
 // ---------------------------------------------
-// 🧠 Scheduler core function — robust timezone-safe version
+// 🧠 Scheduler core function — London-safe + NaN-proof
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
 
-    // 🕓 Get London time safely — works even in cron mode
+    // 🕓 Safely get London time components without locale parsing
+    const now = new Date();
+    const londonParts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    })
+      .formatToParts(now)
+      .reduce((acc, part) => {
+        if (part.type !== "literal") acc[part.type] = part.value;
+        return acc;
+      }, {});
+
     const londonNow = new Date(
-      new Date().toLocaleString("en-GB", { timeZone: tz })
+      `${londonParts.year}-${londonParts.month}-${londonParts.day}T${londonParts.hour}:${londonParts.minute}:${londonParts.second}`
     );
 
-    // ➕ Compute tomorrow (start of day)
+    // ➕ Compute tomorrow in London safely
     const tomorrow = new Date(londonNow);
     tomorrow.setDate(londonNow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
 
-    // ✅ Extract date components
     const from_day = tomorrow.getDate();
     const from_month = tomorrow.getMonth() + 1;
     const from_year = tomorrow.getFullYear();
 
     console.log(
-      `📅 Checking confirmed bookings for tomorrow (${from_day}/${from_month}/${from_year}) [London time]`
+      `🕓 London now: ${londonNow.toISOString()} | Checking bookings for ${from_day}/${from_month}/${from_year}`
     );
 
-    // ✅ Params for Planyo list_reservations
+    // ✅ Fetch all confirmed bookings for tomorrow
     const listParams = {
       filter: "starttime_with_date",
       from_day,
@@ -742,7 +758,6 @@ async function runDepositScheduler(mode) {
       list_by_creation_date: 0,
     };
 
-    // 🔗 API call
     const { url, json: listData } = await planyoCall("list_reservations", listParams);
     console.log(`🌐 List call → ${url}`);
     console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
@@ -754,7 +769,6 @@ async function runDepositScheduler(mode) {
 
     console.log(`✅ Found ${listData.data.results.length} booking(s)`);
 
-    // 🧩 Loop over bookings and fetch details
     for (const item of listData.data.results) {
       const bookingID = item.reservation_id;
 
