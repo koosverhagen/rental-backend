@@ -750,24 +750,33 @@ if (process.env.STARTUP_TEST === "true") {
   })();
 }
 
-/// ---------------------------------------------
-// 🧠 Scheduler core function — London-safe + NaN-proof
+// ---------------------------------------------
+// 🧠 Scheduler core function — stable, always hits Planyo
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
+    console.log("🚀 Scheduler triggered (mode:", mode, ")");
+
     const tz = "Europe/London";
 
-    // 🕓 Build a reliable London time manually
-    const nowUTC = new Date();
-    const londonOffsetMin = new Date().toLocaleString("en-GB", { timeZone: tz });
-    const londonNow = new Date(londonOffsetMin);
-
-    if (isNaN(londonNow.getTime())) {
-      throw new Error("Invalid London time conversion");
+    // 🕓 Safe date creation with explicit fallback
+    let londonNow;
+    try {
+      const localeStr = new Date().toLocaleString("en-GB", { timeZone: tz });
+      londonNow = new Date(localeStr);
+    } catch (e) {
+      console.error("⚠️ London time conversion failed, using UTC as fallback:", e);
+      londonNow = new Date();
     }
 
-    // ➕ Compute tomorrow in London safely
-    const tomorrow = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
+    if (isNaN(londonNow.getTime())) {
+      console.warn("⚠️ londonNow invalid → using current UTC instead");
+      londonNow = new Date();
+    }
+
+    // ➕ Tomorrow 00:00 London time
+    const tomorrow = new Date(londonNow);
+    tomorrow.setDate(londonNow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
 
     const from_day = tomorrow.getDate();
@@ -775,10 +784,10 @@ async function runDepositScheduler(mode) {
     const from_year = tomorrow.getFullYear();
 
     console.log(
-      `🕓 London now: ${londonNow.toISOString()} | Checking bookings for ${from_day}/${from_month}/${from_year}`
+      `🕓 London now: ${londonNow.toISOString()} | Target: ${from_day}/${from_month}/${from_year}`
     );
 
-    // ✅ Fetch all confirmed bookings for tomorrow
+    // ✅ Prepare Planyo request
     const listParams = {
       filter: "starttime_with_date",
       from_day,
@@ -794,28 +803,34 @@ async function runDepositScheduler(mode) {
       list_by_creation_date: 0,
     };
 
+    console.log("🌍 Calling Planyo API list_reservations with params:", listParams);
+
     const { url, json: listData } = await planyoCall("list_reservations", listParams);
-    console.log(`🌐 List call → ${url}`);
+
+    console.log(`🌐 Planyo list call → ${url}`);
     console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
 
-    if (!listData?.data?.results?.length) {
+    // ✅ Process results
+    const results = listData?.data?.results || [];
+    if (!results.length) {
       console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year}`);
       return;
     }
 
-    console.log(`✅ Found ${listData.data.results.length} booking(s)`);
+    console.log(`✅ Found ${results.length} booking(s)`);
 
-    for (const item of listData.data.results) {
+    for (const item of results) {
       const bookingID = item.reservation_id;
+      console.log(`🔍 Fetching details for booking #${bookingID}`);
 
       const { json: bookingData } = await planyoCall("get_reservation_data", {
         reservation_id: bookingID,
       });
 
       const start = bookingData?.data?.start_time || "N/A";
-      const email = bookingData?.data?.email || "N/A";
       const status = bookingData?.data?.status || "unknown";
       const resource = bookingData?.data?.name || "N/A";
+      const email = bookingData?.data?.email || "N/A";
 
       console.log(`📦 Booking #${bookingID} (${resource}) → ${start} (${email})`);
 
