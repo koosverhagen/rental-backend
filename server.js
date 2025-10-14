@@ -696,37 +696,45 @@ async function planyoCall(method, params = {}) {
 
 
 // ---------------------------------------------
-// 🔑 Helper: secure Planyo API call with automatic timestamp retry
+// 🧠 Planyo API helper — retries instantly if timestamp invalid
 // ---------------------------------------------
 async function planyoCall(method, params = {}) {
-  const buildUrl = (timestamp) => {
-    const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
-    const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
+  const base = "https://www.planyo.com/rest/";
 
-    const query = new URLSearchParams({
-      method,
+  const buildUrl = (timestamp) => {
+    const hashString = process.env.PLANYO_HASH_KEY + timestamp + method;
+    const hashKey = crypto.createHash("md5").update(hashString).digest("hex");
+
+    const searchParams = new URLSearchParams({
       api_key: process.env.PLANYO_API_KEY,
       site_id: process.env.PLANYO_SITE_ID,
+      method,
       hash_timestamp: timestamp,
       hash_key: hashKey,
       ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
     });
 
-    return `https://www.planyo.com/rest/?${query.toString()}`;
+    return `${base}?${searchParams.toString()}`;
   };
 
-  async function doFetch() {
+  const doFetch = async () => {
     const timestamp = Math.floor(Date.now() / 1000);
     const url = buildUrl(timestamp);
-    console.log("🧠 [initial] Using hash_timestamp:", timestamp);
-    const response = await fetch(url);
-    const json = await response.json();
+    console.log("🧠 [Planyo] Using timestamp:", timestamp);
+    const res = await fetch(url);
+    const json = await res.json();
     return { url, json };
-  }
+  };
 
+  // first try
   let { url, json } = await doFetch();
-  if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || "")) {
-    console.log("⚠️ Invalid timestamp — retrying with fresh timestamp...");
+
+  // retry if timestamp invalid
+  if (
+    json?.response_code === 1 &&
+    /Invalid timestamp/i.test(json.response_message || "")
+  ) {
+    console.log("⚠️ Invalid timestamp — retrying immediately with fresh timestamp...");
     ({ url, json } = await doFetch());
   }
 
