@@ -685,11 +685,9 @@ async function planyoCall(method, params = {}) {
 }
 
 
-// ---------------------------------------------
-// 🕓 Automatic deposit link scheduler (every 30 min between 05:00–19:00 UTC)
-// ---------------------------------------------
-cron.schedule("0,30 5-19 * * *", async () => {
-  console.log("🕓 [AUTO] Every 30 min (05:00–19:00 UTC) → Checking upcoming bookings...");
+// 🕓 Automatic deposit link scheduler (every 30 min between 05:00–19:00 London time)
+cron.schedule("0,30 4-18 * * *", async () => {
+  console.log("🕓 [AUTO] Every 30 min (05:00–19:00 London) → Checking upcoming bookings...");
   await runDepositScheduler("auto");
 });
 
