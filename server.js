@@ -706,34 +706,48 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — uses Planyo form items (start_date / start_time)
+// 🧠 Scheduler core function — safe date handling + form item search
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const method = "search_reservations_by_form_item";
     const tz = "Europe/London";
 
-    // 🕓 Get London time properly
-    const now = new Date();
-    const londonNow = new Date(now.toLocaleString("en-GB", { timeZone: tz }));
+    // ✅ Reliable date formatter (avoids NaN)
+    const fmt = new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
 
-    // Get tomorrow’s date in London
-    const tomorrow = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
-    const from_day = tomorrow.getDate();
-    const from_month = tomorrow.getMonth() + 1;
+    // Get current London date parts
+    const partsNow = fmt.formatToParts(new Date());
+    const todayLondon = new Date(
+      `${partsNow.find(p => p.type === "year").value}-` +
+      `${partsNow.find(p => p.type === "month").value}-` +
+      `${partsNow.find(p => p.type === "day").value}T00:00:00`
+    );
+
+    // Tomorrow in London
+    const tomorrow = new Date(todayLondon.getTime() + 24 * 60 * 60 * 1000);
+
     const from_year = tomorrow.getFullYear();
+    const from_month = tomorrow.getMonth() + 1;
+    const from_day = tomorrow.getDate();
 
-    const dateStr = `${from_year}-${String(from_month).padStart(2, "0")}-${String(from_day).padStart(2, "0")}`;
-    console.log(`📅 Searching bookings with prop_res_start_date = ${dateStr}`);
+    const dateStr = `${from_year}-${String(from_month).padStart(2,"0")}-${String(from_day).padStart(2,"0")}`;
 
-    // ✅ Resource IDs
+    console.log(`🕓 London now: ${todayLondon.toISOString()} | Searching for bookings on: ${dateStr}`);
+
+    // ✅ Your resource IDs
     const resourceIDs = ["239201", "234303", "234304", "234305", "234306"];
     let allBookings = [];
 
     // 🔄 Loop through each resource
     for (const resourceID of resourceIDs) {
       const params = {
-        form_item_name: "prop_res_start_date", // ✅ actual Planyo property
+        form_item_name: "prop_res_start_date",
         form_item_value: dateStr,
         req_status: 4,
         include_unconfirmed: 1,
@@ -744,7 +758,7 @@ async function runDepositScheduler(mode) {
       console.log(`🌐 Checked resource ${resourceID} → ${url}`);
 
       if (data?.response_code === 0 && data.data?.results?.length > 0) {
-        console.log(`✅ Found ${data.data.results.length} matching booking(s) for resource ${resourceID}`);
+        console.log(`✅ Found ${data.data.results.length} booking(s) for ${resourceID}`);
         allBookings.push(...data.data.results);
       } else {
         console.log(`ℹ️ No bookings found for resource ${resourceID}`);
@@ -756,7 +770,7 @@ async function runDepositScheduler(mode) {
       console.log(`✅ Total bookings found for ${dateStr}: ${allBookings.length}`);
       for (const booking of allBookings) {
         const bookingID = booking.reservation_id;
-        const amount = 40000; // £400
+        const amount = 40000; // £400 hold
         console.log(`📩 Sending deposit link for booking #${bookingID}`);
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
