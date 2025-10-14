@@ -635,7 +635,7 @@ app.post("/email/deposit-confirmation", async (req, res) => {
   }
 });
 
-√
+
 
 // 🕓 Automatic deposit link scheduler (every 30 min between 05:00–19:00 London time)
 cron.schedule("0,30 4-18 * * *", async () => {
