@@ -706,7 +706,7 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — finds bookings in next 24 hours
+// 🧠 Scheduler core function — finds bookings in next 24 hours (no filter param)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
@@ -733,10 +733,8 @@ async function runDepositScheduler(mode) {
     const resourceIDs = ["239201", "234303", "234304", "234305", "234306"];
     let allBookings = [];
 
-    // 🔄 Check each lorry
     for (const resourceID of resourceIDs) {
       const params = {
-        filter: "starttime_with_date",
         from_day,
         from_month,
         from_year,
@@ -762,7 +760,6 @@ async function runDepositScheduler(mode) {
       }
     }
 
-    // ✅ Send deposit emails if any found
     if (allBookings.length > 0) {
       console.log(`✅ Total bookings found in next 24 hours: ${allBookings.length}`);
       for (const booking of allBookings) {
