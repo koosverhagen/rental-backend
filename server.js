@@ -706,51 +706,48 @@ cron.schedule("0 18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — safe date handling + form item search
+// 🧠 Scheduler core function — finds bookings in next 24 hours
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
-    const method = "search_reservations_by_form_item";
+    const method = "list_reservations";
     const tz = "Europe/London";
 
-    // ✅ Reliable date formatter (avoids NaN)
-    const fmt = new Intl.DateTimeFormat("en-GB", {
-      timeZone: tz,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
+    // 🕓 Compute 24h window in London time
+    const now = new Date();
+    const londonNow = new Date(now.toLocaleString("en-US", { timeZone: tz }));
+    const later = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
 
-    // Get current London date parts
-    const partsNow = fmt.formatToParts(new Date());
-    const todayLondon = new Date(
-      `${partsNow.find(p => p.type === "year").value}-` +
-      `${partsNow.find(p => p.type === "month").value}-` +
-      `${partsNow.find(p => p.type === "day").value}T00:00:00`
-    );
+    const from_day = londonNow.getDate();
+    const from_month = londonNow.getMonth() + 1;
+    const from_year = londonNow.getFullYear();
 
-    // Tomorrow in London
-    const tomorrow = new Date(todayLondon.getTime() + 24 * 60 * 60 * 1000);
+    const to_day = later.getDate();
+    const to_month = later.getMonth() + 1;
+    const to_year = later.getFullYear();
 
-    const from_year = tomorrow.getFullYear();
-    const from_month = tomorrow.getMonth() + 1;
-    const from_day = tomorrow.getDate();
+    console.log(`🕓 London now: ${londonNow.toISOString()} → Next 24h ends: ${later.toISOString()}`);
+    console.log(`📅 Checking bookings between ${from_day}/${from_month}/${from_year} and ${to_day}/${to_month}/${to_year}`);
 
-    const dateStr = `${from_year}-${String(from_month).padStart(2,"0")}-${String(from_day).padStart(2,"0")}`;
-
-    console.log(`🕓 London now: ${todayLondon.toISOString()} | Searching for bookings on: ${dateStr}`);
-
-    // ✅ Your resource IDs
+    // ✅ Resource IDs
     const resourceIDs = ["239201", "234303", "234304", "234305", "234306"];
     let allBookings = [];
 
-    // 🔄 Loop through each resource
+    // 🔄 Check each lorry
     for (const resourceID of resourceIDs) {
       const params = {
-        form_item_name: "prop_res_start_date",
-        form_item_value: dateStr,
+        filter: "starttime_with_date",
+        from_day,
+        from_month,
+        from_year,
+        to_day,
+        to_month,
+        to_year,
+        start_time: 0,
+        end_time: 24,
         req_status: 4,
         include_unconfirmed: 1,
+        list_by_creation_date: 0,
         resource_id: resourceID,
       };
 
@@ -758,16 +755,16 @@ async function runDepositScheduler(mode) {
       console.log(`🌐 Checked resource ${resourceID} → ${url}`);
 
       if (data?.response_code === 0 && data.data?.results?.length > 0) {
-        console.log(`✅ Found ${data.data.results.length} booking(s) for ${resourceID}`);
+        console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
         allBookings.push(...data.data.results);
       } else {
         console.log(`ℹ️ No bookings found for resource ${resourceID}`);
       }
     }
 
-    // ✅ Handle found bookings
+    // ✅ Send deposit emails if any found
     if (allBookings.length > 0) {
-      console.log(`✅ Total bookings found for ${dateStr}: ${allBookings.length}`);
+      console.log(`✅ Total bookings found in next 24 hours: ${allBookings.length}`);
       for (const booking of allBookings) {
         const bookingID = booking.reservation_id;
         const amount = 40000; // £400 hold
@@ -779,14 +776,13 @@ async function runDepositScheduler(mode) {
         });
       }
     } else {
-      console.log(`ℹ️ No bookings found for ${dateStr} (${mode} run).`);
+      console.log(`ℹ️ No bookings found in next 24h (${mode} run).`);
     }
 
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
   }
 }
-
 
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
