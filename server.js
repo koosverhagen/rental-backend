@@ -775,6 +775,8 @@ async function runDepositScheduler(mode) {
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
 // ----------------------------------------------------
+const processedBookings = new Set(); // prevent duplicates within ~2 minutes
+
 app.post("/planyo/callback", express.json(), async (req, res) => {
   try {
     const data = req.body || req.query;
@@ -783,6 +785,17 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
     if (data.notification_type === "reservation_confirmed") {
       const bookingID = data.reservation;
       const email = data.email;
+
+      // 🧠 Skip if this booking was processed very recently
+      if (processedBookings.has(bookingID)) {
+        console.log(`⏭️ Skipping duplicate callback for booking #${bookingID}`);
+        return res.status(200).send("Duplicate ignored");
+      }
+
+      processedBookings.add(bookingID);
+      // Clear after 2 minutes
+      setTimeout(() => processedBookings.delete(bookingID), 2 * 60 * 1000);
+
       console.log(`✅ Reservation confirmed #${bookingID} for ${email}`);
 
       await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
