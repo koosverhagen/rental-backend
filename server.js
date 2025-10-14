@@ -707,94 +707,75 @@ cron.schedule("0 6,10,12,14,18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — 24h window (UTC-safe, works on Render)
+// 🧠 Scheduler core function — robust & uses get_reservation_data per result
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
-    const method = "list_reservations";
     const tz = "Europe/London";
 
-    // ✅ Get current UTC time
-    const nowUTC = new Date();
+    // 🕓 Compute London now + tomorrow
+    const now = new Date();
+    const londonNow = new Date(now.toLocaleString("en-GB", { timeZone: tz }));
+    const tomorrow = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
+    const from_day = tomorrow.getDate();
+    const from_month = tomorrow.getMonth() + 1;
+    const from_year = tomorrow.getFullYear();
 
-    // ✅ Compute London offset safely (no locale dependency)
-    const londonOffsetMs = new Date().toLocaleString("en-US", { timeZone: tz });
-    const londonNow = new Date(londonOffsetMs);
+    console.log(
+      `📅 Checking confirmed bookings for tomorrow (${from_day}/${from_month}/${from_year})`
+    );
 
-    if (isNaN(londonNow.getTime())) {
-      console.warn("⚠️ Fallback to UTC time — Render missing full ICU data");
-      londonNow.setTime(nowUTC.getTime());
+    // ✅ Fetch all reservations for tomorrow, any resource
+    const listParams = {
+      filter: "starttime_with_date",
+      from_day,
+      from_month,
+      from_year,
+      to_day: from_day,
+      to_month: from_month,
+      to_year: from_year,
+      start_time: 0,
+      end_time: 24,
+      req_status: 4,
+      include_unconfirmed: 1,
+      list_by_creation_date: 0,
+    };
+
+    const { url, json: listData } = await planyoCall("list_reservations", listParams);
+    console.log(`🌐 List call → ${url}`);
+    console.log(`🧾 Raw list response:`, JSON.stringify(listData, null, 2));
+
+    if (!listData?.data?.results?.length) {
+      console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year}`);
+      return;
     }
 
-    // ✅ Define 24h window starting now
-    const from = londonNow;
-    const to = new Date(from.getTime() + 24 * 60 * 60 * 1000);
+    // ✅ For each booking, get full data & send deposit
+    console.log(`✅ Found ${listData.data.results.length} bookings for tomorrow`);
+    for (const item of listData.data.results) {
+      const bookingID = item.reservation_id;
 
-    console.log(`🕓 London now: ${from.toISOString()}`);
-    console.log(`🕓 Searching bookings up to: ${to.toISOString()}`);
+      // Fetch full details
+      const { json: bookingData } = await planyoCall("get_reservation_data", {
+        reservation_id: bookingID,
+      });
 
-    const from_day = from.getDate();
-    const from_month = from.getMonth() + 1;
-    const from_year = from.getFullYear();
-    const to_day = to.getDate();
-    const to_month = to.getMonth() + 1;
-    const to_year = to.getFullYear();
+      const start = bookingData?.data?.start_time || "N/A";
+      const resource = bookingData?.data?.name || "Unknown resource";
+      const email = bookingData?.data?.email || "no-email";
+      console.log(`📦 Booking ${bookingID}: ${resource} (${start}) → ${email}`);
 
-    console.log(`📅 Checking departures ${from_day}/${from_month}/${from_year} → ${to_day}/${to_month}/${to_year}`);
-
-    const resourceIDs = ["239201", "234303", "234304", "234305", "234306"];
-    let allBookings = [];
-
-    for (const resourceID of resourceIDs) {
-      const params = {
-        filter: "starttime_with_date",
-        from_day,
-        from_month,
-        from_year,
-        to_day,
-        to_month,
-        to_year,
-        start_time: 0,
-        end_time: 24,
-        req_status: 4,
-        include_unconfirmed: 1,
-        list_by_creation_date: 0,
-        resource_id: resourceID,
-      };
-
-      const { url, json: data } = await planyoCall(method, params);
-      console.log(`🌐 Checked resource ${resourceID} → ${url}`);
-
-      if (data?.response_code === 0 && data.data?.results?.length > 0) {
-        console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
-        allBookings.push(...data.data.results);
-      } else {
-        console.log(`ℹ️ No bookings found for resource ${resourceID}`);
-      }
-    }
-
-    if (allBookings.length > 0) {
-      console.log(`✅ Total bookings found in next 24h: ${allBookings.length}`);
-      for (const booking of allBookings) {
-        const bookingID = booking.reservation_id;
-
-        if (processedBookings.has(bookingID)) {
-          console.log(`⏩ Skipping duplicate booking #${bookingID}`);
-          continue;
-        }
-
-        processedBookings.add(bookingID);
-        const amount = 40000; // £400
-
-        console.log(`📩 Sending deposit link for booking #${bookingID}`);
+      // Only send if confirmed (status=7)
+      if (bookingData?.data?.status === "7") {
+        console.log(`📩 Sending £400 deposit link for booking #${bookingID}`);
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bookingID, amount, adminOnly: true }),
+          body: JSON.stringify({ bookingID, amount: 40000, adminOnly: true }),
         });
+      } else {
+        console.log(`⏸️ Skipped booking #${bookingID} (not confirmed)`);
       }
-    } else {
-      console.log(`ℹ️ No bookings found in next 24 hours (${mode} run).`);
     }
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
