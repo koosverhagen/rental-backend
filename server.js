@@ -687,12 +687,14 @@ async function planyoCall(method, params = {}) {
 
 // ---------------------------------------------
 // 🕓 Automatic deposit link scheduler (Planyo → /deposit/send-link)
-// Runs at 06:00, 10:00, 12:00, 14:00, and 18:00 (London time)
+// Runs 5x daily and catches bookings starting within the next 24 hours
 // ---------------------------------------------
-process.env.TZ = "Europe/London";
 
+const processedBookings = new Set(); // prevents duplicates
+
+// 🕕 Run every day at 06:00, 10:00, 12:00, 14:00, and 18:00 UTC
 cron.schedule("0 6,10,12,14,18 * * *", async () => {
-  console.log("🕕 [AUTO] Checking upcoming bookings for automatic deposit emails...");
+  console.log("🕕 Scheduled run: checking upcoming bookings (next 24 hours)...");
   await runDepositScheduler("auto");
 });
 
@@ -705,37 +707,45 @@ cron.schedule("0 6,10,12,14,18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — uses Start date (custom property)
+// 🧠 Scheduler core function — looks for bookings starting within 24h
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
-    const method = "search_reservations_by_form_item";
+    const method = "list_reservations";
     const tz = "Europe/London";
 
-    // 🕓 Compute tomorrow in London time
-    const now = new Date();
-    const londonNow = new Date(now.toLocaleString("en-GB", { timeZone: tz }));
-    const tomorrow = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
+    const utcNow = new Date();
+    const londonNow = new Date(utcNow.toLocaleString("en-GB", { timeZone: tz }));
 
-    // ✅ Ensure valid date parts
-    const yyyy = tomorrow.getFullYear();
-    const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
-    const dd = String(tomorrow.getDate()).padStart(2, "0");
-    const dateValue = `${yyyy}-${mm}-${dd}`; // example: 2025-10-15
+    const from = new Date(londonNow);
+    const to = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000); // +24h window
 
-    console.log(`📅 Searching bookings with Start date = ${dateValue}`);
+    const from_day = from.getDate();
+    const from_month = from.getMonth() + 1;
+    const from_year = from.getFullYear();
+    const to_day = to.getDate();
+    const to_month = to.getMonth() + 1;
+    const to_year = to.getFullYear();
 
-    // ✅ Your resource IDs
+    console.log(`📅 Searching bookings from ${from.toISOString()} to ${to.toISOString()} (next 24h window)`);
+
     const resourceIDs = ["239201", "234303", "234304", "234305", "234306"];
     let allBookings = [];
 
-    // 🔄 Check all resources
     for (const resourceID of resourceIDs) {
       const params = {
-        form_item_name: "Start date", // must match exact property name in Planyo
-        form_item_value: dateValue,   // e.g. "2025-10-15"
-        req_status: 4,                // confirmed
+        filter: "starttime_with_date",
+        from_day,
+        from_month,
+        from_year,
+        to_day,
+        to_month,
+        to_year,
+        start_time: 0,
+        end_time: 24,
+        req_status: 4,
         include_unconfirmed: 1,
+        list_by_creation_date: 0,
         resource_id: resourceID,
       };
 
@@ -750,13 +760,23 @@ async function runDepositScheduler(mode) {
       }
     }
 
-    // ✅ Process bookings
+    // ✅ Handle results (and avoid duplicates)
     if (allBookings.length > 0) {
-      console.log(`✅ Total bookings found: ${allBookings.length}`);
+      console.log(`✅ Total bookings found in next 24h: ${allBookings.length}`);
+
       for (const booking of allBookings) {
         const bookingID = booking.reservation_id;
+
+        if (processedBookings.has(bookingID)) {
+          console.log(`⏩ Skipping duplicate booking #${bookingID} (already processed)`);
+          continue;
+        }
+
+        processedBookings.add(bookingID);
+
         const amount = 40000; // £400
         console.log(`📩 Sending deposit link for booking #${bookingID}`);
+
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -764,7 +784,7 @@ async function runDepositScheduler(mode) {
         });
       }
     } else {
-      console.log(`ℹ️ No bookings found for Start date ${dateValue}`);
+      console.log(`ℹ️ No bookings found in next 24 hours (${mode} run).`);
     }
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
@@ -774,8 +794,6 @@ async function runDepositScheduler(mode) {
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
 // ----------------------------------------------------
-const processedBookings = new Set(); // prevent duplicates within ~2 minutes
-
 app.post("/planyo/callback", express.json(), async (req, res) => {
   try {
     const data = req.body || req.query;
@@ -784,18 +802,14 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
     if (data.notification_type === "reservation_confirmed") {
       const bookingID = data.reservation;
       const email = data.email;
+      console.log(`✅ Reservation confirmed #${bookingID} for ${email}`);
 
-      // 🧠 Skip if this booking was processed very recently
       if (processedBookings.has(bookingID)) {
-        console.log(`⏭️ Skipping duplicate callback for booking #${bookingID}`);
-        return res.status(200).send("Duplicate ignored");
+        console.log(`⏩ Skipping duplicate callback for booking #${bookingID}`);
+        return res.status(200).send("Already processed");
       }
 
       processedBookings.add(bookingID);
-      // Clear after 2 minutes
-      setTimeout(() => processedBookings.delete(bookingID), 2 * 60 * 1000);
-
-      console.log(`✅ Reservation confirmed #${bookingID} for ${email}`);
 
       await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
         method: "POST",
