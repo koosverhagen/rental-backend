@@ -707,18 +707,34 @@ cron.schedule("0 6,10,12,14,18 * * *", async () => {
 })();
 
 // ---------------------------------------------
-// 🧠 Scheduler core function — looks for bookings starting within 24h
+// 🧠 Scheduler core function — 24h window (fixed for Render UTC)
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const method = "list_reservations";
     const tz = "Europe/London";
 
-    const utcNow = new Date();
-    const londonNow = new Date(utcNow.toLocaleString("en-GB", { timeZone: tz }));
+    // Get current time in London (safe cross-platform conversion)
+    const londonNow = new Date(
+      new Date().toLocaleString("en-GB", { timeZone: tz })
+    );
 
-    const from = new Date(londonNow);
-    const to = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000); // +24h window
+    // Ensure it's a valid date before continuing
+    if (isNaN(londonNow.getTime())) {
+      throw new Error("Invalid London time conversion");
+    }
+
+    // Define 24h window starting now
+    const from = londonNow;
+    const to = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
+
+    // Double-check both dates are valid
+    if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+      throw new Error("Invalid from/to date window");
+    }
+
+    console.log(`🕓 London now: ${from.toISOString()}`);
+    console.log(`🕓 Searching bookings up to: ${to.toISOString()}`);
 
     const from_day = from.getDate();
     const from_month = from.getMonth() + 1;
@@ -727,7 +743,9 @@ async function runDepositScheduler(mode) {
     const to_month = to.getMonth() + 1;
     const to_year = to.getFullYear();
 
-    console.log(`📅 Searching bookings from ${from.toISOString()} to ${to.toISOString()} (next 24h window)`);
+    console.log(
+      `📅 Checking departures from ${from_day}/${from_month}/${from_year} to ${to_day}/${to_month}/${to_year}`
+    );
 
     const resourceIDs = ["239201", "234303", "234304", "234305", "234306"];
     let allBookings = [];
@@ -760,23 +778,20 @@ async function runDepositScheduler(mode) {
       }
     }
 
-    // ✅ Handle results (and avoid duplicates)
     if (allBookings.length > 0) {
       console.log(`✅ Total bookings found in next 24h: ${allBookings.length}`);
-
       for (const booking of allBookings) {
         const bookingID = booking.reservation_id;
 
         if (processedBookings.has(bookingID)) {
-          console.log(`⏩ Skipping duplicate booking #${bookingID} (already processed)`);
+          console.log(`⏩ Skipping duplicate booking #${bookingID}`);
           continue;
         }
 
         processedBookings.add(bookingID);
+        const amount = 40000;
 
-        const amount = 40000; // £400
         console.log(`📩 Sending deposit link for booking #${bookingID}`);
-
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
