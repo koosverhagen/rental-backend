@@ -743,25 +743,23 @@ async function runDepositScheduler(mode) {
     );
 
     // ✅ Fetch all confirmed bookings for tomorrow
-    const listParams = {
-      filter: "starttime_with_date",
-      from_day,
-      from_month,
-      from_year,
-      to_day: from_day,
-      to_month: from_month,
-      to_year: from_year,
-      start_time: 0,
-      end_time: 24,
-      req_status: 4,
-      include_unconfirmed: 1,
-      list_by_creation_date: 0,
-    };
+const listParams = {
+  from_day,
+  from_month,
+  from_year,
+  to_day: from_day,
+  to_month: from_month,
+  to_year: from_year,
+  start_time: 0,
+  end_time: 24,
+  req_status: 4,
+  include_unconfirmed: 1,
+  list_by_creation_date: 0,
+};
 
-    const { url, json: listData } = await planyoCall("list_reservations", listParams);
-    console.log(`🌐 List call → ${url}`);
-    console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
-
+const { url, json: listData } = await planyoCall("list_reservations", listParams);
+console.log(`🌐 List call → ${url}`);
+console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
     if (!listData?.data?.results?.length) {
       console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year}`);
       return;
