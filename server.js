@@ -705,69 +705,71 @@ cron.schedule("0 18 * * *", async () => {
   await runDepositScheduler("manual");
 })();
 
-/// ---------------------------------------------
-// 🧠 Scheduler core function — searches by form item "Duration"
+///// ---------------------------------------------
+// 🧠 Scheduler core function — uses form items start_date + start_time
 // ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
-    const method = "search_reservations_by_form_item"; // ✅ Correct method for form item filtering
+    const method = "search_reservations_by_form_item";
     const tz = "Europe/London";
 
-    // 🕓 Current time in London
-    const utcNow = new Date();
-    const londonNow = new Date(utcNow.toLocaleString("en-US", { timeZone: tz }));
+    // 🕓 Compute "tomorrow" in London time (no UTC confusion)
+    const nowUtc = new Date();
+    const londonNow = new Date(nowUtc.toLocaleString("en-GB", { timeZone: tz }));
+    const tomorrow = new Date(londonNow);
+    tomorrow.setDate(londonNow.getDate() + 1);
 
-    // 🗓 Tomorrow in London
-    const tomorrow = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
-    tomorrow.setHours(0, 0, 0, 0);
+    const yyyy = tomorrow.getFullYear();
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
+    const dd = String(tomorrow.getDate()).padStart(2, "0");
+    const dateFormatted = `${yyyy}-${mm}-${dd}`; // e.g. 2025-10-14
 
-    // 🧭 Format the Duration field the same way Planyo shows it
-    const formattedDate = tomorrow.toLocaleDateString("en-GB", {
-      weekday: "long",
-      day: "2-digit",
-      month: "long",
-      year: "numeric",
-      timeZone: tz,
-    });
+    console.log(`📅 Searching confirmed bookings for ${dateFormatted} (07:00 & 13:00 start times)`);
 
-    const formValue = `${formattedDate} 07:00 - 19:00 (12 hours)`;
-
-    console.log("🕓 London now:", londonNow.toISOString());
-    console.log("📅 Looking for bookings with Duration:", formValue);
-
-    // ✅ Resource IDs to check
+    // ✅ Your Planyo resource IDs
     const resourceIDs = ["239201", "234303", "234304", "234305", "234306"];
+    const validTimes = ["07:00", "13:00"];
     let allBookings = [];
 
-    // 🔄 Loop through each resource and query by Duration
+    // 🔄 Loop through all resources and time slots
     for (const resourceID of resourceIDs) {
-      const params = {
-        form_item_name: "duration", // your custom form item
-        form_item_value: formValue,
-        resource_id: resourceID,
-        req_status: 4, // confirmed bookings
-        include_unconfirmed: 1,
-      };
+      for (const startTime of validTimes) {
+        const params = {
+          form_item_name: "start_date",
+          form_item_value: dateFormatted,
+          req_status: 4, // confirmed
+          include_unconfirmed: 1,
+          resource_id: resourceID,
+        };
 
-      const { url, json: data } = await planyoCall(method, params);
-      console.log(`🌐 Checked resource ${resourceID} → ${url}`);
+        const { url, json: data } = await planyoCall(method, params);
+        console.log(`🌐 Checked resource ${resourceID} for ${startTime} → ${url}`);
 
-      if (data?.response_code === 0 && data.data?.results?.length > 0) {
-        console.log(`✅ Found ${data.data.results.length} booking(s) for resource ${resourceID}`);
-        allBookings.push(...data.data.results);
-      } else {
-        console.log(`ℹ️ No matching bookings found for resource ${resourceID}`);
+        if (data?.response_code === 0 && data.data?.results?.length > 0) {
+          // Filter only bookings starting at this time
+          const matching = data.data.results.filter(b =>
+            b.start_time?.includes(startTime)
+          );
+
+          if (matching.length > 0) {
+            console.log(`✅ Found ${matching.length} booking(s) for ${startTime} on resource ${resourceID}`);
+            allBookings.push(...matching);
+          } else {
+            console.log(`ℹ️ No ${startTime} bookings found for resource ${resourceID}`);
+          }
+        } else {
+          console.log(`ℹ️ No results returned for resource ${resourceID}`);
+        }
       }
     }
 
-    // ✅ Handle found bookings
+    // ✅ Send deposit links
     if (allBookings.length > 0) {
-      console.log(`✅ Total bookings found: ${allBookings.length}`);
+      console.log(`✅ Total bookings found for tomorrow: ${allBookings.length}`);
       for (const booking of allBookings) {
         const bookingID = booking.reservation_id;
-        const amount = 40000; // £400
-        console.log(`📩 Sending deposit link for booking #${bookingID}`);
-
+        const amount = 40000; // £400 hold
+        console.log(`📩 Sending £400 deposit link for booking #${bookingID}`);
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -775,8 +777,9 @@ async function runDepositScheduler(mode) {
         });
       }
     } else {
-      console.log("ℹ️ No bookings found for tomorrow’s Duration search.");
+      console.log(`ℹ️ No bookings found for ${dateFormatted} (${mode} run).`);
     }
+
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
   }
