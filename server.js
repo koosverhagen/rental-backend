@@ -687,12 +687,12 @@ async function planyoCall(method, params = {}) {
 
 // ---------------------------------------------
 // 🕓 Automatic deposit link scheduler (Planyo → /deposit/send-link)
-// TEST MODE – Admin Only (until 1 Nov)
+// Runs at 06:00, 10:00, 12:00, 14:00, and 18:00 (London time)
 // ---------------------------------------------
+process.env.TZ = "Europe/London";
 
-// Run every day at 18:00 (6PM) UTC
-cron.schedule("0 18 * * *", async () => {
-  console.log("🕕 [TEST MODE – Admin Only] Checking upcoming bookings for automatic deposit emails...");
+cron.schedule("0 6,10,12,14,18 * * *", async () => {
+  console.log("🕕 [AUTO] Checking upcoming bookings for automatic deposit emails...");
   await runDepositScheduler("auto");
 });
 
