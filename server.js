@@ -637,19 +637,75 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 
 
 
-// 🕓 Automatic deposit link scheduler (every 30 min between 05:00–19:00 London time)
+// =====================================================
+// 🧩 PLANYO AUTOMATIC DEPOSIT LINK SCHEDULER
+// Runs every 30 min between 05:00–19:00 London time
+// =====================================================
+
+import crypto from "crypto";
+import fetch from "node-fetch";
+import cron from "node-cron";
+import express from "express";
+
+// ---------------------------------------------
+// 🔑 Helper: Secure Planyo API call with auto timestamp retry
+// ---------------------------------------------
+async function planyoCall(method, params = {}) {
+  const buildUrl = (timestamp) => {
+    const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
+    const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
+
+    const query = new URLSearchParams({
+      method,
+      api_key: process.env.PLANYO_API_KEY,
+      site_id: process.env.PLANYO_SITE_ID,
+      hash_timestamp: timestamp,
+      hash_key: hashKey,
+      ...Object.fromEntries(
+        Object.entries(params).map(([k, v]) => [k, String(v)])
+      ),
+    });
+
+    return `https://www.planyo.com/rest/?${query.toString()}`;
+  };
+
+  // 🔁 Fetch with automatic retry for invalid timestamps
+  async function doFetch() {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const url = buildUrl(timestamp);
+    console.log("🧠 [initial] Using hash_timestamp:", timestamp);
+
+    const response = await fetch(url);
+    const json = await response.json();
+    return { url, json, timestamp };
+  }
+
+  let { url, json, timestamp } = await doFetch();
+  if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || "")) {
+    console.log("⚠️ Invalid timestamp — retrying with fresh timestamp...");
+    ({ url, json, timestamp } = await doFetch());
+  }
+
+  return { url, json, timestamp };
+}
+
+// ---------------------------------------------
+// 🕓 Automatic deposit link scheduler
+// Runs every 30 minutes between 05:00–19:00 London time
+// ---------------------------------------------
 cron.schedule("0,30 4-18 * * *", async () => {
   console.log("🕓 [AUTO] Every 30 min (05:00–19:00 London) → Checking upcoming bookings...");
   await runDepositScheduler("auto");
 });
 
-// ⚡ Manual test on startup (disabled unless STARTUP_TEST=true)
+// ⚡ Manual test on startup (only if STARTUP_TEST=true)
 if (process.env.STARTUP_TEST === "true") {
   (async () => {
     console.log("⚡ Manual test: running deposit scheduler immediately... [TEST MODE – Admin Only]");
     await runDepositScheduler("manual");
   })();
 }
+
 // ---------------------------------------------
 // 🧠 Scheduler core function — London-safe + NaN-proof
 // ---------------------------------------------
@@ -657,7 +713,7 @@ async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
 
-    // 🕓 Safely get London time components without locale parsing
+    // 🕓 Safe conversion to London time
     const now = new Date();
     const londonParts = new Intl.DateTimeFormat("en-GB", {
       timeZone: tz,
@@ -679,7 +735,9 @@ async function runDepositScheduler(mode) {
       `${londonParts.year}-${londonParts.month}-${londonParts.day}T${londonParts.hour}:${londonParts.minute}:${londonParts.second}`
     );
 
-    // ➕ Compute tomorrow in London safely
+    if (isNaN(londonNow.getTime())) throw new Error("Invalid London time conversion");
+
+    // ➕ Tomorrow in London
     const tomorrow = new Date(londonNow);
     tomorrow.setDate(londonNow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
@@ -693,23 +751,25 @@ async function runDepositScheduler(mode) {
     );
 
     // ✅ Fetch all confirmed bookings for tomorrow
-const listParams = {
-  from_day,
-  from_month,
-  from_year,
-  to_day: from_day,
-  to_month: from_month,
-  to_year: from_year,
-  start_time: 0,
-  end_time: 24,
-  req_status: 4,
-  include_unconfirmed: 1,
-  list_by_creation_date: 0,
-};
+    const listParams = {
+      filter: "starttime_with_date",
+      from_day,
+      from_month,
+      from_year,
+      to_day: from_day,
+      to_month: from_month,
+      to_year: from_year,
+      start_time: 0,
+      end_time: 24,
+      req_status: 4,
+      include_unconfirmed: 1,
+      list_by_creation_date: 0,
+    };
 
-const { url, json: listData } = await planyoCall("list_reservations", listParams);
-console.log(`🌐 List call → ${url}`);
-console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
+    const { url, json: listData } = await planyoCall("list_reservations", listParams);
+    console.log(`🌐 List call → ${url}`);
+    console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
+
     if (!listData?.data?.results?.length) {
       console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year}`);
       return;
@@ -750,6 +810,8 @@ console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
 // ----------------------------------------------------
+const processedBookings = new Set();
+
 app.post("/planyo/callback", express.json(), async (req, res) => {
   try {
     const data = req.body || req.query;
@@ -784,7 +846,6 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
     res.status(500).send("Error");
   }
 });
-
 // ---------------------------------------------
 const PORT = process.env.PORT || 4242;
 app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
