@@ -645,7 +645,7 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 // 📦 Persistent duplicate protection (Render-safe + restart-proof)
 // ----------------------------------------------------
 
-const path = require("path");
+
 
 // Define storage file (works on both Render Free + Paid plans)
 const DATA_DIR = process.env.DATA_DIR || process.cwd();
