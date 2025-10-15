@@ -764,24 +764,39 @@ if (process.env.STARTUP_TEST === "true") {
   })();
 }
 
-// ----------------------------------------------------
-// 🧠 Scheduler core function — London-safe + robust date handling
-// ----------------------------------------------------
+// ---------------------------------------------
+// 🧠 Scheduler core function — London-safe + robust Planyo calls
+// ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
 
-    // 🧭 Compute reliable London time using Intl.DateTimeFormat
-    const now = new Date();
-    const londonOffsetMs =
-      now.getTimezoneOffset() * 60 * 1000 -
-      new Date().toLocaleString("en-US", { timeZone: tz }) +
-      now.getTime();
+    // 🕓 Safely compute London time and tomorrow
+    const formatter = new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
 
-    const londonNow = new Date(londonOffsetMs);
-    if (isNaN(londonNow.getTime())) throw new Error("Invalid London time conversion");
+    const parts = Object.fromEntries(
+      formatter.formatToParts(new Date()).map((p) => [p.type, p.value])
+    );
 
-    // ➕ Compute tomorrow 00:00 London
+    // Build valid ISO timestamp for London time
+    const londonNow = new Date(
+      `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`
+    );
+
+    if (isNaN(londonNow.getTime())) {
+      throw new Error("Invalid London time conversion");
+    }
+
+    // ➕ Compute tomorrow in London safely
     const tomorrow = new Date(londonNow);
     tomorrow.setDate(londonNow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
@@ -794,7 +809,7 @@ async function runDepositScheduler(mode) {
       `🕓 London now: ${londonNow.toISOString()} | Checking bookings for ${from_day}/${from_month}/${from_year}`
     );
 
-    // ✅ Prepare list call for tomorrow
+    // ✅ Fetch all confirmed bookings for tomorrow
     const listParams = {
       filter: "starttime_with_date",
       from_day,
@@ -805,12 +820,11 @@ async function runDepositScheduler(mode) {
       to_year: from_year,
       start_time: 0,
       end_time: 24,
-      req_status: 4,
+      req_status: 4, // confirmed
       include_unconfirmed: 1,
       list_by_creation_date: 0,
     };
 
-    // 🔗 Query Planyo API
     const { url, json: listData } = await planyoCall("list_reservations", listParams);
     console.log(`🌐 List call → ${url}`);
     console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
@@ -822,8 +836,11 @@ async function runDepositScheduler(mode) {
 
     console.log(`✅ Found ${listData.data.results.length} booking(s)`);
 
+    // ✅ Loop through bookings and process each
     for (const item of listData.data.results) {
       const bookingID = item.reservation_id;
+
+      // Fetch full details
       const { json: bookingData } = await planyoCall("get_reservation_data", {
         reservation_id: bookingID,
       });
@@ -835,6 +852,7 @@ async function runDepositScheduler(mode) {
 
       console.log(`📦 Booking #${bookingID} (${resource}) → ${start} (${email})`);
 
+      // Only send if confirmed (status=7)
       if (status === "7") {
         console.log(`📩 Sending £400 deposit link for booking #${bookingID}`);
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
@@ -846,8 +864,6 @@ async function runDepositScheduler(mode) {
         console.log(`⏸️ Skipped booking #${bookingID} (status=${status})`);
       }
     }
-
-    console.log(`🏁 Scheduler run complete (${mode}) — checked ${listData.data.results.length} bookings.`);
   } catch (err) {
     console.error("❌ Deposit scheduler error:", err);
   }
