@@ -637,24 +637,6 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 
 
 
-// ----------------------------------------------------
-// ✅ Imports and setup
-// ----------------------------------------------------
-const express = require("express");
-const cors = require("cors");
-const Stripe = require("stripe");
-const crypto = require("crypto");
-const sendgrid = require("@sendgrid/mail");
-const cron = require("node-cron");
-const fetch = require("node-fetch");
-require("dotenv").config();
-
-const app = express();
-const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
-sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
-
-app.use(cors());
-app.use(express.json());
 
 // ----------------------------------------------------
 // 🧠 Duplicate protection caches
