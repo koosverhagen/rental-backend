@@ -717,12 +717,7 @@ function alreadySentRecently(bookingID) {
   return false;
 }
 
-// Export helpers to use later if needed
-global.markDepositSent = markDepositSent;
-global.alreadySentRecently = alreadySentRecently;
-global.processedBookings = processedBookings;
-global.sentDepositBookings = sentDepositBookings;
-posit links sent
+
 
 // ----------------------------------------------------
 // 🔑 Helper: Secure Planyo API call with retry
