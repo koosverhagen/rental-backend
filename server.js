@@ -17,13 +17,35 @@ const app = express();
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
 
+// ⚠️ Do NOT add app.use(express.json()) yet!
+// We’ll add it AFTER the Stripe webhook route.
+
+// ---------------------------------------------
+// ✅ Stripe Webhook (raw body required for signature verification)
+// ---------------------------------------------
+app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error("❌ Webhook verification failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  console.log("✅ Stripe webhook event:", event.type);
+  res.send();
+});
+
+// ✅ Normal middleware only after webhook
 app.use(cors());
 app.use(express.json());
-
 
 // ---------------------------------------------
 // 🔧 Helper: fetch booking info from Planyo
 // ---------------------------------------------
+
 async function fetchPlanyoBooking(bookingID) {
   try {
     const method = "get_reservation_data";
