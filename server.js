@@ -741,8 +741,8 @@ async function planyoCall(method, params = {}) {
   return { url, json };
 }
 
-// 🕓 Automatic deposit link scheduler (every 30 min between 05:00–19:00 London)
-cron.schedule("0,30 4-18 * * *", async () => {
+// 🕓 Automatic deposit link scheduler (every 30 min between 05:00–19:00 London time)
+cron.schedule("0,30 5-19 * * *", async () => {
   console.log("🕓 [AUTO] Every 30 min (05:00–19:00 London) → Checking upcoming bookings...");
   await runDepositScheduler("auto");
 });
@@ -755,65 +755,88 @@ if (process.env.STARTUP_TEST === "true") {
   })();
 }
 
+// ---------------------------------------------
+// 🧠 Scheduler core function — next 24h window + get_reservation_data
+// ---------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
 
-    // Get current London time safely
-    const londonNow = new Date(
-      new Date().toLocaleString("en-GB", { timeZone: tz })
-    );
+    // 🕓 Get current London time
+    const londonNow = new Date(new Date().toLocaleString("en-GB", { timeZone: tz }));
     if (isNaN(londonNow)) throw new Error("Invalid London time");
 
-    // Create 24-hour range (next 24 hours)
+    // ⏩ Define next 24h window
     const fromDate = londonNow;
     const toDate = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
 
-    // Format as "YYYY-MM-DD HH:MM:SS" (Planyo requirement)
+    // Convert to full datetime format for Planyo
     const fmt = (d) =>
-      d.toISOString().replace("T", " ").replace("Z", "").split(".")[0];
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+        d.getDate()
+      ).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(
+        d.getMinutes()
+      ).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
 
     const start_time = fmt(fromDate);
     const end_time = fmt(toDate);
 
     console.log(`🕓 London now: ${londonNow.toISOString()}`);
-    console.log(`📅 Checking bookings between ${start_time} → ${end_time}`);
+    console.log(`📅 Checking confirmed bookings between ${start_time} → ${end_time}`);
 
-    // ✅ Query Planyo using correct params
+    // ✅ Query confirmed bookings starting within next 24h
     const listParams = {
       start_time,
       end_time,
       site_id: 68785,
-      required_status: 4, // confirmed only
+      required_status: 4, // Confirmed
       include_unconfirmed: 1,
       list_by_creation_date: 0,
       resource_ids: "239201,234303,234304,234305,234306",
+      sort: "start_time",
     };
 
     const { url, json: listData } = await planyoCall("list_reservations", listParams);
     console.log(`🌐 Planyo list_reservations → ${url}`);
-    console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
 
-    if (!listData?.data?.results?.length) {
-      console.log(`ℹ️ No bookings found in next 24h`);
+    if (listData?.response_code !== 0) {
+      console.error(`❌ Planyo error: ${listData.response_message}`);
       return;
     }
 
-    console.log(`✅ Found ${listData.data.results.length} bookings in next 24h`);
+    const results = listData?.data?.results || [];
+    if (results.length === 0) {
+      console.log("ℹ️ No bookings found in next 24 hours");
+      return;
+    }
 
-    // Loop over bookings
-    for (const item of listData.data.results) {
+    console.log(`✅ Found ${results.length} booking(s)`);
+
+    // 🔍 Loop and fetch detailed data
+    for (const item of results) {
       const bookingID = item.reservation_id;
+      console.log(`🔎 Getting details for booking #${bookingID}`);
+
       const { json: bookingData } = await planyoCall("get_reservation_data", {
         reservation_id: bookingID,
       });
 
-      const start = bookingData?.data?.start_time || "N/A";
-      const email = bookingData?.data?.email || "N/A";
-      const status = bookingData?.data?.status || "unknown";
-      const resource = bookingData?.data?.name || "N/A";
+      if (bookingData?.response_code !== 0) {
+        console.warn(`⚠️ Failed to fetch booking ${bookingID}: ${bookingData?.response_message}`);
+        continue;
+      }
 
-      console.log(`📦 Booking #${bookingID} (${resource}) → ${start} (${email})`);
+      const info = bookingData.data;
+      const start = info?.start_time;
+      const resource = info?.name;
+      const email = info?.email;
+      const status = info?.status;
+      const total = info?.total_price;
+      const created = info?.creation_time;
+
+      console.log(
+        `📦 Booking #${bookingID}: ${resource} | ${start} | £${total} | ${email} | Created ${created}`
+      );
 
       if (status === "7") {
         console.log(`📩 Sending £400 deposit link for booking #${bookingID}`);
@@ -834,8 +857,6 @@ async function runDepositScheduler(mode) {
 // ----------------------------------------------------
 // 📬 Planyo Webhook (Notification Callback)
 // ----------------------------------------------------
-const processedBookings = new Set();
-
 app.post("/planyo/callback", express.json(), async (req, res) => {
   try {
     const data = req.body || req.query;
@@ -858,7 +879,7 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bookingID,
-          amount: 40000,
+          amount: 40000, // £400 hold
           adminOnly: true,
         }),
       });
