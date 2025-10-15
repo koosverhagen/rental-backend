@@ -868,7 +868,7 @@ async function runDepositScheduler(mode) {
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bookingID, amount: 40000, adminOnly: true }),
+           body: JSON.stringify({ bookingID, amount: 40000 }),
         });
 
        markDepositSent(bookingID);
@@ -909,7 +909,7 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
       await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingID, amount: 40000, adminOnly: true }),
+        body: JSON.stringify({ bookingID, amount: 40000 }),
       });
 
       processedBookings.add(bookingID);
@@ -923,9 +923,7 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
 // ✅ Deposit email sender endpoint
-// ----------------------------------------------------
 app.post("/deposit/send-link", async (req, res) => {
   try {
     const { bookingID, amount } = req.body;
@@ -951,26 +949,40 @@ app.post("/deposit/send-link", async (req, res) => {
             💳 Pay Deposit Securely
           </a>
         </p>
-        <p>Kind regards,<br><b>Equine Transport UK</b></p>
+        <div style="background:#f0f7ff;border:1px solid #d6e7ff;color:#124a8a;padding:12px;border-radius:8px;margin-top:14px;font-size:14px">
+          <b>Note:</b> This is a <b>pre-authorisation (hold)</b>. No money is taken now. Funds remain reserved until we release the hold (normally straight after return) or capture part/all if vehicle is returned not refuelled or damaged.
+        </div>
+        <p style="margin-top:30px;">Kind regards,<br/>Koos & Avril<br/><b>Equine Transport UK</b></p>
+        <hr style="margin:30px 0;"/>
+        <p style="font-size:12px; color:#777; text-align:center;">
+          Equine Transport UK<br/>
+          Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL, East Sussex, GB<br/>
+          📞 +44 7584578654 | ✉️ <a href="mailto:info@equinetransportuk.com">info@equinetransportuk.com</a>
+        </p>
       </div>`;
 
-    await sendgrid.send({
-      to: booking.email,
-      from: "Equine Transport UK <info@equinetransportuk.com>",
-      subject: `Equine Transport UK | Deposit Link | Booking #${bookingID}`,
-      html,
-    });
+    // ✅ Send to both customer AND admin — no “admin only” mode
+    const emails = [
+      booking.email,           // Customer
+      "kverhagen@mac.com"      // Admin copy
+    ];
 
-    await sendgrid.send({
-      to: "kverhagen@mac.com",
-      from: "Equine Transport UK <info@equinetransportuk.com>",
-      subject: `Admin Copy | Deposit Link Sent | Booking #${bookingID}`,
-      html,
-    });
+    await Promise.all(
+      emails.map(to =>
+        sendgrid.send({
+          to,
+          from: "Equine Transport UK <info@equinetransportuk.com>",
+          subject: `Equine Transport UK | Deposit Link | Booking #${bookingID} | ${booking.firstName} ${booking.lastName}`,
+          html,
+        })
+      )
+    );
 
+    // Mark as sent
     sentDepositBookings.add(String(bookingID));
     saveSet(SENT_FILE, sentDepositBookings);
 
+    console.log(`✅ Deposit link sent to ${booking.email} and admin for booking #${bookingID}`);
     res.json({ success: true, url: link });
   } catch (err) {
     console.error("❌ SendGrid email error:", err);
