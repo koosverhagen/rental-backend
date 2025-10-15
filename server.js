@@ -781,10 +781,10 @@ async function fetchPlanyoBooking(bookingID) {
 }
 
 // ----------------------------------------------------
-// 🕓 Automatic deposit link scheduler (every 30 min between 05:00–19:00 London time)
+// 🕓 Automatic deposit link scheduler (once daily at 19:00 London time)
 // ----------------------------------------------------
-cron.schedule("0,30 4-18 * * *", async () => {
-  console.log("🕓 [AUTO] Every 30 min (05:00–19:00 London) → Checking upcoming bookings...");
+cron.schedule("0 19 * * *", async () => {
+  console.log("🕓 [AUTO] Running once daily at 19:00 (London) → Checking upcoming bookings...");
   await runDepositScheduler("auto");
 });
 
