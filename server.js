@@ -809,21 +809,19 @@ async function runDepositScheduler(mode) {
       `🕓 London now: ${londonNow.toISOString()} | Checking bookings for ${from_day}/${from_month}/${from_year}`
     );
 
-    // ✅ Fetch all confirmed bookings for tomorrow
-    const listParams = {
-      filter: "starttime_with_date",
-      from_day,
-      from_month,
-      from_year,
-      to_day: from_day,
-      to_month: from_month,
-      to_year: from_year,
-      start_time: 0,
-      end_time: 24,
-      req_status: 4, // confirmed
-      include_unconfirmed: 1,
-      list_by_creation_date: 0,
-    };
+// ✅ Fetch all confirmed bookings for tomorrow
+const startTime = `${from_year}-${String(from_month).padStart(2, "0")}-${String(from_day).padStart(2, "0")} 00:00:00`;
+const endTime = `${from_year}-${String(from_month).padStart(2, "0")}-${String(from_day).padStart(2, "0")} 23:59:59`;
+
+const listParams = {
+  method: "list_reservations",
+  start_time: startTime,
+  end_time: endTime,
+  req_status: 4, // confirmed
+  include_unconfirmed: 1,
+  list_by_creation_date: 0,
+};
+
 
     const { url, json: listData } = await planyoCall("list_reservations", listParams);
     console.log(`🌐 List call → ${url}`);
