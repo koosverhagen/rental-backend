@@ -741,22 +741,47 @@ async function planyoCall(method, params = {}) {
   return { url, json };
 }
 
-// ----------------------------------------------------
-// 🧩 Track processed bookings (prevents duplicate emails)
-// ----------------------------------------------------
-const processedBookings = new Set();
+// ============================================================
+// 🕓 Automatic deposit link scheduler (every 30 min 05:00–19:00 London)
+// ============================================================
+import fs from "fs";
 
-// ----------------------------------------------------
-// 🕓 Automatic deposit link scheduler (every 30 min between 05:00–19:00 London)
-// ----------------------------------------------------
-cron.schedule("0,30 5-19 * * *", async () => {
+// 🧩 Track which bookings already got a deposit email
+const processedBookings = new Set();
+const CACHE_FILE = "./processedBookings.json";
+
+// 🗂️ Load saved cache (if file exists)
+if (fs.existsSync(CACHE_FILE)) {
+  try {
+    const saved = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
+    saved.forEach((id) => processedBookings.add(id));
+    console.log(`🧠 Loaded ${processedBookings.size} cached bookings`);
+  } catch (err) {
+    console.error("⚠️ Could not load processedBookings cache:", err);
+  }
+}
+
+// 💾 Periodically save cache every 10 min
+setInterval(() => {
+  try {
+    fs.writeFileSync(CACHE_FILE, JSON.stringify([...processedBookings]));
+    console.log("💾 processedBookings cache saved");
+  } catch (err) {
+    console.error("⚠️ Could not save processedBookings cache:", err);
+  }
+}, 10 * 60 * 1000);
+
+// ------------------------------------------------------------
+// 🕓 Schedule automatic job (every 30 min, 05:00–19:00 London)
+// ------------------------------------------------------------
+cron.schedule("0,30 4-18 * * *", async () => {
   console.log("🕓 [AUTO] Every 30 min (05:00–19:00 London) → Checking upcoming bookings...");
   await runDepositScheduler("auto");
 });
 
-// ----------------------------------------------------
-// ⚡ Manual test on startup (disabled unless STARTUP_TEST=true)
-// ----------------------------------------------------
+// ------------------------------------------------------------
+// ⚡ Manual test on startup (optional, disable via .env)
+// ------------------------------------------------------------
 if (process.env.STARTUP_TEST === "true") {
   (async () => {
     console.log("⚡ Manual test: running deposit scheduler immediately... [TEST MODE – Admin Only]");
@@ -764,15 +789,16 @@ if (process.env.STARTUP_TEST === "true") {
   })();
 }
 
-// ---------------------------------------------
-// 🧠 Scheduler core function — London-safe + robust Planyo calls
-// ---------------------------------------------
+// ============================================================
+// 🧠 Scheduler Core Function — London-safe + no-duplicate emails
+// ============================================================
 async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
 
-    // 🕓 Safely compute London time and tomorrow
-    const formatter = new Intl.DateTimeFormat("en-GB", {
+    // 🕓 Compute London “now” safely using Intl.DateTimeFormat
+    const now = new Date();
+    const londonParts = new Intl.DateTimeFormat("en-GB", {
       timeZone: tz,
       year: "numeric",
       month: "2-digit",
@@ -781,22 +807,18 @@ async function runDepositScheduler(mode) {
       minute: "2-digit",
       second: "2-digit",
       hour12: false,
-    });
+    })
+      .formatToParts(now)
+      .reduce((acc, part) => {
+        if (part.type !== "literal") acc[part.type] = part.value;
+        return acc;
+      }, {});
 
-    const parts = Object.fromEntries(
-      formatter.formatToParts(new Date()).map((p) => [p.type, p.value])
-    );
-
-    // Build valid ISO timestamp for London time
     const londonNow = new Date(
-      `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`
+      `${londonParts.year}-${londonParts.month}-${londonParts.day}T${londonParts.hour}:${londonParts.minute}:${londonParts.second}`
     );
 
-    if (isNaN(londonNow.getTime())) {
-      throw new Error("Invalid London time conversion");
-    }
-
-    // ➕ Compute tomorrow in London safely
+    // ➕ Tomorrow in London
     const tomorrow = new Date(londonNow);
     tomorrow.setDate(londonNow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
@@ -809,36 +831,49 @@ async function runDepositScheduler(mode) {
       `🕓 London now: ${londonNow.toISOString()} | Checking bookings for ${from_day}/${from_month}/${from_year}`
     );
 
-// ✅ Fetch all confirmed bookings for tomorrow
-const startTime = `${from_year}-${String(from_month).padStart(2, "0")}-${String(from_day).padStart(2, "0")} 00:00:00`;
-const endTime = `${from_year}-${String(from_month).padStart(2, "0")}-${String(from_day).padStart(2, "0")} 23:59:59`;
-
-const listParams = {
-  method: "list_reservations",
-  start_time: startTime,
-  end_time: endTime,
-  req_status: 4, // confirmed
-  include_unconfirmed: 1,
-  list_by_creation_date: 0,
-};
-
+    // ✅ Fetch all confirmed bookings for tomorrow
+    const listParams = {
+      filter: "starttime_with_date",
+      from_day,
+      from_month,
+      from_year,
+      to_day: from_day,
+      to_month: from_month,
+      to_year: from_year,
+      start_time: 0,
+      end_time: 24,
+      req_status: 4,
+      include_unconfirmed: 1,
+      list_by_creation_date: 0,
+    };
 
     const { url, json: listData } = await planyoCall("list_reservations", listParams);
-    console.log(`🌐 List call → ${url}`);
-    console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
+    console.log(`🌐 Planyo → ${url}`);
 
-    if (!listData?.data?.results?.length) {
+    if (listData?.response_code !== 0) {
+      console.log(`⚠️ Planyo responded with: ${listData.response_message}`);
+      return;
+    }
+
+    const results = listData?.data?.results || [];
+    if (!results.length) {
       console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year}`);
       return;
     }
 
-    console.log(`✅ Found ${listData.data.results.length} booking(s)`);
+    console.log(`✅ Found ${results.length} booking(s)`);
 
-    // ✅ Loop through bookings and process each
-    for (const item of listData.data.results) {
+    // 🔄 Loop through each booking
+    for (const item of results) {
       const bookingID = item.reservation_id;
 
-      // Fetch full details
+      // Skip if already processed
+      if (processedBookings.has(bookingID)) {
+        console.log(`⏩ Skipping booking #${bookingID} — already sent`);
+        continue;
+      }
+
+      // Fetch details
       const { json: bookingData } = await planyoCall("get_reservation_data", {
         reservation_id: bookingID,
       });
@@ -850,7 +885,6 @@ const listParams = {
 
       console.log(`📦 Booking #${bookingID} (${resource}) → ${start} (${email})`);
 
-      // Only send if confirmed (status=7)
       if (status === "7") {
         console.log(`📩 Sending £400 deposit link for booking #${bookingID}`);
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
@@ -858,6 +892,8 @@ const listParams = {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ bookingID, amount: 40000, adminOnly: true }),
         });
+
+        processedBookings.add(bookingID);
       } else {
         console.log(`⏸️ Skipped booking #${bookingID} (status=${status})`);
       }
@@ -867,9 +903,9 @@ const listParams = {
   }
 }
 
-// ----------------------------------------------------
-// 📬 Planyo Webhook (Notification Callback)
-// ----------------------------------------------------
+// ============================================================
+// 📬 Planyo Webhook (Reservation Confirmed Callback)
+// ============================================================
 app.post("/planyo/callback", express.json(), async (req, res) => {
   try {
     const data = req.body || req.query;
@@ -880,7 +916,6 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
       const email = data.email;
       console.log(`✅ Reservation confirmed #${bookingID} for ${email}`);
 
-      // 🧩 Prevent duplicate deposit emails
       if (processedBookings.has(bookingID)) {
         console.log(`⏩ Skipping duplicate callback for booking #${bookingID}`);
         return res.status(200).send("Already processed");
@@ -888,7 +923,6 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
 
       processedBookings.add(bookingID);
 
-      // Send deposit request
       await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
