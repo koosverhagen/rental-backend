@@ -642,12 +642,17 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// 📦 Persistent duplicate protection (Render-safe)
+// 📦 Persistent duplicate protection (Render-safe + restart-proof)
 // ----------------------------------------------------
-const DATA_DIR = process.env.DATA_DIR || "/tmp";
+const fs = require("fs");
+const path = require("path");
+
+// Define storage file (works on both Render Free + Paid plans)
+const DATA_DIR = process.env.DATA_DIR || process.cwd();
 const SENT_FILE = path.join(DATA_DIR, "sentDeposits.json");
 const CALLBACK_FILE = path.join(DATA_DIR, "processedCallbacks.json");
 
+// --- Helpers to load and save sets ---
 function loadSet(file) {
   try {
     if (fs.existsSync(file)) {
@@ -669,8 +674,55 @@ function saveSet(file, set) {
   }
 }
 
-const processedBookings = loadSet(CALLBACK_FILE);   // Planyo callbacks handled
-const sentDepositBookings = loadSet(SENT_FILE);     // Deposit links sent
+// --- Load persisted data ---
+let processedBookings = loadSet(CALLBACK_FILE);  // confirmed bookings handled
+let sentDepositBookings = loadSet(SENT_FILE);    // deposit links already emailed
+
+// --- Clean up old entries every night (older than 3 days) ---
+const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+cron.schedule("0 0 * * *", () => {
+  const cutoff = Date.now() - THREE_DAYS_MS;
+
+  // BookingIDs are stored as "<id>:<timestamp>"
+  const cleanSet = new Set(
+    [...sentDepositBookings].filter((entry) => {
+      const parts = entry.split(":");
+      const ts = Number(parts[1]);
+      return !isNaN(ts) && ts > cutoff;
+    })
+  );
+
+  if (cleanSet.size !== sentDepositBookings.size) {
+    console.log(
+      `🧹 Cleaned old sent deposit entries (${sentDepositBookings.size - cleanSet.size} removed)`
+    );
+    sentDepositBookings = cleanSet;
+    saveSet(SENT_FILE, sentDepositBookings);
+  }
+});
+
+// --- Utility: mark a booking as sent ---
+function markDepositSent(bookingID) {
+  sentDepositBookings.add(`${bookingID}:${Date.now()}`);
+  saveSet(SENT_FILE, sentDepositBookings);
+}
+
+// --- Utility: check if booking was sent recently (within 3 days) ---
+function alreadySentRecently(bookingID) {
+  const cutoff = Date.now() - THREE_DAYS_MS;
+  for (const entry of sentDepositBookings) {
+    const [id, ts] = entry.split(":");
+    if (id === String(bookingID) && Number(ts) > cutoff) return true;
+  }
+  return false;
+}
+
+// Export helpers to use later if needed
+global.markDepositSent = markDepositSent;
+global.alreadySentRecently = alreadySentRecently;
+global.processedBookings = processedBookings;
+global.sentDepositBookings = sentDepositBookings;
+posit links sent
 
 // ----------------------------------------------------
 // 🔑 Helper: Secure Planyo API call with retry
@@ -812,10 +864,10 @@ async function runDepositScheduler(mode) {
       const resource = bookingData?.data?.name || "N/A";
 
       if (status === "7") {
-        if (sentDepositBookings.has(bookingID)) {
-          console.log(`⏩ Skipping duplicate deposit email for #${bookingID}`);
-          continue;
-        }
+        if (alreadySentRecently(bookingID)) {
+  console.log(`⏩ Skipping recent duplicate deposit email for #${bookingID}`);
+  continue;
+}
 
         console.log(`📩 Sending £400 deposit link for booking #${bookingID} (${resource}) → ${email}`);
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
@@ -824,8 +876,7 @@ async function runDepositScheduler(mode) {
           body: JSON.stringify({ bookingID, amount: 40000, adminOnly: true }),
         });
 
-        sentDepositBookings.add(bookingID);
-        saveSet(SENT_FILE, sentDepositBookings);
+       markDepositSent(bookingID);
       } else {
         console.log(`⏸️ Skipped booking #${bookingID} (status=${status})`);
       }
@@ -854,9 +905,8 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
         return res.status(200).send("Already processed");
       }
 
-      if (sentDepositBookings.has(bookingID)) {
-        console.log(`⏩ Skipping email — deposit already sent for #${bookingID}`);
-        processedBookings.add(bookingID);
+      if (alreadySentRecently(bookingID)) {
+  console.log(`⏩ Skipping email — deposit already sent recently for #${bookingID}`);        processedBookings.add(bookingID);
         saveSet(CALLBACK_FILE, processedBookings);
         return res.status(200).send("Deposit already sent");
       }
