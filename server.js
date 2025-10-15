@@ -771,11 +771,17 @@ async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
 
-    // 🕓 Get current London date/time safely
+    // 🧭 Compute reliable London time using Intl.DateTimeFormat
     const now = new Date();
-    const londonNow = new Date(now.toLocaleString("en-GB", { timeZone: tz }));
+    const londonOffsetMs =
+      now.getTimezoneOffset() * 60 * 1000 -
+      new Date().toLocaleString("en-US", { timeZone: tz }) +
+      now.getTime();
 
-    // ➕ Compute tomorrow (start of day in London)
+    const londonNow = new Date(londonOffsetMs);
+    if (isNaN(londonNow.getTime())) throw new Error("Invalid London time conversion");
+
+    // ➕ Compute tomorrow 00:00 London
     const tomorrow = new Date(londonNow);
     tomorrow.setDate(londonNow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
@@ -788,7 +794,7 @@ async function runDepositScheduler(mode) {
       `🕓 London now: ${londonNow.toISOString()} | Checking bookings for ${from_day}/${from_month}/${from_year}`
     );
 
-    // ✅ Planyo query parameters
+    // ✅ Prepare list call for tomorrow
     const listParams = {
       filter: "starttime_with_date",
       from_day,
@@ -804,12 +810,11 @@ async function runDepositScheduler(mode) {
       list_by_creation_date: 0,
     };
 
-    // 🔗 Query Planyo
+    // 🔗 Query Planyo API
     const { url, json: listData } = await planyoCall("list_reservations", listParams);
     console.log(`🌐 List call → ${url}`);
     console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
 
-    // 🧩 Validate results
     if (!listData?.data?.results?.length) {
       console.log(`ℹ️ No bookings found for ${from_day}/${from_month}/${from_year}`);
       return;
@@ -817,11 +822,8 @@ async function runDepositScheduler(mode) {
 
     console.log(`✅ Found ${listData.data.results.length} booking(s)`);
 
-    // 🔁 Process each booking
     for (const item of listData.data.results) {
       const bookingID = item.reservation_id;
-
-      // Fetch full details
       const { json: bookingData } = await planyoCall("get_reservation_data", {
         reservation_id: bookingID,
       });
@@ -833,7 +835,6 @@ async function runDepositScheduler(mode) {
 
       console.log(`📦 Booking #${bookingID} (${resource}) → ${start} (${email})`);
 
-      // Send deposit if confirmed
       if (status === "7") {
         console.log(`📩 Sending £400 deposit link for booking #${bookingID}`);
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
