@@ -741,8 +741,8 @@ cron.schedule("0,30 4-18 * * *", async () => {
   await runDepositScheduler("auto");
 });
 
-// ⚡ Manual test on startup (disabled unless STARTUP_TEST=true)
-if (process.env.STARTUP_TEST === "true") {
+// ⚡ Manual test on startup (enabled only if STARTUP_TEST is explicitly true)
+if (String(process.env.STARTUP_TEST).toLowerCase() === "true") {
   (async () => {
     console.log("⚡ Manual test: running deposit scheduler immediately... [TEST MODE – Admin Only]");
     await runDepositScheduler("manual");
