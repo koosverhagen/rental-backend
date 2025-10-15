@@ -758,43 +758,35 @@ if (process.env.STARTUP_TEST === "true") {
 async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
-    const now = new Date();
 
-    // ✅ Get London offset in ms (via Intl)
-    const londonOffset = -new Date().toLocaleString("en-US", { timeZone: tz });
+    // Get current London time safely
     const londonNow = new Date(
-      now.toLocaleString("en-GB", { timeZone: tz })
+      new Date().toLocaleString("en-GB", { timeZone: tz })
     );
+    if (isNaN(londonNow)) throw new Error("Invalid London time");
 
-    if (isNaN(londonNow)) {
-      throw new Error("Invalid London date conversion");
-    }
-
-    // ✅ Create a 24-hour window (next 24 hours)
-    const fromDate = new Date(londonNow.getTime());
+    // Create 24-hour range (next 24 hours)
+    const fromDate = londonNow;
     const toDate = new Date(londonNow.getTime() + 24 * 60 * 60 * 1000);
 
-    // ✅ Format to “YYYY-MM-DD HH:MM:SS” (Planyo requires this)
-    const formatForPlanyo = (d) =>
-      d
-        .toISOString()
-        .replace("T", " ")
-        .split(".")[0]; // remove milliseconds and Z
+    // Format as "YYYY-MM-DD HH:MM:SS" (Planyo requirement)
+    const fmt = (d) =>
+      d.toISOString().replace("T", " ").replace("Z", "").split(".")[0];
 
-    const start_time = formatForPlanyo(fromDate);
-    const end_time = formatForPlanyo(toDate);
+    const start_time = fmt(fromDate);
+    const end_time = fmt(toDate);
 
-    console.log("🕓 [Scheduler] London now:", londonNow.toISOString());
+    console.log(`🕓 London now: ${londonNow.toISOString()}`);
     console.log(`📅 Checking bookings between ${start_time} → ${end_time}`);
 
-    // ✅ Request params for Planyo
+    // ✅ Query Planyo using correct params
     const listParams = {
       start_time,
       end_time,
-      req_status: 4,
+      site_id: 68785,
+      required_status: 4, // confirmed only
       include_unconfirmed: 1,
       list_by_creation_date: 0,
-      site_id: 68785,
       resource_ids: "239201,234303,234304,234305,234306",
     };
 
@@ -803,12 +795,13 @@ async function runDepositScheduler(mode) {
     console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
 
     if (!listData?.data?.results?.length) {
-      console.log(`ℹ️ No bookings found for 24-hour window`);
+      console.log(`ℹ️ No bookings found in next 24h`);
       return;
     }
 
-    console.log(`✅ Found ${listData.data.results.length} booking(s)`);
+    console.log(`✅ Found ${listData.data.results.length} bookings in next 24h`);
 
+    // Loop over bookings
     for (const item of listData.data.results) {
       const bookingID = item.reservation_id;
       const { json: bookingData } = await planyoCall("get_reservation_data", {
