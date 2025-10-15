@@ -1,4 +1,7 @@
 /// server.js
+// ----------------------------------------------------
+// ✅ Imports and setup
+// ----------------------------------------------------
 const express = require("express");
 const cors = require("cors");
 const Stripe = require("stripe");
@@ -6,13 +9,16 @@ const crypto = require("crypto");
 const sendgrid = require("@sendgrid/mail");
 const cron = require("node-cron");
 const fetch = require("node-fetch");
+const fs = require("fs");
+const path = require("path");
 require("dotenv").config();
 
 const app = express();
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
-
-// ✅ SendGrid with API key
 sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
+
+app.use(cors());
+app.use(express.json());
 
 
 // ---------------------------------------------
@@ -635,17 +641,39 @@ app.post("/email/deposit-confirmation", async (req, res) => {
   }
 });
 
+// ----------------------------------------------------
+// 📦 Persistent duplicate protection (Render-safe)
+// ----------------------------------------------------
+const DATA_DIR = process.env.DATA_DIR || "/tmp";
+const SENT_FILE = path.join(DATA_DIR, "sentDeposits.json");
+const CALLBACK_FILE = path.join(DATA_DIR, "processedCallbacks.json");
 
+function loadSet(file) {
+  try {
+    if (fs.existsSync(file)) {
+      const arr = JSON.parse(fs.readFileSync(file, "utf8"));
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch (e) {
+    console.warn(`⚠️ Could not read ${file}:`, e.message);
+  }
+  return new Set();
+}
 
+function saveSet(file, set) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(file, JSON.stringify([...set]));
+  } catch (e) {
+    console.error(`❌ Could not write ${file}:`, e.message);
+  }
+}
+
+const processedBookings = loadSet(CALLBACK_FILE);   // Planyo callbacks handled
+const sentDepositBookings = loadSet(SENT_FILE);     // Deposit links sent
 
 // ----------------------------------------------------
-// 🧠 Duplicate protection caches
-// ----------------------------------------------------
-const processedBookings = new Set();     // Prevent duplicate Planyo callbacks
-const sentDepositBookings = new Set();   // Prevent duplicate deposit emails
-
-// ----------------------------------------------------
-// 🔑 Helper: Secure Planyo API call with auto timestamp retry
+// 🔑 Helper: Secure Planyo API call with retry
 // ----------------------------------------------------
 async function planyoCall(method, params = {}) {
   const buildUrl = (timestamp) => {
@@ -668,7 +696,6 @@ async function planyoCall(method, params = {}) {
     const timestamp = Math.floor(Date.now() / 1000);
     const url = buildUrl(timestamp);
     console.log("🧠 [Planyo] Using timestamp:", timestamp);
-
     const response = await fetch(url);
     const json = await response.json();
     return { url, json, timestamp };
@@ -681,6 +708,29 @@ async function planyoCall(method, params = {}) {
   }
 
   return { url, json, timestamp };
+}
+
+// ----------------------------------------------------
+// 🔧 Helper: Fetch full booking data from Planyo
+// ----------------------------------------------------
+async function fetchPlanyoBooking(bookingID) {
+  try {
+    const { json: data } = await planyoCall("get_reservation_data", { reservation_id: bookingID });
+
+    if (data && data.response_code === 0 && data.data) {
+      return {
+        resource: data.data.name || "N/A",
+        start: data.data.start_time || "N/A",
+        end: data.data.end_time || "N/A",
+        firstName: data.data.first_name || "",
+        lastName: data.data.last_name || "",
+        email: data.data.email || null,
+      };
+    }
+  } catch (err) {
+    console.error("⚠️ Planyo fetch error:", err);
+  }
+  return { resource: "N/A", start: "N/A", end: "N/A", firstName: "", lastName: "", email: null };
 }
 
 // ----------------------------------------------------
@@ -700,14 +750,13 @@ if (process.env.STARTUP_TEST === "true") {
 }
 
 // ----------------------------------------------------
-// 🧠 Scheduler core function — London-safe + NaN-proof + no duplicates
+// 🧠 Scheduler core function — London-safe + duplicate-proof
 // ----------------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
-
-    // Get current time in London safely
     const now = new Date();
+
     const londonParts = new Intl.DateTimeFormat("en-GB", {
       timeZone: tz,
       year: "numeric",
@@ -728,7 +777,7 @@ async function runDepositScheduler(mode) {
       `${londonParts.year}-${londonParts.month}-${londonParts.day}T${londonParts.hour}:${londonParts.minute}:${londonParts.second}`
     );
 
-    // Compute "tomorrow" in London
+    // Tomorrow's full day window
     const tomorrow = new Date(londonNow);
     tomorrow.setDate(londonNow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
@@ -740,7 +789,6 @@ async function runDepositScheduler(mode) {
 
     console.log(`🕓 London now: ${londonNow.toISOString()} | Checking bookings for ${tomorrow.toDateString()}`);
 
-    // ✅ Fetch all confirmed bookings starting tomorrow
     const { url, json: listData } = await planyoCall("list_reservations", {
       start_time,
       end_time,
@@ -749,8 +797,6 @@ async function runDepositScheduler(mode) {
     });
 
     console.log(`🌐 Planyo call → ${url}`);
-    console.log("🧾 Raw response:", JSON.stringify(listData, null, 2));
-
     if (!listData?.data?.results?.length) {
       console.log(`ℹ️ No bookings found for tomorrow.`);
       return;
@@ -759,11 +805,8 @@ async function runDepositScheduler(mode) {
     console.log(`✅ Found ${listData.data.results.length} booking(s)`);
 
     for (const item of listData.data.results) {
-      const bookingID = item.reservation_id;
-      const { json: bookingData } = await planyoCall("get_reservation_data", {
-        reservation_id: bookingID,
-      });
-
+      const bookingID = String(item.reservation_id);
+      const { json: bookingData } = await planyoCall("get_reservation_data", { reservation_id: bookingID });
       const email = bookingData?.data?.email || "unknown";
       const status = bookingData?.data?.status;
       const resource = bookingData?.data?.name || "N/A";
@@ -782,6 +825,7 @@ async function runDepositScheduler(mode) {
         });
 
         sentDepositBookings.add(bookingID);
+        saveSet(SENT_FILE, sentDepositBookings);
       } else {
         console.log(`⏸️ Skipped booking #${bookingID} (status=${status})`);
       }
@@ -792,7 +836,7 @@ async function runDepositScheduler(mode) {
 }
 
 // ----------------------------------------------------
-// 📬 Planyo Webhook (Notification Callback)
+// 📬 Planyo Webhook (Reservation Confirmed)
 // ----------------------------------------------------
 app.post("/planyo/callback", express.json(), async (req, res) => {
   try {
@@ -800,8 +844,9 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
     console.log("📩 Planyo callback received:", JSON.stringify(data, null, 2));
 
     if (data.notification_type === "reservation_confirmed") {
-      const bookingID = data.reservation;
+      const bookingID = String(data.reservation);
       const email = data.email;
+
       console.log(`✅ Reservation confirmed #${bookingID} for ${email}`);
 
       if (processedBookings.has(bookingID)) {
@@ -809,17 +854,21 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
         return res.status(200).send("Already processed");
       }
 
-      processedBookings.add(bookingID);
+      if (sentDepositBookings.has(bookingID)) {
+        console.log(`⏩ Skipping email — deposit already sent for #${bookingID}`);
+        processedBookings.add(bookingID);
+        saveSet(CALLBACK_FILE, processedBookings);
+        return res.status(200).send("Deposit already sent");
+      }
 
       await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bookingID,
-          amount: 40000, // £400 hold
-          adminOnly: true,
-        }),
+        body: JSON.stringify({ bookingID, amount: 40000, adminOnly: true }),
       });
+
+      processedBookings.add(bookingID);
+      saveSet(CALLBACK_FILE, processedBookings);
     }
 
     res.status(200).send("OK");
@@ -829,8 +878,63 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
   }
 });
 
+// ----------------------------------------------------
+// ✅ Deposit email sender endpoint
+// ----------------------------------------------------
+app.post("/deposit/send-link", async (req, res) => {
+  try {
+    const { bookingID, amount } = req.body;
+    const link = `${process.env.SERVER_URL}/deposit/pay/${bookingID}`;
 
+    if (sentDepositBookings.has(String(bookingID))) {
+      console.log(`⏩ Skipping duplicate deposit send for booking #${bookingID}`);
+      return res.json({ success: true, url: link, alreadySent: true });
+    }
 
-// ---------------------------------------------
-const PORT = process.env.PORT || 4242;
+    const booking = await fetchPlanyoBooking(bookingID);
+    if (!booking.email) return res.status(400).json({ error: "No customer email" });
+
+    const html = `
+      <div style="font-family:Arial;line-height:1.5;color:#333;">
+        <h2 style="color:#0070f3;text-align:center;">Deposit Payment Request</h2>
+        <p>Dear ${booking.firstName} ${booking.lastName},</p>
+        <p>Please complete your deposit hold for <b>Booking #${bookingID}</b>.</p>
+        <p><b>Lorry:</b> ${booking.resource}<br><b>From:</b> ${booking.start}<br><b>To:</b> ${booking.end}</p>
+        <p style="font-size:18px;text-align:center;">Deposit Required: <b>£${(amount / 100).toFixed(2)}</b></p>
+        <p style="text-align:center;margin:30px 0;">
+          <a href="${link}" style="padding:14px 24px;background:#0070f3;color:#fff;border-radius:6px;text-decoration:none;font-size:16px;">
+            💳 Pay Deposit Securely
+          </a>
+        </p>
+        <p>Kind regards,<br><b>Equine Transport UK</b></p>
+      </div>`;
+
+    await sendgrid.send({
+      to: booking.email,
+      from: "Equine Transport UK <info@equinetransportuk.com>",
+      subject: `Equine Transport UK | Deposit Link | Booking #${bookingID}`,
+      html,
+    });
+
+    await sendgrid.send({
+      to: "kverhagen@mac.com",
+      from: "Equine Transport UK <info@equinetransportuk.com>",
+      subject: `Admin Copy | Deposit Link Sent | Booking #${bookingID}`,
+      html,
+    });
+
+    sentDepositBookings.add(String(bookingID));
+    saveSet(SENT_FILE, sentDepositBookings);
+
+    res.json({ success: true, url: link });
+  } catch (err) {
+    console.error("❌ SendGrid email error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// 🚀 Start server
+// ----------------------------------------------------
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
