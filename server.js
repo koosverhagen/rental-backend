@@ -1032,6 +1032,21 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
 });
 
 // ----------------------------------------------------
+// ✅ Manual trigger route for deposit scheduler
+// ----------------------------------------------------
+app.get("/trigger-daily-deposits", async (req, res) => {
+  try {
+    console.log("⚡ Manual deposit scheduler triggered via external cron");
+    await runDepositScheduler("manual");
+    res.send("✅ Daily deposits triggered remotely");
+  } catch (err) {
+    console.error("❌ Manual trigger failed:", err);
+    res.status(500).send("Error running deposit scheduler");
+  }
+});
+
+
+// ----------------------------------------------------
 // 🚀 Start server
 // ----------------------------------------------------
 const PORT = process.env.PORT || 10000;
