@@ -1007,36 +1007,29 @@ app.post("/deposit/send-link", async (req, res) => {
 
 
 // ----------------------------------------------------
-// ✅ Booking Payments — thank-you data route (SEPARATE from deposit)
+// ✅ Booking Payments — thank-you data route (fixed JSON version)
 // ----------------------------------------------------
-
-const stripeBooking = require("stripe")(process.env.STRIPE_BOOKING_SECRET);
-
 app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const { bookingID } = req.params;
-    const { json } = await (await fetch(
-      `https://www.planyo.com/rest/list_reservations.php?site_id=68785&api_key=${process.env.PLANYO_API_KEY}&details=1&reservation_id=${bookingID}`
-    )).json();
+    const booking = await fetchPlanyoBooking(bookingID);
 
-    if (json && json.data && json.data.length > 0) {
-      const r = json.data[0];
-      res.json({
-        bookingID,
-        customer: `${r.first_name} ${r.last_name}`,
-        resource: r.resource_name,
-        start: r.start_time,
-        end: r.end_time,
-      });
-    } else {
-      res.status(404).send("Booking not found");
+    if (!booking || booking.resource === "N/A") {
+      return res.status(404).json({ error: "Booking not found" });
     }
+
+    res.json({
+      bookingID,
+      customer: `${booking.firstName} ${booking.lastName}`.trim(),
+      resource: booking.resource,
+      start: booking.start,
+      end: booking.end,
+    });
   } catch (err) {
     console.error("Booking fetch error:", err);
     res.status(500).send("Internal error");
   }
 });
-
 
 // ----------------------------------------------------
 // 🚀 Start server
