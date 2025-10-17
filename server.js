@@ -1030,13 +1030,12 @@ app.post("/deposit/send-link", async (req, res) => {
 
 
 // ----------------------------------------------------
-// ✅ Booking Payments — thank-you data route (fixed JSON version)
-// ----------------------------------------------------
+//// ✅ Booking Payments — thank-you data route (fixed JSON version)
 app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const { bookingID } = req.params;
     const response = await fetch(
-      `https://www.planyo.com/rest/list_reservations.php?site_id=68785&api_key=${process.env.PLAYNO_API_KEY}&details=1&reservation_id=${bookingID}`
+      `https://www.planyo.com/rest/list_reservations.php?site_id=68785&api_key=${process.env.PLANYO_API_KEY}&details=1&reservation_id=${bookingID}`
     );
     const json = await response.json();
 
@@ -1048,7 +1047,6 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
         resource: r.resource_name,
         start: r.start_time,
         end: r.end_time,
-        // ❌ This is currently missing or wrong:
         price: r.price_total || r.price || 0
       });
     } else {
