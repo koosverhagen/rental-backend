@@ -1035,21 +1035,25 @@ app.post("/deposit/send-link", async (req, res) => {
 app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const { bookingID } = req.params;
-    const booking = await fetchPlanyoBooking(bookingID);
+    const response = await fetch(
+      `https://www.planyo.com/rest/list_reservations.php?site_id=68785&api_key=${process.env.PLAYNO_API_KEY}&details=1&reservation_id=${bookingID}`
+    );
+    const json = await response.json();
 
-    if (!booking || booking.resource === "N/A") {
-      return res.status(404).json({ error: "Booking not found" });
+    if (json && json.data && json.data.length > 0) {
+      const r = json.data[0];
+      res.json({
+        bookingID,
+        customer: `${r.first_name} ${r.last_name}`,
+        resource: r.resource_name,
+        start: r.start_time,
+        end: r.end_time,
+        // ❌ This is currently missing or wrong:
+        price: r.price_total || r.price || 0
+      });
+    } else {
+      res.status(404).send("Booking not found");
     }
-
-   res.json({
-  bookingID,
-  customer: `${r.first_name} ${r.last_name}`,
-  resource: r.resource_name,
-  start: r.start_time,
-  end: r.end_time,
-  price: r.price || r.price_total || 0   // ✅ add this line
-});
-
   } catch (err) {
     console.error("Booking fetch error:", err);
     res.status(500).send("Internal error");
