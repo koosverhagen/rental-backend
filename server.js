@@ -770,14 +770,13 @@ async function planyoCall(method, params = {}) {
   let { url, json, text } = await fetchOnce(firstTs);
 
   // 2) If invalid timestamp, parse server's suggested "Current timestamp is NNN" and retry once
-  if (!json || (json.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text))) {
-    const m = (json?.response_message || text || "").match(/Current timestamp is\s+(\d+)/i);
-    if (m && m[1]) {
-      const serverTs = parseInt(m[1], 10);
-      console.log("⚠️ Invalid timestamp — retrying with server timestamp:", serverTs);
-      ({ url, json, text } = await fetchOnce(serverTs));
-    }
+ if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
+  const match = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
+  if (match && match[1]) {
+    const serverTs = parseInt(match[1], 10);
+    ({ url, json, text } = await fetchOnce(serverTs));
   }
+}
 
   // If still not JSON, try to surface a helpful error
   if (!json) {
