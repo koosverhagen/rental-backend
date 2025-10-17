@@ -752,7 +752,10 @@ async function planyoCall(method, params = {}) {
   };
 
   async function doFetch() {
-    const timestamp = Math.floor(Date.now() / 1000);
+    // ✅ Use Planyo server timezone (Europe/Zurich) for hash timestamp
+    const nowZurich = new Date().toLocaleString("en-US", { timeZone: "Europe/Zurich" });
+    const timestamp = Math.floor(new Date(nowZurich).getTime() / 1000);
+
     const url = buildUrl(timestamp);
     const response = await fetch(url);
     const json = await response.json();
