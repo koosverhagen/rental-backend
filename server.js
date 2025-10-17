@@ -86,19 +86,49 @@ async function fetchPlanyoBooking(bookingID) {
   };
 }
 
-// ✅ Booking Payments — thank-you data route (reuse working helper)
+// ----------------------------------------------------
+// ✅ Booking Payments — thank-you data route (with price)
+// ----------------------------------------------------
 app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const { bookingID } = req.params;
     const booking = await fetchPlanyoBooking(bookingID);
 
     if (booking && booking.resource !== "N/A") {
-      res.json({
+      // 🔹 Fetch extended details from Planyo (for total, paid, balance)
+      const method = "get_reservation_data";
+      const timestamp = Math.floor(Date.now() / 1000);
+      const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
+      const hashKey = crypto.createHash("md5").update(raw).digest("hex");
+
+      const url =
+        `https://www.planyo.com/rest/?method=${method}` +
+        `&api_key=${process.env.PLANYO_API_KEY}` +
+        `&site_id=${process.env.PLANYO_SITE_ID}` +
+        `&reservation_id=${bookingID}` +
+        `&hash_timestamp=${timestamp}` +
+        `&hash_key=${hashKey}`;
+
+      const resp = await fetch(url);
+      const data = await resp.json();
+
+      let total = 0, paid = 0, balance = 0;
+      if (data?.data) {
+        total = data.data.total_price || 0;
+        paid = data.data.amount_paid || 0;
+        balance = data.data.balance_due || 0;
+      }
+
+      // ✅ Send clean JSON back to Wix
+      return res.json({
         bookingID,
         customer: `${booking.firstName} ${booking.lastName}`.trim(),
         resource: booking.resource,
         start: booking.start,
         end: booking.end,
+        total,
+        paid,
+        balance,
       });
     } else {
       res.status(404).json({ error: "Booking not found or invalid response" });
@@ -108,7 +138,6 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // ---------------------------------------------
 // ✅ Stripe Webhook (raw body required)
