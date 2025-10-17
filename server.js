@@ -1035,44 +1035,38 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const { bookingID } = req.params;
 
-    console.log("📩 BookingPayments request:", bookingID);
-    console.log("🔑 Using PLANYO_API_KEY:", process.env.PLANYO_API_KEY ? "✅ Exists" : "❌ Missing");
+    const method = "get_reservation_data";
+    const timestamp = Math.floor(Date.now() / 1000);
+    const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
+    const hashKey = require("crypto").createHash("md5").update(hashBase).digest("hex");
 
-    const url = `https://www.planyo.com/rest/list_reservations.php?site_id=68785&api_key=${process.env.PLANYO_API_KEY}&details=1&reservation_id=${bookingID}`;
-    console.log("🌐 Fetching URL:", url);
+    const url = `https://www.planyo.com/rest/?method=${method}&api_key=${process.env.PLANYO_API_KEY}&site_id=68785&reservation_id=${bookingID}&hash_timestamp=${timestamp}&hash_key=${hashKey}`;
+
+    console.log("🌐 Fetching:", url);
 
     const response = await fetch(url);
-    const text = await response.text(); // Read raw text
-    console.log("📦 Raw response:", text);
+    const json = await response.json();
 
-    // Try to parse JSON (may fail if Planyo returns HTML error)
-    let json;
-    try {
-      json = JSON.parse(text);
-    } catch (e) {
-      console.error("⚠️ Invalid JSON, Planyo likely returned HTML");
-      return res.status(500).send("Invalid response from Planyo (HTML instead of JSON)");
-    }
-
-    if (json && json.data && json.data.length > 0) {
-      const r = json.data[0];
-      return res.json({
+    if (json && json.response_code === 0 && json.data) {
+      const r = json.data;
+      res.json({
         bookingID,
         customer: `${r.first_name} ${r.last_name}`,
-        resource: r.resource_name,
+        resource: r.name,
         start: r.start_time,
         end: r.end_time,
         price: r.price_total || r.price || 0
       });
     } else {
-      console.log("⚠️ No data found in JSON:", json);
-      return res.status(404).send("Booking not found");
+      console.error("⚠️ Planyo error:", json.response_message || json);
+      res.status(400).json({ error: json.response_message || "Unknown Planyo error" });
     }
   } catch (err) {
     console.error("❌ Booking fetch error:", err);
     res.status(500).send("Internal error");
   }
 });
+
 
 // ----------------------------------------------------
 // ✅ Manual trigger route for deposit scheduler
