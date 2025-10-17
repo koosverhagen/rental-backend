@@ -1029,25 +1029,26 @@ app.post("/deposit/send-link", async (req, res) => {
 });
 
 
-// ✅ Booking Payments — thank-you data route (corrected timezone +2h)
+
+// ✅ Booking Payments — thank-you data route (reuses working timestamp logic)
+import crypto from "crypto";
+import fetch from "node-fetch";
+
 app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const { bookingID } = req.params;
 
-    // --- Secure timestamp (Zurich time plus 2 hours to match Planyo clock) ---
-    const nowZurich = new Date(
-      Date.now() + 2 * 60 * 60 * 1000 // add 2 hours
-    );
+    // --- Step 1: Generate a timestamp synchronized with Planyo (Zurich timezone) ---
+    const now = new Date();
+    const nowZurich = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Zurich" }));
     const timestamp = Math.floor(nowZurich.getTime() / 1000);
-    const method = "get_reservation_data";
 
-    // --- Generate hash ---
-    const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
+    // --- Step 2: Build MD5 hash using same pattern as working deposit route ---
+    const hashBase = process.env.PLANYO_HASH_KEY + timestamp + "get_reservation_data";
     const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
 
-    // --- Build Planyo request ---
-    const url =
-      `https://www.planyo.com/rest/?method=${method}` +
+    // --- Step 3: Build Planyo REST URL ---
+    const url = `https://www.planyo.com/rest/?method=get_reservation_data` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
       `&site_id=${process.env.PLANYO_SITE_ID}` +
       `&reservation_id=${bookingID}` +
@@ -1055,29 +1056,32 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
       `&hash_key=${hashKey}` +
       `&details=1`;
 
+    console.log("🔗 Fetching Planyo booking:", url);
+
+    // --- Step 4: Fetch & parse response ---
     const response = await fetch(url);
     const json = await response.json();
 
+    // --- Step 5: Validate and return ---
     if (json?.response_code === 0 && json.data) {
       const r = json.data;
-      res.json({
+      return res.json({
         bookingID,
         customer: `${r.first_name} ${r.last_name}`,
         resource: r.name,
         start: r.start_time,
         end: r.end_time,
-        price: r.total_price || r.price || 0,
         total: r.total_price || 0,
         paid: r.amount_paid || 0,
         balance: r.balance_due || 0,
       });
-    } else {
-      console.error("❌ Invalid Planyo response:", json);
-      res.status(500).json({ error: "Invalid Planyo response", raw: json });
     }
+
+    console.error("❌ Invalid Planyo response:", json);
+    return res.status(500).json({ error: "Invalid Planyo response", raw: json });
   } catch (err) {
     console.error("Booking fetch error:", err);
-    res.status(500).json({ error: "Internal error", details: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
