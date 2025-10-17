@@ -86,61 +86,6 @@ async function fetchPlanyoBooking(bookingID) {
   };
 }
 
-// ----------------------------------------------------
-// ✅ Booking Payments — thank-you data route (with price)
-// ----------------------------------------------------
-app.get("/bookingpayments/list/:bookingID", async (req, res) => {
-  try {
-    const { bookingID } = req.params;
-    const booking = await fetchPlanyoBooking(bookingID);
-
-    if (booking && booking.resource !== "N/A") {
-      // 🔹 Fetch extended details from Planyo (for total, paid, balance)
-      const method = "get_reservation_data";
-      const timestamp = Math.floor(Date.now() / 1000);
-      const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
-      const hashKey = crypto.createHash("md5").update(raw).digest("hex");
-
-      const url =
-        `https://www.planyo.com/rest/?method=${method}` +
-        `&api_key=${process.env.PLANYO_API_KEY}` +
-        `&site_id=${process.env.PLANYO_SITE_ID}` +
-        `&reservation_id=${bookingID}` +
-        `&hash_timestamp=${timestamp}` +
-        `&hash_key=${hashKey}`;
-
-      const resp = await fetch(url);
-      const data = await resp.json();
-
-     let total = 0, paid = 0, balance = 0;
-if (data?.data) {
-  total = parseFloat(data.data.total_price || 0);
-  paid = parseFloat(data.data.amount_paid || 0);
-  // 🔹 Compute balance manually if not provided
-  balance = data.data.balance_due
-    ? parseFloat(data.data.balance_due)
-    : Math.max(total - paid, 0);
-}
-
-      // ✅ Send clean JSON back to Wix
-      return res.json({
-        bookingID,
-        customer: `${booking.firstName} ${booking.lastName}`.trim(),
-        resource: booking.resource,
-        start: booking.start,
-        end: booking.end,
-        total,
-        paid,
-        balance,
-      });
-    } else {
-      res.status(404).json({ error: "Booking not found or invalid response" });
-    }
-  } catch (err) {
-    console.error("Booking fetch error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ---------------------------------------------
 // ✅ Stripe Webhook (raw body required)
@@ -1074,6 +1019,75 @@ app.get("/trigger-daily-deposits", async (req, res) => {
   } catch (err) {
     console.error("❌ Manual trigger failed:", err);
     res.status(500).send("Error running deposit scheduler");
+  }
+});
+
+// ✅ Booking Payments — thank-you data route (with auto timestamp resync)
+app.get("/bookingpayments/list/:bookingID", async (req, res) => {
+  try {
+    const { bookingID } = req.params;
+
+    // --- Helper to build signed URL ---
+    const buildUrl = (timestamp) => {
+      const hashBase = process.env.PLANYO_HASH_KEY + timestamp + "get_reservation_data";
+      const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
+
+      return (
+        `https://www.planyo.com/rest/?method=get_reservation_data` +
+        `&api_key=${process.env.PLANYO_API_KEY}` +
+        `&site_id=${process.env.PLANYO_SITE_ID}` +
+        `&reservation_id=${bookingID}` +
+        `&hash_timestamp=${timestamp}` +
+        `&hash_key=${hashKey}` +
+        `&details=1`
+      );
+    };
+
+    // --- Step 1: Generate initial timestamp (Zurich timezone) ---
+    const now = new Date();
+    const zurichNow = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Zurich" }));
+    let timestamp = Math.floor(zurichNow.getTime() / 1000);
+
+    // --- Step 2: First API call ---
+    let url = buildUrl(timestamp);
+    let response = await fetch(url);
+    let json = await response.json();
+
+    // --- Step 3: Retry if Planyo says "Invalid timestamp" ---
+    if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message)) {
+      console.warn("⚠️ Invalid timestamp — retrying with corrected timestamp...");
+
+      const match = json.response_message.match(/Current timestamp is (\d+)/);
+      if (match && match[1]) {
+        timestamp = parseInt(match[1], 10);
+        url = buildUrl(timestamp);
+        response = await fetch(url);
+        json = await response.json();
+      }
+    }
+
+    // --- Step 4: Parse result ---
+    if (json?.response_code === 0 && json.data) {
+      const r = json.data;
+
+      return res.json({
+        bookingID,
+        customer: `${r.first_name} ${r.last_name}`,
+        resource: r.name,
+        start: r.start_time,
+        end: r.end_time,
+        total: parseFloat(r.total_price || 0).toFixed(2),
+        paid: parseFloat(r.amount_paid || 0).toFixed(2),
+        balance: parseFloat((r.total_price || 0) - (r.amount_paid || 0)).toFixed(2),
+      });
+    }
+
+    console.error("❌ Invalid Planyo response:", json);
+    return res.status(500).json({ error: "Invalid Planyo response", raw: json });
+
+  } catch (err) {
+    console.error("Booking fetch error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
