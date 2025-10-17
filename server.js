@@ -86,6 +86,30 @@ async function fetchPlanyoBooking(bookingID) {
   };
 }
 
+// ✅ Booking Payments — thank-you data route (reuse working helper)
+app.get("/bookingpayments/list/:bookingID", async (req, res) => {
+  try {
+    const { bookingID } = req.params;
+    const booking = await fetchPlanyoBooking(bookingID);
+
+    if (booking && booking.resource !== "N/A") {
+      res.json({
+        bookingID,
+        customer: `${booking.firstName} ${booking.lastName}`.trim(),
+        resource: booking.resource,
+        start: booking.start,
+        end: booking.end,
+      });
+    } else {
+      res.status(404).json({ error: "Booking not found or invalid response" });
+    }
+  } catch (err) {
+    console.error("Booking fetch error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 // ---------------------------------------------
 // ✅ Stripe Webhook (raw body required)
 // ---------------------------------------------
@@ -787,27 +811,6 @@ async function planyoCall(method, params = {}) {
   return { url, json };
 }
 
-// ----------------------------------------------------
-// 🔧 Helper: Fetch full booking data from Planyo
-// ----------------------------------------------------
-async function fetchPlanyoBooking(bookingID) {
-  try {
-    const { json: data } = await planyoCall("get_reservation_data", { reservation_id: bookingID });
-    if (data && data.response_code === 0 && data.data) {
-      return {
-        resource: data.data.name || "N/A",
-        start: data.data.start_time || "N/A",
-        end: data.data.end_time || "N/A",
-        firstName: data.data.first_name || "",
-        lastName: data.data.last_name || "",
-        email: data.data.email || null,
-      };
-    }
-  } catch (err) {
-    console.error("⚠️ Planyo fetch error:", err);
-  }
-  return { resource: "N/A", start: "N/A", end: "N/A", firstName: "", lastName: "", email: null };
-}
 
 // ----------------------------------------------------
 // 🕓 Automatic deposit link scheduler (once daily at 19:00 London time)
@@ -1024,63 +1027,6 @@ app.post("/deposit/send-link", async (req, res) => {
     res.json({ success: true, url: link });
   } catch (err) {
     console.error("❌ SendGrid email error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-
-// ✅ Booking Payments — thank-you data route (reuses working timestamp logic)
-import crypto from "crypto";
-import fetch from "node-fetch";
-
-app.get("/bookingpayments/list/:bookingID", async (req, res) => {
-  try {
-    const { bookingID } = req.params;
-
-    // --- Step 1: Generate a timestamp synchronized with Planyo (Zurich timezone) ---
-    const now = new Date();
-    const nowZurich = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Zurich" }));
-    const timestamp = Math.floor(nowZurich.getTime() / 1000);
-
-    // --- Step 2: Build MD5 hash using same pattern as working deposit route ---
-    const hashBase = process.env.PLANYO_HASH_KEY + timestamp + "get_reservation_data";
-    const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
-
-    // --- Step 3: Build Planyo REST URL ---
-    const url = `https://www.planyo.com/rest/?method=get_reservation_data` +
-      `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&site_id=${process.env.PLANYO_SITE_ID}` +
-      `&reservation_id=${bookingID}` +
-      `&hash_timestamp=${timestamp}` +
-      `&hash_key=${hashKey}` +
-      `&details=1`;
-
-    console.log("🔗 Fetching Planyo booking:", url);
-
-    // --- Step 4: Fetch & parse response ---
-    const response = await fetch(url);
-    const json = await response.json();
-
-    // --- Step 5: Validate and return ---
-    if (json?.response_code === 0 && json.data) {
-      const r = json.data;
-      return res.json({
-        bookingID,
-        customer: `${r.first_name} ${r.last_name}`,
-        resource: r.name,
-        start: r.start_time,
-        end: r.end_time,
-        total: r.total_price || 0,
-        paid: r.amount_paid || 0,
-        balance: r.balance_due || 0,
-      });
-    }
-
-    console.error("❌ Invalid Planyo response:", json);
-    return res.status(500).json({ error: "Invalid Planyo response", raw: json });
-  } catch (err) {
-    console.error("Booking fetch error:", err);
     res.status(500).json({ error: err.message });
   }
 });
