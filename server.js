@@ -810,14 +810,14 @@ if (String(process.env.STARTUP_TEST).toLowerCase() === "true") {
 }
 
 //// ----------------------------------------------------
-// 🧠 Scheduler core function — London-safe + timestamp auto-resync
+// 🧠 Scheduler core function — London-safe + timestamp self-healing
 // ----------------------------------------------------
 async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
     const now = new Date();
 
-    // Format current London time cleanly
+    // Format current London time
     const londonParts = new Intl.DateTimeFormat("en-GB", {
       timeZone: tz,
       year: "numeric",
@@ -838,7 +838,7 @@ async function runDepositScheduler(mode) {
       `${londonParts.year}-${londonParts.month}-${londonParts.day}T${londonParts.hour}:${londonParts.minute}:${londonParts.second}`
     );
 
-    // Tomorrow’s window (00:00 → 23:59)
+    // Tomorrow window (00:00 → 23:59)
     const tomorrow = new Date(londonNow);
     tomorrow.setDate(londonNow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
@@ -853,43 +853,39 @@ async function runDepositScheduler(mode) {
 
     console.log(`🕓 London now: ${londonNow.toISOString()} | Checking bookings for ${tomorrow.toDateString()}`);
 
-    // 🔧 Helper to build list_reservations URL
-    const buildListUrl = (timestamp) => {
-      const hashBase = process.env.PLANYO_HASH_KEY + timestamp + "list_reservations";
-      const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
-
-      return (
-        `https://www.planyo.com/rest/?method=list_reservations` +
-        `&api_key=${process.env.PLANYO_API_KEY}` +
-        `&site_id=${process.env.PLANYO_SITE_ID}` +
-        `&start_time=${start_time}` +
-        `&end_time=${end_time}` +
-        `&req_status=4` +
-        `&include_unconfirmed=1` +
-        `&hash_timestamp=${timestamp}` +
-        `&hash_key=${hashKey}`
-      );
-    };
-
-    // 🔁 Timestamp-safe fetch
+    // 🔁 Timestamp-safe Planyo call
     async function fetchPlanyoList() {
-      // Step 1: Use Zurich time (Planyo server time zone)
-      const zurichNow = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Zurich" }));
-      let timestamp = Math.floor(zurichNow.getTime() / 1000);
+      const nowZurich = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Zurich" }));
+      let timestamp = Math.floor(nowZurich.getTime() / 1000);
 
-      // Step 2: First call
-      let url = buildListUrl(timestamp);
+      const buildUrl = (ts) => {
+        const hashBase = process.env.PLANYO_HASH_KEY + ts + "list_reservations";
+        const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
+        return (
+          `https://www.planyo.com/rest/?method=list_reservations` +
+          `&api_key=${process.env.PLANYO_API_KEY}` +
+          `&site_id=${process.env.PLANYO_SITE_ID}` +
+          `&start_time=${start_time}` +
+          `&end_time=${end_time}` +
+          `&req_status=4` +
+          `&include_unconfirmed=1` +
+          `&hash_timestamp=${ts}` +
+          `&hash_key=${hashKey}`
+        );
+      };
+
+      let url = buildUrl(timestamp);
       let response = await fetch(url);
       let json = await response.json();
 
-      // Step 3: Retry on invalid timestamp
+      // Retry once if timestamp invalid
       if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message)) {
         const match = json.response_message.match(/Current timestamp is (\d+)/);
         if (match && match[1]) {
           timestamp = parseInt(match[1], 10);
           console.warn("⚠️ Invalid timestamp — retrying with corrected timestamp...");
-          await new Promise((r) => setTimeout(r, 200)); // short delay to avoid log duplication
-          url = buildListUrl(timestamp);
+          await new Promise((r) => setTimeout(r, 200));
+          url = buildUrl(timestamp);
           response = await fetch(url);
           json = await response.json();
         }
@@ -898,7 +894,7 @@ async function runDepositScheduler(mode) {
       return { url, json };
     }
 
-    // 🔹 Run the timestamp-safe list_reservations call
+    // 🧠 Run it
     const { url, json: listData } = await fetchPlanyoList();
     console.log(`🌐 Planyo call → ${url}`);
 
@@ -909,16 +905,16 @@ async function runDepositScheduler(mode) {
 
     console.log(`✅ Found ${listData.data.results.length} booking(s)`);
 
-    // 🔄 Iterate through each booking
     for (const item of listData.data.results) {
       const bookingID = String(item.reservation_id);
 
-      // Fetch details for each booking
+      // Detail fetch with same timestamp safety
       const method = "get_reservation_data";
-      const nowZurich = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Zurich" }));
-      let timestamp = Math.floor(nowZurich.getTime() / 1000);
-      const raw = process.env.PLANYO_HASH_KEY + timestamp + method;
-      const hashKey = crypto.createHash("md5").update(raw).digest("hex");
+      const zurichNow = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Zurich" }));
+      let timestamp = Math.floor(zurichNow.getTime() / 1000);
+      const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
+      const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
+
       const detailUrl =
         `https://www.planyo.com/rest/?method=${method}` +
         `&api_key=${process.env.PLANYO_API_KEY}` +
@@ -926,6 +922,7 @@ async function runDepositScheduler(mode) {
         `&reservation_id=${bookingID}` +
         `&hash_timestamp=${timestamp}` +
         `&hash_key=${hashKey}`;
+
       const resp = await fetch(detailUrl);
       const bookingData = await resp.json();
 
@@ -935,7 +932,7 @@ async function runDepositScheduler(mode) {
 
       if (status === "7") {
         if (alreadySentRecently(bookingID)) {
-          console.log(`⏩ Skipping recent duplicate deposit email for #${bookingID}`);
+          console.log(`⏩ Skipping duplicate deposit email for #${bookingID}`);
           continue;
         }
 
