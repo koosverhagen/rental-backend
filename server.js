@@ -1034,14 +1034,29 @@ app.post("/deposit/send-link", async (req, res) => {
 app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const { bookingID } = req.params;
-    const response = await fetch(
-      `https://www.planyo.com/rest/list_reservations.php?site_id=68785&api_key=${process.env.PLANYO_API_KEY}&details=1&reservation_id=${bookingID}`
-    );
-    const json = await response.json();
+
+    console.log("📩 BookingPayments request:", bookingID);
+    console.log("🔑 Using PLANYO_API_KEY:", process.env.PLANYO_API_KEY ? "✅ Exists" : "❌ Missing");
+
+    const url = `https://www.planyo.com/rest/list_reservations.php?site_id=68785&api_key=${process.env.PLANYO_API_KEY}&details=1&reservation_id=${bookingID}`;
+    console.log("🌐 Fetching URL:", url);
+
+    const response = await fetch(url);
+    const text = await response.text(); // Read raw text
+    console.log("📦 Raw response:", text);
+
+    // Try to parse JSON (may fail if Planyo returns HTML error)
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch (e) {
+      console.error("⚠️ Invalid JSON, Planyo likely returned HTML");
+      return res.status(500).send("Invalid response from Planyo (HTML instead of JSON)");
+    }
 
     if (json && json.data && json.data.length > 0) {
       const r = json.data[0];
-      res.json({
+      return res.json({
         bookingID,
         customer: `${r.first_name} ${r.last_name}`,
         resource: r.resource_name,
@@ -1050,10 +1065,11 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
         price: r.price_total || r.price || 0
       });
     } else {
-      res.status(404).send("Booking not found");
+      console.log("⚠️ No data found in JSON:", json);
+      return res.status(404).send("Booking not found");
     }
   } catch (err) {
-    console.error("Booking fetch error:", err);
+    console.error("❌ Booking fetch error:", err);
     res.status(500).send("Internal error");
   }
 });
