@@ -1029,12 +1029,12 @@ app.post("/deposit/send-link", async (req, res) => {
 });
 
 
-// ----------------------------------------------------
-//// ✅ Booking Payments — thank-you data route (fixed JSON version)
+// ✅ Booking Payments — thank-you data route (with total, paid, balance)
 app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const { bookingID } = req.params;
 
+    // --- Step 1️⃣ Fetch booking info from Planyo ---
     const method = "get_reservation_data";
     const timestamp = Math.floor(Date.now() / 1000);
     const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
@@ -1042,31 +1042,47 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
 
     const url = `https://www.planyo.com/rest/?method=${method}&api_key=${process.env.PLANYO_API_KEY}&site_id=68785&reservation_id=${bookingID}&details=1&hash_timestamp=${timestamp}&hash_key=${hashKey}`;
 
-    console.log("🌐 Fetching:", url);
-
     const response = await fetch(url);
     const json = await response.json();
 
-    if (json && json.response_code === 0 && json.data) {
-      const r = json.data;
-      res.json({
-        bookingID,
-        customer: `${r.first_name} ${r.last_name}`,
-        resource: r.name,
-        start: r.start_time,
-        end: r.end_time,
-        price: r.price_total || r.price || (r.name.includes("7.5") ? 100 : 70)
-      });
-    } else {
-      console.error("⚠️ Planyo error:", json.response_message || json);
-      res.status(400).json({ error: json.response_message || "Unknown Planyo error" });
+    if (!json || json.response_code !== 0 || !json.data) {
+      console.error("⚠️ Planyo error:", json);
+      return res.status(400).json({ error: "Invalid Planyo response" });
     }
+
+    const r = json.data;
+    const total = parseFloat(r.price_total || r.price || 0);
+
+    // --- Step 2️⃣ Fetch Stripe payment data ---
+    const stripe = require("stripe")(process.env.STRIPE_BOOKING_SECRET);
+    const paymentList = await stripe.paymentIntents.list({ limit: 50 });
+    const payment = paymentList.data.find(
+      (p) => p.metadata && String(p.metadata.bookingID) === String(bookingID)
+    );
+
+    const paid = payment && payment.amount_received
+      ? payment.amount_received / 100
+      : 0;
+
+    // --- Step 3️⃣ Calculate balance ---
+    const balance = Math.max(total - paid, 0);
+
+    // --- Step 4️⃣ Return combined JSON ---
+    res.json({
+      bookingID,
+      customer: `${r.first_name} ${r.last_name}`,
+      resource: r.name,
+      start: r.start_time,
+      end: r.end_time,
+      total,
+      paid,
+      balance
+    });
   } catch (err) {
     console.error("❌ Booking fetch error:", err);
     res.status(500).send("Internal error");
   }
 });
-
 
 // ----------------------------------------------------
 // ✅ Manual trigger route for deposit scheduler
