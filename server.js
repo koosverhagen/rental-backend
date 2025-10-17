@@ -751,10 +751,26 @@ async function planyoCall(method, params = {}) {
     return `https://www.planyo.com/rest/?${query.toString()}`;
   };
 
+  // ✅ Calculate timestamp in Zurich time (handles daylight saving)
   async function doFetch() {
-    // ✅ Use Planyo server timezone (Europe/Zurich) for hash timestamp
-    const nowZurich = new Date().toLocaleString("en-US", { timeZone: "Europe/Zurich" });
-    const timestamp = Math.floor(new Date(nowZurich).getTime() / 1000);
+    const nowUtc = new Date();
+    // Get the offset between UTC and Zurich (CET/CEST)
+    const zurichOffsetMinutes = -new Date().toLocaleString("en-US", {
+      timeZone: "Europe/Zurich",
+    });
+    const zurichNow = new Date(
+      nowUtc.getTime() + (new Date().getTimezoneOffset() + zurichOffsetMinutes) * 60000
+    );
+
+    // Simpler and more reliable: always add 3600 or 7200 depending on DST
+    const isDst = new Date().toLocaleString("en-US", {
+      timeZone: "Europe/Zurich",
+      timeZoneName: "short",
+    }).includes("CEST");
+    const offsetSeconds = isDst ? 7200 : 3600;
+
+    const timestamp = Math.floor(nowUtc.getTime() / 1000 + offsetSeconds);
+    console.log("🕓 Adjusted Zurich timestamp:", timestamp);
 
     const url = buildUrl(timestamp);
     const response = await fetch(url);
