@@ -112,12 +112,15 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
       const resp = await fetch(url);
       const data = await resp.json();
 
-      let total = 0, paid = 0, balance = 0;
-      if (data?.data) {
-        total = data.data.total_price || 0;
-        paid = data.data.amount_paid || 0;
-        balance = data.data.balance_due || 0;
-      }
+     let total = 0, paid = 0, balance = 0;
+if (data?.data) {
+  total = parseFloat(data.data.total_price || 0);
+  paid = parseFloat(data.data.amount_paid || 0);
+  // 🔹 Compute balance manually if not provided
+  balance = data.data.balance_due
+    ? parseFloat(data.data.balance_due)
+    : Math.max(total - paid, 0);
+}
 
       // ✅ Send clean JSON back to Wix
       return res.json({
