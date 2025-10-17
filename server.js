@@ -1029,29 +1029,32 @@ app.post("/deposit/send-link", async (req, res) => {
 });
 
 
-// ✅ Booking Payments — thank-you data route (fixed + safe timestamp)
+// ✅ Booking Payments — thank-you data route (fixed timezone offset)
 app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const { bookingID } = req.params;
 
-    // --- Secure timestamp + hash (Zurich timezone) ---
-    const nowZurich = new Date().toLocaleString("en-US", { timeZone: "Europe/Zurich" });
-    const timestamp = Math.floor(new Date(nowZurich).getTime() / 1000);
+    // --- Secure timestamp (Zurich time minus 2 hours to align with Planyo) ---
+    const nowZurich = new Date(
+      Date.now() - 2 * 60 * 60 * 1000 // subtract 2 hours
+    );
+    const timestamp = Math.floor(nowZurich.getTime() / 1000);
     const method = "get_reservation_data";
 
+    // --- Generate hash ---
     const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
 
-    // --- Build Planyo URL ---
-    const url = `https://www.planyo.com/rest/?method=${method}`
-      + `&api_key=${process.env.PLANYO_API_KEY}`
-      + `&site_id=${process.env.PLANYO_SITE_ID}`
-      + `&reservation_id=${bookingID}`
-      + `&hash_timestamp=${timestamp}`
-      + `&hash_key=${hashKey}`
-      + `&details=1`;
+    // --- Build Planyo request ---
+    const url =
+      `https://www.planyo.com/rest/?method=${method}` +
+      `&api_key=${process.env.PLANYO_API_KEY}` +
+      `&site_id=${process.env.PLANYO_SITE_ID}` +
+      `&reservation_id=${bookingID}` +
+      `&hash_timestamp=${timestamp}` +
+      `&hash_key=${hashKey}` +
+      `&details=1`;
 
-    // --- Fetch and parse response ---
     const response = await fetch(url);
     const json = await response.json();
 
