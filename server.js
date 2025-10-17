@@ -1029,14 +1029,14 @@ app.post("/deposit/send-link", async (req, res) => {
 });
 
 
-// ✅ Booking Payments — thank-you data route (fixed timezone offset)
+// ✅ Booking Payments — thank-you data route (corrected timezone +2h)
 app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const { bookingID } = req.params;
 
-    // --- Secure timestamp (Zurich time minus 2 hours to align with Planyo) ---
+    // --- Secure timestamp (Zurich time plus 2 hours to match Planyo clock) ---
     const nowZurich = new Date(
-      Date.now() - 2 * 60 * 60 * 1000 // subtract 2 hours
+      Date.now() + 2 * 60 * 60 * 1000 // add 2 hours
     );
     const timestamp = Math.floor(nowZurich.getTime() / 1000);
     const method = "get_reservation_data";
