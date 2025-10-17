@@ -846,10 +846,14 @@ async function runDepositScheduler(mode) {
     tomorrow.setDate(londonNow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
 
-    const start_time = tomorrow.toISOString().replace("Z", "");
-    const end_time = new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000)
-      .toISOString()
-      .replace("Z", "");
+  const formatPlanyoTime = (d) => {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
+const start_time = formatPlanyoTime(tomorrow);
+const end_time = formatPlanyoTime(new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000));
+
 
     console.log(
       `🕓 London now: ${londonNow.toISOString()} | Checking bookings for ${tomorrow.toDateString()}`
