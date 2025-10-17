@@ -734,7 +734,9 @@ function alreadySentRecently(bookingID) {
 }
 
 // ----------------------------------------------------
-// 🔑 Secure Planyo API call with retry on invalid timestamp (Zurich time fixed)
+// 🔑 Secure Planyo API call with robust timestamp retry
+//   - Use UTC epoch for hash_timestamp
+//   - On "Invalid timestamp", parse server's current timestamp and retry once
 // ----------------------------------------------------
 async function planyoCall(method, params = {}) {
   const buildUrl = (timestamp) => {
@@ -744,34 +746,43 @@ async function planyoCall(method, params = {}) {
       method,
       api_key: process.env.PLANYO_API_KEY,
       site_id: process.env.PLANYO_SITE_ID,
-      hash_timestamp: timestamp,
+      hash_timestamp: String(timestamp),
       hash_key: hashKey,
       ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
     });
     return `https://www.planyo.com/rest/?${query.toString()}`;
   };
 
-  // ✅ Compute Planyo timestamp in Europe/Zurich time
-  async function doFetch() {
-    const now = new Date();
-    // convert current time to Zurich timezone and compute Unix timestamp
-    const zurichNow = new Date(
-      now.toLocaleString("en-US", { timeZone: "Europe/Zurich" })
-    );
-    const timestamp = Math.floor(zurichNow.getTime() / 1000);
+  async function fetchOnce(ts) {
+    const url = buildUrl(ts);
+    const resp = await fetch(url);
+    let text = await resp.text();
 
-    console.log("🕓 Zurich timestamp:", timestamp);
+    // Try JSON; if HTML or text, keep raw so we can parse error message
+    let json;
+    try { json = JSON.parse(text); } catch (_) { json = null; }
 
-    const url = buildUrl(timestamp);
-    const response = await fetch(url);
-    const json = await response.json();
-    return { url, json, timestamp };
+    return { url, json, text };
   }
 
-  let { url, json } = await doFetch();
-  if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || "")) {
-    console.log("⚠️ Invalid timestamp — retrying once...");
-    ({ url, json } = await doFetch());
+  // 1) First attempt with plain UTC epoch
+  const firstTs = Math.floor(Date.now() / 1000);
+  let { url, json, text } = await fetchOnce(firstTs);
+
+  // 2) If invalid timestamp, parse server's suggested "Current timestamp is NNN" and retry once
+  if (!json || (json.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text))) {
+    const m = (json?.response_message || text || "").match(/Current timestamp is\s+(\d+)/i);
+    if (m && m[1]) {
+      const serverTs = parseInt(m[1], 10);
+      console.log("⚠️ Invalid timestamp — retrying with server timestamp:", serverTs);
+      ({ url, json, text } = await fetchOnce(serverTs));
+    }
+  }
+
+  // If still not JSON, try to surface a helpful error
+  if (!json) {
+    console.error("❌ Planyo non-JSON response:", text?.slice(0, 300));
+    return { url, json: { response_code: 1, response_message: "Non-JSON response from Planyo" } };
   }
 
   return { url, json };
