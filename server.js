@@ -734,7 +734,7 @@ function alreadySentRecently(bookingID) {
 }
 
 // ----------------------------------------------------
-// 🔑 Secure Planyo API call with retry on invalid timestamp
+// 🔑 Secure Planyo API call with retry on invalid timestamp (Zurich time fixed)
 // ----------------------------------------------------
 async function planyoCall(method, params = {}) {
   const buildUrl = (timestamp) => {
@@ -751,26 +751,16 @@ async function planyoCall(method, params = {}) {
     return `https://www.planyo.com/rest/?${query.toString()}`;
   };
 
-  // ✅ Calculate timestamp in Zurich time (handles daylight saving)
+  // ✅ Compute Planyo timestamp in Europe/Zurich time
   async function doFetch() {
-    const nowUtc = new Date();
-    // Get the offset between UTC and Zurich (CET/CEST)
-    const zurichOffsetMinutes = -new Date().toLocaleString("en-US", {
-      timeZone: "Europe/Zurich",
-    });
+    const now = new Date();
+    // convert current time to Zurich timezone and compute Unix timestamp
     const zurichNow = new Date(
-      nowUtc.getTime() + (new Date().getTimezoneOffset() + zurichOffsetMinutes) * 60000
+      now.toLocaleString("en-US", { timeZone: "Europe/Zurich" })
     );
+    const timestamp = Math.floor(zurichNow.getTime() / 1000);
 
-    // Simpler and more reliable: always add 3600 or 7200 depending on DST
-    const isDst = new Date().toLocaleString("en-US", {
-      timeZone: "Europe/Zurich",
-      timeZoneName: "short",
-    }).includes("CEST");
-    const offsetSeconds = isDst ? 7200 : 3600;
-
-    const timestamp = Math.floor(nowUtc.getTime() / 1000 + offsetSeconds);
-    console.log("🕓 Adjusted Zurich timestamp:", timestamp);
+    console.log("🕓 Zurich timestamp:", timestamp);
 
     const url = buildUrl(timestamp);
     const response = await fetch(url);
@@ -780,7 +770,7 @@ async function planyoCall(method, params = {}) {
 
   let { url, json } = await doFetch();
   if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || "")) {
-    console.log("⚠️ Invalid timestamp — retrying...");
+    console.log("⚠️ Invalid timestamp — retrying once...");
     ({ url, json } = await doFetch());
   }
 
