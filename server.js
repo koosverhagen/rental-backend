@@ -1040,7 +1040,7 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
     const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
     const hashKey = require("crypto").createHash("md5").update(hashBase).digest("hex");
 
-    const url = `https://www.planyo.com/rest/?method=${method}&api_key=${process.env.PLANYO_API_KEY}&site_id=68785&reservation_id=${bookingID}&hash_timestamp=${timestamp}&hash_key=${hashKey}`;
+    const url = `https://www.planyo.com/rest/?method=${method}&api_key=${process.env.PLANYO_API_KEY}&site_id=68785&reservation_id=${bookingID}&details=1&hash_timestamp=${timestamp}&hash_key=${hashKey}`;
 
     console.log("🌐 Fetching:", url);
 
@@ -1055,7 +1055,7 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
         resource: r.name,
         start: r.start_time,
         end: r.end_time,
-        price: r.price_total || r.price || 0
+        price: r.price_total || r.price || (r.name.includes("7.5") ? 100 : 70)
       });
     } else {
       console.error("⚠️ Planyo error:", json.response_message || json);
