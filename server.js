@@ -1029,58 +1029,52 @@ app.post("/deposit/send-link", async (req, res) => {
 });
 
 
-// ✅ Booking Payments — thank-you data route (with total, paid, balance)
+// ✅ Booking Payments — thank-you data route (fixed + safe timestamp)
 app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const { bookingID } = req.params;
 
-    // --- Step 1️⃣ Fetch booking info from Planyo ---
+    // --- Secure timestamp + hash (Zurich timezone) ---
+    const nowZurich = new Date().toLocaleString("en-US", { timeZone: "Europe/Zurich" });
+    const timestamp = Math.floor(new Date(nowZurich).getTime() / 1000);
     const method = "get_reservation_data";
-    const timestamp = Math.floor(Date.now() / 1000);
+
     const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
-    const hashKey = require("crypto").createHash("md5").update(hashBase).digest("hex");
+    const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
 
-    const url = `https://www.planyo.com/rest/?method=${method}&api_key=${process.env.PLANYO_API_KEY}&site_id=68785&reservation_id=${bookingID}&details=1&hash_timestamp=${timestamp}&hash_key=${hashKey}`;
+    // --- Build Planyo URL ---
+    const url = `https://www.planyo.com/rest/?method=${method}`
+      + `&api_key=${process.env.PLANYO_API_KEY}`
+      + `&site_id=${process.env.PLANYO_SITE_ID}`
+      + `&reservation_id=${bookingID}`
+      + `&hash_timestamp=${timestamp}`
+      + `&hash_key=${hashKey}`
+      + `&details=1`;
 
+    // --- Fetch and parse response ---
     const response = await fetch(url);
     const json = await response.json();
 
-    if (!json || json.response_code !== 0 || !json.data) {
-      console.error("⚠️ Planyo error:", json);
-      return res.status(400).json({ error: "Invalid Planyo response" });
+    if (json?.response_code === 0 && json.data) {
+      const r = json.data;
+      res.json({
+        bookingID,
+        customer: `${r.first_name} ${r.last_name}`,
+        resource: r.name,
+        start: r.start_time,
+        end: r.end_time,
+        price: r.total_price || r.price || 0,
+        total: r.total_price || 0,
+        paid: r.amount_paid || 0,
+        balance: r.balance_due || 0,
+      });
+    } else {
+      console.error("❌ Invalid Planyo response:", json);
+      res.status(500).json({ error: "Invalid Planyo response", raw: json });
     }
-
-    const r = json.data;
-    const total = parseFloat(r.price_total || r.price || 0);
-
-    // --- Step 2️⃣ Fetch Stripe payment data ---
-    const stripe = require("stripe")(process.env.STRIPE_BOOKING_SECRET);
-    const paymentList = await stripe.paymentIntents.list({ limit: 50 });
-    const payment = paymentList.data.find(
-      (p) => p.metadata && String(p.metadata.bookingID) === String(bookingID)
-    );
-
-    const paid = payment && payment.amount_received
-      ? payment.amount_received / 100
-      : 0;
-
-    // --- Step 3️⃣ Calculate balance ---
-    const balance = Math.max(total - paid, 0);
-
-    // --- Step 4️⃣ Return combined JSON ---
-    res.json({
-      bookingID,
-      customer: `${r.first_name} ${r.last_name}`,
-      resource: r.name,
-      start: r.start_time,
-      end: r.end_time,
-      total,
-      paid,
-      balance
-    });
   } catch (err) {
-    console.error("❌ Booking fetch error:", err);
-    res.status(500).send("Internal error");
+    console.error("Booking fetch error:", err);
+    res.status(500).json({ error: "Internal error", details: err.message });
   }
 });
 
