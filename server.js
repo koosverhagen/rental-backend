@@ -1041,13 +1041,15 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
       return res.status(404).json({ error: "Booking not found" });
     }
 
-    res.json({
-      bookingID,
-      customer: `${booking.firstName} ${booking.lastName}`.trim(),
-      resource: booking.resource,
-      start: booking.start,
-      end: booking.end,
-    });
+   res.json({
+  bookingID,
+  customer: `${r.first_name} ${r.last_name}`,
+  resource: r.resource_name,
+  start: r.start_time,
+  end: r.end_time,
+  price: r.price || r.price_total || 0   // ✅ add this line
+});
+
   } catch (err) {
     console.error("Booking fetch error:", err);
     res.status(500).send("Internal error");
