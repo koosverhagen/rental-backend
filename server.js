@@ -853,10 +853,10 @@ async function runDepositScheduler(mode) {
 
     console.log(`🕓 London now: ${londonNow.toISOString()} | Checking bookings for ${tomorrow.toDateString()}`);
 
-    // 🔁 Timestamp-safe Planyo list_reservations call
+    // 🔁 Timestamp-safe Planyo call
     async function fetchPlanyoList() {
-      const zurichNow = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Zurich" }));
-      let timestamp = Math.floor(zurichNow.getTime() / 1000);
+      const nowZurich = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Zurich" }));
+      let timestamp = Math.floor(nowZurich.getTime() / 1000);
 
       const buildUrl = (ts) => {
         const hashBase = process.env.PLANYO_HASH_KEY + ts + "list_reservations";
@@ -884,7 +884,7 @@ async function runDepositScheduler(mode) {
         if (match && match[1]) {
           timestamp = parseInt(match[1], 10);
           console.warn("⚠️ Invalid timestamp — retrying with corrected timestamp...");
-          await new Promise((r) => setTimeout(r, 300));
+          await new Promise((r) => setTimeout(r, 200));
           url = buildUrl(timestamp);
           response = await fetch(url);
           json = await response.json();
@@ -894,7 +894,7 @@ async function runDepositScheduler(mode) {
       return { url, json };
     }
 
-    // 🧠 Run the list fetch
+    // 🧠 Run it
     const { url, json: listData } = await fetchPlanyoList();
     console.log(`🌐 Planyo call → ${url}`);
 
@@ -905,49 +905,38 @@ async function runDepositScheduler(mode) {
 
     console.log(`✅ Found ${listData.data.results.length} booking(s)`);
 
-    // 🔄 Process each booking safely
     for (const item of listData.data.results) {
       const bookingID = String(item.reservation_id);
 
-      // --- Fetch booking details (with timestamp resync) ---
-      async function fetchBookingDetail() {
-        const method = "get_reservation_data";
-        const zurichNow = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Zurich" }));
-        let ts = Math.floor(zurichNow.getTime() / 1000);
-        let hash = crypto.createHash("md5").update(process.env.PLANYO_HASH_KEY + ts + method).digest("hex");
+      // Fetch booking detail (with same timestamp safety)
+      const method = "get_reservation_data";
+      const zurichNow = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Zurich" }));
+      let timestamp = Math.floor(zurichNow.getTime() / 1000);
+      const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
+      const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
 
-        const buildDetailUrl = (timestamp) =>
-          `https://www.planyo.com/rest/?method=${method}` +
-          `&api_key=${process.env.PLANYO_API_KEY}` +
-          `&site_id=${process.env.PLANYO_SITE_ID}` +
-          `&reservation_id=${bookingID}` +
-          `&hash_timestamp=${timestamp}` +
-          `&hash_key=${crypto.createHash("md5").update(process.env.PLANYO_HASH_KEY + timestamp + method).digest("hex")}`;
+      const detailUrl =
+        `https://www.planyo.com/rest/?method=${method}` +
+        `&api_key=${process.env.PLANYO_API_KEY}` +
+        `&site_id=${process.env.PLANYO_SITE_ID}` +
+        `&reservation_id=${bookingID}` +
+        `&hash_timestamp=${timestamp}` +
+        `&hash_key=${hashKey}`;
 
-        let resp = await fetch(buildDetailUrl(ts));
-        let json = await resp.json();
+      const resp = await fetch(detailUrl);
+      const bookingData = await resp.json();
 
-        if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message)) {
-          const match = json.response_message.match(/Current timestamp is (\d+)/);
-          if (match && match[1]) {
-            ts = parseInt(match[1], 10);
-            console.warn(`⚠️ Booking #${bookingID}: Invalid timestamp — retrying...`);
-            await new Promise((r) => setTimeout(r, 200));
-            resp = await fetch(buildDetailUrl(ts));
-            json = await resp.json();
-          }
-        }
-
-        return json;
-      }
-
-      const bookingData = await fetchBookingDetail();
       const email = bookingData?.data?.email || "unknown";
       const status = bookingData?.data?.status;
       const resource = bookingData?.data?.name || "N/A";
 
-      console.log(`🔍 Booking #${bookingID}: status=${status}, email=${email}`);
+      // 🚫 Skip cancelled bookings
+      if (status === "11" || status === 11) {
+        console.log(`🚫 Skipped cancelled booking #${bookingID}`);
+        continue;
+      }
 
+      // ✅ Process only confirmed bookings
       if (status === "7" || status === 7) {
         if (alreadySentRecently(bookingID)) {
           console.log(`⏩ Skipping recent duplicate deposit email for #${bookingID}`);
