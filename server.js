@@ -1171,6 +1171,26 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   }
 });
 
+// ----------------------------------------------------
+// ✅ Booking Thank-You Proxy (for Wix embed)
+// ----------------------------------------------------
+app.get("/booking-thankyou-proxy", (req, res) => {
+  const query = req.url.split("?")[1] || "";
+  const url = `https://rental-backend-0kz1.onrender.com/thankyou-embed.html?${query}`;
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta http-equiv="refresh" content="0; url=${url}">
+        <script>window.location.replace("${url}");</script>
+      </head>
+      <body>
+        Redirecting to thank-you page...
+      </body>
+    </html>
+  `);
+});
+
 
 // ----------------------------------------------------
 // 🚀 Start server
