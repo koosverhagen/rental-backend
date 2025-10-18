@@ -14,6 +14,11 @@ const path = require("path");
 require("dotenv").config();
 
 const app = express();
+app.use(cors());
+
+// ✅ Serve static public files (for thank-you embed)
+app.use(express.static("public"));
+
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
 
@@ -41,6 +46,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
 // ✅ Normal middleware only after webhook
 app.use(cors());
 app.use(express.json());
+
 
 // ---------------------------------------------
 // 🔧 Helper: fetch booking info from Planyo
@@ -214,6 +220,8 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
 // ✅ Apply middlewares AFTER webhook
 app.use(cors());
 app.use(express.json());
+
+
 
 // ---------------------------------------------
 // ✅ 1) Terminal connection token
