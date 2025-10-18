@@ -26,21 +26,18 @@
 <body>
   <div class="flex justify-center items-center min-h-screen px-4 py-8">
     <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md text-center fade-in">
-      <!-- Logo -->
       <div class="flex justify-center mb-6">
-        <img id="logoImage" src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715" 
+        <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715" 
              alt="Equine Transport UK Logo" class="h-16 object-contain" />
       </div>
 
-      <!-- Title -->
-      <h1 id="thankTitle" class="text-2xl font-bold text-gray-800 mb-4">
+      <h1 class="text-2xl font-bold text-gray-800 mb-4">
         Thank you for your booking!
       </h1>
       <p class="text-gray-600 mb-6">
         Your booking has been successfully confirmed. Please find your details below.
       </p>
 
-      <!-- Booking Info -->
       <div id="bookingCard" class="text-left space-y-2 mb-6 bg-gray-50 p-4 rounded-xl border border-gray-200">
         <p id="bookingID" class="font-semibold text-gray-700"></p>
         <p id="customerName"></p>
@@ -49,17 +46,14 @@
         <p id="endDate"></p>
       </div>
 
-      <!-- Payment Info -->
       <div class="text-left bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-2">
         <p id="totalAmount" class="font-medium text-gray-800"></p>
         <p id="paidAmount" class="text-green-700"></p>
         <p id="balanceAmount" class="text-red-700"></p>
       </div>
 
-      <!-- Loading Spinner -->
       <div id="loading" class="mt-6 text-gray-500 text-sm hidden">Loading booking details...</div>
 
-      <!-- Footer -->
       <div class="mt-8 text-sm text-gray-500">
         <p><strong>Equine Transport UK</strong></p>
         <p>Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL</p>
@@ -73,7 +67,6 @@
       const params = new URLSearchParams(window.location.search);
       const bookingID = params.get("bookingID") || "N/A";
 
-      // DOM elements
       const bookingIDEl = document.getElementById("bookingID");
       const customerName = document.getElementById("customerName");
       const resourceName = document.getElementById("resourceName");
@@ -83,18 +76,17 @@
       const paidAmount = document.getElementById("paidAmount");
       const balanceAmount = document.getElementById("balanceAmount");
       const loading = document.getElementById("loading");
-      const thankTitle = document.getElementById("thankTitle");
 
       bookingIDEl.textContent = `Booking ID: ${bookingID}`;
-      thankTitle.textContent = "Thank you for your booking payment!";
 
       if (bookingID !== "N/A") {
         loading.classList.remove("hidden");
 
         fetch(`https://rental-backend-0kz1.onrender.com/bookingpayments/list/${bookingID}`)
-          .then((res) => res.json())
-          .then((data) => {
+          .then(res => res.json())
+          .then(data => {
             loading.classList.add("hidden");
+
             if (data && data.customer) {
               customerName.textContent = `Name: ${data.customer}`;
               resourceName.textContent = `Vehicle: ${data.resource}`;
@@ -107,7 +99,7 @@
               customerName.textContent = "Booking details unavailable.";
             }
           })
-          .catch((err) => {
+          .catch(err => {
             console.error("Fetch error:", err);
             loading.classList.add("hidden");
             customerName.textContent = "Error loading booking details.";
@@ -115,16 +107,16 @@
       } else {
         customerName.textContent = "Invalid booking reference.";
       }
+
+      // 🔧 Auto-height for Wix iframe
+      function postHeight() {
+        const height = document.body.scrollHeight;
+        window.parent.postMessage({ type: "resize", height }, "*");
+      }
+      window.onload = postHeight;
+      setTimeout(postHeight, 1500);
     })();
-// 🔧 Auto-height messaging for Wix embed
-function postHeight() {
-  const height = document.body.scrollHeight;
-  window.parent.postMessage({ type: "resize", height }, "*");
-}
-window.onload = postHeight;
-setTimeout(postHeight, 1500);
- 
- </script>
+  </script>
 </body>
 </html>
 
