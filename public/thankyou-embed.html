@@ -4,100 +4,85 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Booking Confirmation</title>
-  <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
-      font-family: 'Inter', sans-serif;
-      background: linear-gradient(160deg, #f7faff 0%, #eef4fb 100%);
-      color: #1a1a1a;
+      font-family: system-ui, Arial, sans-serif;
+      background: #f7f9fb;
+      color: #333;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      min-height: 100vh;
       margin: 0;
-      padding: 0;
+      padding: 1.5rem;
     }
-    .fade-in {
-      animation: fadeIn 1.2s ease forwards;
-      opacity: 0;
+    .card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+      max-width: 600px;
+      width: 100%;
+      padding: 2rem;
+      text-align: center;
+      animation: fadeIn 0.8s ease;
     }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .spinner {
-      border: 3px solid #f3f3f3;
-      border-top: 3px solid #007bff;
-      border-radius: 50%;
-      width: 28px;
-      height: 28px;
-      animation: spin 1s linear infinite;
-      margin: 0 auto;
-    }
-    @keyframes spin { 100% { transform: rotate(360deg); } }
+    h1 { margin-bottom: 0.5rem; }
+    h2 { margin-top: 0; color: #0070f3; }
+    .loading { color: #777; margin: 1rem 0; }
+    .info { text-align: left; margin-top: 1.5rem; line-height: 1.6; }
+    .fade { opacity: 0; transition: opacity 0.4s ease-in; }
+    @keyframes fadeIn { from {opacity:0; transform:translateY(10px);} to {opacity:1; transform:translateY(0);} }
   </style>
 </head>
 <body>
-  <div class="flex justify-center items-center min-h-screen px-4 py-8">
-    <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md text-center fade-in">
-      <div class="flex justify-center mb-6">
-        <img id="logoImage" src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715" class="h-16 object-contain" />
-      </div>
-
-      <h1 class="text-2xl font-bold text-gray-800 mb-2">Booking Confirmation</h1>
-      <p class="text-gray-500 mb-6">Thank you for your booking! Below are your details.</p>
-
-      <div id="loading" class="flex flex-col items-center text-gray-600">
-        <div class="spinner mb-3"></div>
-        <p>Loading booking details...</p>
-      </div>
-
-      <div id="details" class="hidden text-left bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-2">
-        <p id="bookingID"></p>
-        <p id="customerName"></p>
-        <p id="resourceName"></p>
-        <p id="startDate"></p>
-        <p id="endDate"></p>
-        <p id="totalAmount"></p>
-        <p id="paidAmount"></p>
-        <p id="balanceAmount"></p>
-        <p class="text-sm text-gray-500 pt-3 border-t border-gray-200">You will receive an email shortly.</p>
-      </div>
-    </div>
+  <div class="card">
+    <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715" width="140" alt="Logo" />
+    <h1>Booking Confirmation</h1>
+    <p>Thank you for your booking! Below are your details.</p>
+    <div id="loader" class="loading">Loading booking information...</div>
+    <div id="content" class="info fade"></div>
+    <p style="margin-top:2rem;font-size:0.95rem;color:#666;" id="emailShortlyText">You will receive an email shortly.</p>
   </div>
 
   <script>
-    (function() {
-      const params = new URLSearchParams(window.location.search);
-      const bookingID = params.get("bookingID");
-      const bookingIDEl = document.getElementById("bookingID");
-      const loading = document.getElementById("loading");
-      const details = document.getElementById("details");
+    (async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const bookingID = params.get("bookingID");
+        if (!bookingID) {
+          document.getElementById("loader").innerText = "Invalid booking reference.";
+          return;
+        }
 
-      if (!bookingID) {
-        loading.innerHTML = "<p>Invalid booking reference.</p>";
-        return;
+        const res = await fetch(`https://rental-backend-0kz1.onrender.com/bookingpayments/list/${bookingID}`);
+        const data = await res.json();
+
+        if (!data || !data.customer) {
+          document.getElementById("loader").innerText = "Invalid booking reference.";
+          return;
+        }
+
+        // ✅ Populate the booking details
+        const html = `
+          <strong>Booking ID:</strong> ${bookingID}<br>
+          <strong>Name:</strong> ${data.customer}<br>
+          <strong>Vehicle:</strong> ${data.resource}<br>
+          <strong>Start Date:</strong> ${data.start}<br>
+          <strong>End Date:</strong> ${data.end}<br>
+          <strong>Total:</strong> £${parseFloat(data.total || 0).toFixed(2)}<br>
+          <strong>Paid:</strong> £${parseFloat(data.paid || 0).toFixed(2)}<br>
+          <strong>Balance:</strong> £${parseFloat(data.balance || 0).toFixed(2)}
+        `;
+        document.getElementById("loader").style.display = "none";
+        const content = document.getElementById("content");
+        content.innerHTML = html;
+        content.classList.remove("fade");
+        content.style.opacity = "1";
+      } catch (err) {
+        console.error("Fetch error:", err);
+        document.getElementById("loader").innerText = "Error loading booking details.";
       }
-
-      fetch(`https://rental-backend-0kz1.onrender.com/bookingpayments/list/${bookingID}`)
-        .then(res => res.json())
-        .then(data => {
-          if (!data || !data.customer) {
-            loading.innerHTML = "<p>Booking details unavailable.</p>";
-            return;
-          }
-          loading.classList.add("hidden");
-          details.classList.remove("hidden");
-
-          bookingIDEl.textContent = `Booking ID: ${bookingID}`;
-          document.getElementById("customerName").textContent = `Name: ${data.customer}`;
-          document.getElementById("resourceName").textContent = `Vehicle: ${data.resource}`;
-          document.getElementById("startDate").textContent = `Start Date: ${data.start}`;
-          document.getElementById("endDate").textContent = `End Date: ${data.end}`;
-          document.getElementById("totalAmount").textContent = `Total: £${parseFloat(data.total || 0).toFixed(2)}`;
-          document.getElementById("paidAmount").textContent = `Paid: £${parseFloat(data.paid || 0).toFixed(2)}`;
-          document.getElementById("balanceAmount").textContent = `Balance Due: £${parseFloat(data.balance || 0).toFixed(2)}`;
-        })
-        .catch(err => {
-          console.error(err);
-          loading.innerHTML = "<p>Error loading booking details.</p>";
-        });
     })();
   </script>
 </body>
