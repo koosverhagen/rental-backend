@@ -4,118 +4,107 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Booking Confirmation</title>
+
+  <!-- Tailwind CSS for styling -->
   <script src="https://cdn.tailwindcss.com"></script>
+
   <style>
     body {
-      font-family: 'Inter', sans-serif;
-      background: linear-gradient(160deg, #f7faff 0%, #eef4fb 100%);
-      color: #1a1a1a;
-      margin: 0;
-      padding: 0;
+      font-family: "Inter", system-ui, sans-serif;
+      background: linear-gradient(135deg, #f9fafb, #eef1f5);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: #1f2937;
     }
     .fade-in {
-      animation: fadeIn 1.2s ease forwards;
       opacity: 0;
+      transition: opacity 0.4s ease-in-out;
     }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
+    .fade-in.loaded {
+      opacity: 1;
     }
   </style>
 </head>
+
 <body>
-  <div class="flex justify-center items-center min-h-screen px-4 py-8">
-    <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md text-center fade-in">
-      <div class="flex justify-center mb-6">
-        <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715" 
-             alt="Equine Transport UK Logo" class="h-16 object-contain" />
+  <div id="container" class="max-w-md w-full bg-white p-8 rounded-2xl shadow-lg fade-in">
+    <div class="flex flex-col items-center space-y-4 text-center">
+      <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715" alt="Equine Transport UK" class="w-28" />
+      <h2 class="text-2xl font-bold text-gray-800">Booking Confirmation</h2>
+      <p class="text-gray-500 text-sm" id="loadingText">Loading booking details...</p>
+
+      <div id="bookingDetails" class="hidden space-y-2 text-left text-gray-700">
+        <p><strong>Booking ID:</strong> <span id="bookingID">–</span></p>
+        <p><strong>Name:</strong> <span id="customerName">–</span></p>
+        <p><strong>Vehicle:</strong> <span id="vehicleName">–</span></p>
+        <p><strong>Start:</strong> <span id="startDate">–</span></p>
+        <p><strong>End:</strong> <span id="endDate">–</span></p>
+        <p><strong>Total:</strong> £<span id="totalAmount">–</span></p>
+        <p><strong>Paid:</strong> £<span id="paidAmount">–</span></p>
+        <p><strong>Balance:</strong> £<span id="balanceAmount">–</span></p>
       </div>
 
-      <h1 class="text-2xl font-bold text-gray-800 mb-4">
-        Thank you for your booking!
-      </h1>
-      <p class="text-gray-600 mb-6">
-        Your booking has been successfully confirmed. Please find your details below.
+      <p id="emailNotice" class="hidden text-sm text-gray-500 mt-4">
+        You will receive an email confirmation shortly.
       </p>
-
-      <div id="bookingCard" class="text-left space-y-2 mb-6 bg-gray-50 p-4 rounded-xl border border-gray-200">
-        <p id="bookingID" class="font-semibold text-gray-700"></p>
-        <p id="customerName"></p>
-        <p id="resourceName"></p>
-        <p id="startDate"></p>
-        <p id="endDate"></p>
-      </div>
-
-      <div class="text-left bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-2">
-        <p id="totalAmount" class="font-medium text-gray-800"></p>
-        <p id="paidAmount" class="text-green-700"></p>
-        <p id="balanceAmount" class="text-red-700"></p>
-      </div>
-
-      <div id="loading" class="mt-6 text-gray-500 text-sm hidden">Loading booking details...</div>
-
-      <div class="mt-8 text-sm text-gray-500">
-        <p><strong>Equine Transport UK</strong></p>
-        <p>Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL</p>
-        <p>📞 07584578654 | ✉️ info@equinetransportuk.com</p>
-      </div>
     </div>
   </div>
 
   <script>
-    (function () {
-      const params = new URLSearchParams(window.location.search);
-      const bookingID = params.get("bookingID") || "N/A";
+    // ✅ Helper: read query parameters (works inside Wix iframe)
+    function getQueryParams() {
+      const queryString = window.location.search || parent.location.search;
+      const params = {};
+      new URLSearchParams(queryString).forEach((val, key) => (params[key] = val));
+      return params;
+    }
 
-      const bookingIDEl = document.getElementById("bookingID");
-      const customerName = document.getElementById("customerName");
-      const resourceName = document.getElementById("resourceName");
-      const startDate = document.getElementById("startDate");
-      const endDate = document.getElementById("endDate");
-      const totalAmount = document.getElementById("totalAmount");
-      const paidAmount = document.getElementById("paidAmount");
-      const balanceAmount = document.getElementById("balanceAmount");
-      const loading = document.getElementById("loading");
+    async function loadBooking() {
+      const container = document.getElementById("container");
+      const detailsBox = document.getElementById("bookingDetails");
+      const loadingText = document.getElementById("loadingText");
+      const emailNotice = document.getElementById("emailNotice");
 
-      bookingIDEl.textContent = `Booking ID: ${bookingID}`;
+      try {
+        const { bookingID } = getQueryParams();
+        if (!bookingID) {
+          loadingText.textContent = "No booking ID found.";
+          return;
+        }
 
-      if (bookingID !== "N/A") {
-        loading.classList.remove("hidden");
+        // Fetch booking details from backend
+        const res = await fetch(`https://rental-backend-0kz1.onrender.com/bookingpayments/list/${bookingID}`);
+        const data = await res.json();
 
-        fetch(`https://rental-backend-0kz1.onrender.com/bookingpayments/list/${bookingID}`)
-          .then(res => res.json())
-          .then(data => {
-            loading.classList.add("hidden");
+        if (!data || !data.customer) {
+          loadingText.textContent = "Booking details unavailable.";
+          return;
+        }
 
-            if (data && data.customer) {
-              customerName.textContent = `Name: ${data.customer}`;
-              resourceName.textContent = `Vehicle: ${data.resource}`;
-              startDate.textContent = `Start Date: ${data.start}`;
-              endDate.textContent = `End Date: ${data.end}`;
-              totalAmount.textContent = `Total: £${parseFloat(data.total || 0).toFixed(2)}`;
-              paidAmount.textContent = `Paid: £${parseFloat(data.paid || 0).toFixed(2)}`;
-              balanceAmount.textContent = `Balance Due: £${parseFloat(data.balance || 0).toFixed(2)}`;
-            } else {
-              customerName.textContent = "Booking details unavailable.";
-            }
-          })
-          .catch(err => {
-            console.error("Fetch error:", err);
-            loading.classList.add("hidden");
-            customerName.textContent = "Error loading booking details.";
-          });
-      } else {
-        customerName.textContent = "Invalid booking reference.";
+        // Fill in data
+        document.getElementById("bookingID").textContent = data.bookingID || bookingID;
+        document.getElementById("customerName").textContent = data.customer;
+        document.getElementById("vehicleName").textContent = data.resource;
+        document.getElementById("startDate").textContent = data.start || "-";
+        document.getElementById("endDate").textContent = data.end || "-";
+        document.getElementById("totalAmount").textContent = data.total?.toFixed(2) || "0.00";
+        document.getElementById("paidAmount").textContent = data.paid?.toFixed(2) || "0.00";
+        document.getElementById("balanceAmount").textContent = data.balance?.toFixed(2) || "0.00";
+
+        // Show UI
+        loadingText.classList.add("hidden");
+        detailsBox.classList.remove("hidden");
+        emailNotice.classList.remove("hidden");
+        container.classList.add("loaded");
+      } catch (err) {
+        console.error("Error loading booking:", err);
+        loadingText.textContent = "Error loading booking details.";
       }
+    }
 
-      // 🔧 Auto-height for Wix iframe
-      function postHeight() {
-        const height = document.body.scrollHeight;
-        window.parent.postMessage({ type: "resize", height }, "*");
-      }
-      window.onload = postHeight;
-      setTimeout(postHeight, 1500);
-    })();
+    loadBooking();
   </script>
 </body>
 </html>
