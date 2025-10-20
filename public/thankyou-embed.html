@@ -4,86 +4,124 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Booking Confirmation</title>
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
-      font-family: system-ui, Arial, sans-serif;
-      background: #f7f9fb;
-      color: #333;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      flex-direction: column;
-      min-height: 100vh;
+      font-family: 'Inter', sans-serif;
+      background: linear-gradient(160deg, #f7faff 0%, #eef4fb 100%);
+      color: #1a1a1a;
       margin: 0;
-      padding: 1.5rem;
+      padding: 0;
+      overflow-x: hidden;
     }
-    .card {
-      background: white;
-      border-radius: 16px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.1);
-      max-width: 600px;
-      width: 100%;
-      padding: 2rem;
-      text-align: center;
-      animation: fadeIn 0.8s ease;
+    .fade-in {
+      animation: fadeIn 1.2s ease forwards;
+      opacity: 0;
     }
-    h1 { margin-bottom: 0.5rem; }
-    h2 { margin-top: 0; color: #0070f3; }
-    .loading { color: #777; margin: 1rem 0; }
-    .info { text-align: left; margin-top: 1.5rem; line-height: 1.6; }
-    .fade { opacity: 0; transition: opacity 0.4s ease-in; }
-    @keyframes fadeIn { from {opacity:0; transform:translateY(10px);} to {opacity:1; transform:translateY(0);} }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
   </style>
 </head>
 <body>
-  <div class="card">
-    <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715" width="140" alt="Logo" />
-    <h1>Booking Confirmation</h1>
-    <p>Thank you for your booking! Below are your details.</p>
-    <div id="loader" class="loading">Loading booking information...</div>
-    <div id="content" class="info fade"></div>
-    <p style="margin-top:2rem;font-size:0.95rem;color:#666;" id="emailShortlyText">You will receive an email shortly.</p>
+  <div class="flex justify-center items-center min-h-screen px-4 py-8">
+    <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md text-center fade-in">
+      <!-- Logo -->
+      <div class="flex justify-center mb-6">
+        <img id="logoImage"
+             src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715"
+             alt="Equine Transport UK Logo"
+             class="h-16 object-contain" />
+      </div>
+
+      <!-- Title -->
+      <h1 id="thankTitle" class="text-2xl font-bold text-gray-800 mb-4">
+        Thank you for your booking!
+      </h1>
+      <p class="text-gray-600 mb-6">
+        Your booking has been successfully confirmed. Please find your details below.
+      </p>
+
+      <!-- Booking Info -->
+      <div id="bookingCard" class="text-left space-y-2 mb-6 bg-gray-50 p-4 rounded-xl border border-gray-200">
+        <p id="bookingID" class="font-semibold text-gray-700"></p>
+        <p id="customerName"></p>
+        <p id="resourceName"></p>
+        <p id="startDate"></p>
+        <p id="endDate"></p>
+      </div>
+
+      <!-- Payment Info -->
+      <div class="text-left bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-2">
+        <p id="totalAmount" class="font-medium text-gray-800"></p>
+        <p id="paidAmount" class="text-green-700"></p>
+        <p id="balanceAmount" class="text-red-700"></p>
+      </div>
+
+      <div id="loading" class="mt-6 text-gray-500 text-sm hidden">Loading booking details...</div>
+
+      <div class="mt-8 text-sm text-gray-500">
+        <p><strong>Equine Transport UK</strong></p>
+        <p>Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL</p>
+        <p>📞 07584578654 | ✉️ info@equinetransportuk.com</p>
+      </div>
+    </div>
   </div>
 
   <script>
-    (async () => {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const bookingID = params.get("bookingID");
-        if (!bookingID) {
-          document.getElementById("loader").innerText = "Invalid booking reference.";
-          return;
-        }
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const bookingID = params.get("bookingID") || "N/A";
 
-        const res = await fetch(`https://rental-backend-0kz1.onrender.com/bookingpayments/list/${bookingID}`);
-        const data = await res.json();
+      const bookingIDEl = document.getElementById("bookingID");
+      const customerName = document.getElementById("customerName");
+      const resourceName = document.getElementById("resourceName");
+      const startDate = document.getElementById("startDate");
+      const endDate = document.getElementById("endDate");
+      const totalAmount = document.getElementById("totalAmount");
+      const paidAmount = document.getElementById("paidAmount");
+      const balanceAmount = document.getElementById("balanceAmount");
+      const loading = document.getElementById("loading");
 
-        if (!data || !data.customer) {
-          document.getElementById("loader").innerText = "Invalid booking reference.";
-          return;
-        }
+      bookingIDEl.textContent = `Booking ID: ${bookingID}`;
+      document.getElementById("thankTitle").textContent = "Thank you for your booking payment!";
 
-        // ✅ Populate the booking details
-        const html = `
-          <strong>Booking ID:</strong> ${bookingID}<br>
-          <strong>Name:</strong> ${data.customer}<br>
-          <strong>Vehicle:</strong> ${data.resource}<br>
-          <strong>Start Date:</strong> ${data.start}<br>
-          <strong>End Date:</strong> ${data.end}<br>
-          <strong>Total:</strong> £${parseFloat(data.total || 0).toFixed(2)}<br>
-          <strong>Paid:</strong> £${parseFloat(data.paid || 0).toFixed(2)}<br>
-          <strong>Balance:</strong> £${parseFloat(data.balance || 0).toFixed(2)}
-        `;
-        document.getElementById("loader").style.display = "none";
-        const content = document.getElementById("content");
-        content.innerHTML = html;
-        content.classList.remove("fade");
-        content.style.opacity = "1";
-      } catch (err) {
-        console.error("Fetch error:", err);
-        document.getElementById("loader").innerText = "Error loading booking details.";
+      if (bookingID !== "N/A") {
+        loading.classList.remove("hidden");
+
+        fetch(`https://rental-backend-0kz1.onrender.com/bookingpayments/list/${bookingID}`)
+          .then((res) => res.json())
+          .then((data) => {
+            loading.classList.add("hidden");
+            if (data && data.customer) {
+              customerName.textContent = `Name: ${data.customer}`;
+              resourceName.textContent = `Vehicle: ${data.resource}`;
+              startDate.textContent = `Start Date: ${data.start}`;
+              endDate.textContent = `End Date: ${data.end}`;
+              totalAmount.textContent = `Total: £${parseFloat(data.total || 0).toFixed(2)}`;
+              paidAmount.textContent = `Paid: £${parseFloat(data.paid || 0).toFixed(2)}`;
+              balanceAmount.textContent = `Balance Due: £${parseFloat(data.balance || 0).toFixed(2)}`;
+            } else {
+              customerName.textContent = "Booking details unavailable.";
+            }
+          })
+          .catch((err) => {
+            console.error("Fetch error:", err);
+            loading.classList.add("hidden");
+            customerName.textContent = "Error loading booking details.";
+          });
+      } else {
+        customerName.textContent = "Invalid booking reference.";
       }
     })();
+
+    // ✅ Auto-height message to Wix
+    function postHeight() {
+      window.parent.postMessage({ type: "resize", height: document.body.scrollHeight }, "*");
+    }
+    window.onload = postHeight;
+    setTimeout(postHeight, 1000);
   </script>
 </body>
 </html>
