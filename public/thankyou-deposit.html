@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Deposit Confirmation</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background: linear-gradient(160deg, #f7faff 0%, #eef4fb 100%);
+      color: #1a1a1a;
+      margin: 0;
+      padding: 0;
+    }
+    .fade-in {
+      animation: fadeIn 1.2s ease forwards;
+      opacity: 0;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="flex justify-center items-center min-h-screen px-4 py-8">
+    <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md text-center fade-in">
+      <!-- Logo -->
+      <div class="flex justify-center mb-6">
+        <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715"
+             alt="Equine Transport UK Logo" class="h-16 object-contain" />
+      </div>
+
+      <!-- Title -->
+      <h1 class="text-2xl font-bold text-gray-800 mb-4">
+        Deposit Payment Successful!
+      </h1>
+      <p class="text-gray-600 mb-6">
+        Your deposit has been successfully received. Please review your booking details below.
+      </p>
+
+      <!-- Booking Info -->
+      <div id="bookingCard" class="text-left space-y-2 mb-6 bg-gray-50 p-4 rounded-xl border border-gray-200">
+        <p id="bookingID" class="font-semibold text-gray-700"></p>
+        <p id="customerName"></p>
+        <p id="resourceName"></p>
+        <p id="startDate"></p>
+        <p id="endDate"></p>
+        <p id="depositAmount" class="text-green-700 font-semibold"></p>
+      </div>
+
+      <!-- Loading message -->
+      <div id="loading" class="mt-6 text-gray-500 text-sm hidden">Loading booking details...</div>
+
+      <!-- Footer -->
+      <div class="mt-8 text-sm text-gray-500">
+        <p><strong>Equine Transport UK</strong></p>
+        <p>Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL</p>
+        <p>📞 07584578654 | ✉️ info@equinetransportuk.com</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      // --- Get query parameters ---
+      const params = new URLSearchParams(window.location.search);
+      const bookingID = params.get("bookingID") || "N/A";
+      const amount = params.get("amount") ? (parseInt(params.get("amount")) / 100).toFixed(2) : "0.00";
+
+      // --- DOM elements ---
+      const bookingIDEl = document.getElementById("bookingID");
+      const customerName = document.getElementById("customerName");
+      const resourceName = document.getElementById("resourceName");
+      const startDate = document.getElementById("startDate");
+      const endDate = document.getElementById("endDate");
+      const depositAmount = document.getElementById("depositAmount");
+      const loading = document.getElementById("loading");
+
+      bookingIDEl.textContent = `Booking ID: ${bookingID}`;
+      depositAmount.textContent = `Deposit: £${amount}`;
+
+      if (bookingID !== "N/A") {
+        loading.classList.remove("hidden");
+
+        fetch(`https://rental-backend-0kz1.onrender.com/terminal/list/${bookingID}`)
+          .then((res) => res.json())
+          .then((data) => {
+            loading.classList.add("hidden");
+
+            if (data && data.length > 0) {
+              const booking = data[0];
+              customerName.textContent = `Name: ${booking.customer || "Unknown"}`;
+              resourceName.textContent = `Vehicle: ${booking.name || "Unknown"}`;
+              startDate.textContent = `Start Date: ${booking.start || "-"}`;
+              endDate.textContent = `End Date: ${booking.end || "-"}`;
+            } else {
+              customerName.textContent = "Booking details unavailable.";
+            }
+
+            postHeight(); // adjust iframe height once loaded
+          })
+          .catch((err) => {
+            console.error("Fetch error:", err);
+            loading.classList.add("hidden");
+            customerName.textContent = "Error loading booking details.";
+            postHeight();
+          });
+      } else {
+        customerName.textContent = "Invalid booking reference.";
+        postHeight();
+      }
+
+      // --- Auto-resize for Wix ---
+      function postHeight() {
+        const height = document.body.scrollHeight;
+        window.parent.postMessage({ type: "resize", height }, "*");
+      }
+
+      window.onload = postHeight;
+      window.addEventListener("resize", postHeight);
+      setTimeout(postHeight, 1500);
+      setTimeout(postHeight, 3000);
+    })();
+  </script>
+</body>
+</html>
+
