@@ -538,14 +538,65 @@ app.get("/terminal/list-all", async (_req, res) => {
 });
 
 // ---------------------------------------------
-// ✅ 6) Cancel deposit
+// ✅ 6) Cancel deposit (with email notifications)
 // ---------------------------------------------
 app.post("/terminal/cancel", async (req, res) => {
   try {
     const { payment_intent_id } = req.body;
     const canceledIntent = await stripe.paymentIntents.cancel(payment_intent_id);
+    const bookingID = canceledIntent.metadata?.bookingID;
+
+    console.log(`⚠️ Deposit canceled: ${payment_intent_id} (Booking #${bookingID || "unknown"})`);
+
+    if (bookingID) {
+      const booking = await fetchPlanyoBooking(bookingID);
+
+      if (booking.email) {
+        const htmlBody = `
+          <div style="font-family: Arial, sans-serif; line-height:1.6; color:#333;">
+            <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
+                 alt="Equine Transport UK"
+                 style="width:160px; height:auto; display:block; margin:0 auto 20px auto;" />
+            <h2 style="text-align:center; color:#d9534f;">Deposit Hold Canceled</h2>
+            <p>Dear ${booking.firstName} ${booking.lastName},</p>
+            <p>The deposit hold for <b>Booking #${bookingID}</b> has been <b>canceled</b>.</p>
+            <p>No funds are reserved on your card any longer.</p>
+            <hr/>
+            <p style="font-size:12px; color:#777; text-align:center;">
+              <strong>Equine Transport UK</strong><br/>
+              Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL<br/>
+              📞 +44 7584578654 | ✉️ info@equinetransportuk.com
+            </p>
+          </div>
+        `;
+
+        // ✅ Send email to customer
+        await sendgrid.send({
+          to: booking.email,
+          from: "Equine Transport UK <info@equinetransportuk.com>",
+          subject: `Equine Transport UK | Deposit Hold Canceled | Booking #${bookingID}`,
+          html: htmlBody,
+        });
+
+        // ✅ Send admin copy
+        await sendgrid.send({
+          to: "kverhagen@mac.com",
+          from: "Equine Transport UK <info@equinetransportuk.com>",
+          subject: `Admin Copy | Deposit Hold Canceled | Booking #${bookingID}`,
+          html: htmlBody,
+        });
+
+        console.log(`📩 Cancel emails sent for booking #${bookingID} → ${booking.email} & admin`);
+      } else {
+        console.warn(`⚠️ No email found for booking #${bookingID}`);
+      }
+    } else {
+      console.warn("⚠️ No bookingID in canceled intent metadata.");
+    }
+
     res.json({ id: canceledIntent.id, status: canceledIntent.status });
   } catch (err) {
+    console.error("❌ Cancel error:", err);
     res.status(500).json({ error: err.message });
   }
 });
