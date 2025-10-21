@@ -266,7 +266,7 @@ app.post("/deposit/create-intent", async (req, res) => {
 });
 
 // ---------------------------------------------
-// ✅ 3) Hosted deposit page (with redirect + £400 hold)
+// ✅ 3) Hosted deposit page (with Full Name input + £400 hold)
 // ---------------------------------------------
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
@@ -274,6 +274,7 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
 
   const booking = await fetchPlanyoBooking(bookingID);
 
+  // Create initial PaymentIntent (no name yet — will be updated when user submits)
   const intent = await stripe.paymentIntents.create({
     amount,
     currency: "gbp",
@@ -314,7 +315,7 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
     label { display:block; margin-top:12px; font-weight:600; }
     .StripeElement, input {
       padding:12px; border:2px solid #e6e8ef; border-radius:8px;
-      background:#fff; margin-top:6px; font-size:14px;
+      background:#fff; margin-top:6px; font-size:14px; width:100%;
     }
     button {
       margin-top:18px; width:100%;
@@ -349,6 +350,9 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
     </p>
 
     <form id="payment-form">
+      <label>Full Name</label>
+      <input id="full-name" placeholder="Full Name" required />
+
       <label>Card Number</label>
       <div id="card-number" class="StripeElement"></div>
 
@@ -359,7 +363,7 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
       <div id="card-cvc" class="StripeElement"></div>
 
       <label>Postcode</label>
-      <input id="postal-code" placeholder="Postcode"/>
+      <input id="postal-code" placeholder="Postcode" required />
 
       <button id="submit">Confirm Hold</button>
       <div id="result"></div>
@@ -395,11 +399,19 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
       e.preventDefault();
       resultDiv.textContent = "⏳ Processing…";
 
-      const postalCode = document.getElementById("postal-code").value;
+      const fullName = document.getElementById("full-name").value.trim();
+      const postalCode = document.getElementById("postal-code").value.trim();
+
+      if (!fullName) {
+        resultDiv.textContent = "⚠️ Please enter your full name.";
+        return;
+      }
+
+      // ✅ Confirm payment and update metadata with name
       const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
           card: cardNumber,
-          billing_details: { address: { postal_code: postalCode } }
+          billing_details: { name: fullName, address: { postal_code: postalCode } }
         }
       });
 
@@ -408,6 +420,16 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
       } else if (paymentIntent && paymentIntent.status === "requires_capture") {
         resultDiv.textContent = "✅ Hold Successful. Redirecting…";
 
+        // ✅ Update metadata to include full name
+        fetch("${process.env.SERVER_URL}/update-metadata", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            payment_intent_id: paymentIntent.id,
+            metadata: { fullName }
+          })
+        }).catch(()=>{});
+
         // Trigger confirmation email
         fetch("${process.env.SERVER_URL}/email/deposit-confirmation", {
           method: "POST",
@@ -415,10 +437,9 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
           body: JSON.stringify({ bookingID: "${bookingID}", amount: ${amount} })
         }).catch(()=>{});
 
-       // 🔥 Redirect after 2 seconds — correctly pass bookingID and amount
-setTimeout(() => {
-  window.location.href = "https://www.equinetransportuk.com/thank-you?bookingID=" + ${JSON.stringify(bookingID)} + "&amount=" + ${amount};
-}, 2000);
+        setTimeout(() => {
+          window.location.href = "https://www.equinetransportuk.com/thank-you?bookingID=" + ${JSON.stringify(bookingID)} + "&amount=" + ${amount};
+        }, 2000);
       } else {
         resultDiv.textContent = "ℹ️ Status: " + paymentIntent.status;
       }
@@ -600,6 +621,21 @@ app.post("/terminal/cancel", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ---------------------------------------------
+// ✅ Update metadata (for name tracking)
+// ---------------------------------------------
+app.post("/update-metadata", async (req, res) => {
+  try {
+    const { payment_intent_id, metadata } = req.body;
+    await stripe.paymentIntents.update(payment_intent_id, { metadata });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Metadata update failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // ---------------------------------------------
 // ✅ 7) Capture deposit
