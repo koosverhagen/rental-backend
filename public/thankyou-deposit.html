@@ -14,28 +14,22 @@
       padding: 0;
       overflow-x: hidden;
     }
-    .fade-in {
-      animation: fadeIn 1.2s ease forwards;
-      opacity: 0;
-    }
+    .fade-in { animation: fadeIn 1.2s ease forwards; opacity: 0; }
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(10px); }
       to { opacity: 1; transform: translateY(0); }
     }
   </style>
 </head>
-
 <body>
-  <div class="flex justify-center items-center min-h-screen px-4 py-[20px]">
+  <div class="flex justify-center items-center min-h-screen px-4 py-8">
     <div class="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md text-center fade-in">
-
       <!-- Logo -->
       <div class="flex justify-center mb-6">
         <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715"
              alt="Equine Transport UK Logo" class="h-16 object-contain" />
       </div>
 
-      <!-- Title -->
       <h1 class="text-2xl font-bold text-gray-800 mb-4">
         Deposit Hold Confirmed
       </h1>
@@ -43,30 +37,21 @@
         Thank you. Your deposit hold has been successfully placed.
       </p>
 
-      <!-- Booking Details -->
       <div id="bookingCard" class="text-left space-y-2 mb-6 bg-gray-50 p-4 rounded-xl border border-gray-200">
         <p id="bookingID" class="font-semibold text-gray-700"></p>
         <p id="customerName"></p>
         <p id="resourceName"></p>
         <p id="startDate"></p>
         <p id="endDate"></p>
-        <p id="totalAmount"></p>
       </div>
 
-      <!-- Deposit Details -->
       <div class="text-left bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-2">
-        <p id="depositAmount" class="font-semibold text-gray-800 text-lg"></p>
-        <p class="text-sm text-gray-600">
-          Funds remain reserved until the vehicle is returned.
-        </p>
+        <p id="depositAmount" class="font-medium text-gray-800"></p>
+        <p class="text-sm text-gray-600">Funds remain reserved until the vehicle is returned.</p>
       </div>
 
-      <!-- Loading -->
-      <div id="loading" class="mt-6 text-gray-500 text-sm hidden">
-        Loading deposit details...
-      </div>
+      <div id="loading" class="mt-6 text-gray-500 text-sm hidden">Loading deposit details...</div>
 
-      <!-- Footer -->
       <div class="mt-8 text-sm text-gray-500">
         <p><strong>Equine Transport UK</strong></p>
         <p>Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL</p>
@@ -76,49 +61,47 @@
   </div>
 
   <script>
-  (function () {
-    const params = new URLSearchParams(window.location.search);
-    const bookingID = params.get("bookingID") || "N/A";
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const bookingID = params.get("bookingID") || "N/A";
+      const amount = params.get("amount") || "0";
 
-    const bookingIDEl = document.getElementById("bookingID");
-    const customerName = document.getElementById("customerName");
-    const resourceName = document.getElementById("resourceName");
-    const startDate = document.getElementById("startDate");
-    const endDate = document.getElementById("endDate");
-    const totalAmount = document.getElementById("totalAmount");
-    const depositAmount = document.getElementById("depositAmount");
-    const loading = document.getElementById("loading");
+      const bookingIDEl = document.getElementById("bookingID");
+      const customerName = document.getElementById("customerName");
+      const resourceName = document.getElementById("resourceName");
+      const startDate = document.getElementById("startDate");
+      const endDate = document.getElementById("endDate");
+      const depositAmount = document.getElementById("depositAmount");
+      const loading = document.getElementById("loading");
 
-    bookingIDEl.textContent = `Booking ID: ${bookingID}`;
+      bookingIDEl.textContent = `Booking ID: ${bookingID}`;
+      depositAmount.textContent = `Deposit: £${(amount / 100).toFixed(2)}`;
 
-    if (bookingID !== "N/A") {
-      loading.classList.remove("hidden");
+      if (bookingID !== "N/A") {
+        loading.classList.remove("hidden");
 
-      fetch(`https://rental-backend-0kz1.onrender.com/bookingpayments/list/${bookingID}`)
-        .then((res) => res.json())
-        .then((data) => {
-          loading.classList.add("hidden");
-
-          if (data && data.customer) {
-            customerName.textContent = `Name: ${data.customer}`;
-            resourceName.textContent = `Vehicle: ${data.resource}`;
-            startDate.textContent = `Start Date: ${data.start}`;
-            endDate.textContent = `End Date: ${data.end}`;
-            totalAmount.textContent = `Total: £${parseFloat(data.total || 0).toFixed(2)}`;
-            depositAmount.textContent = `Deposit Hold: £${parseFloat(data.deposit || 0).toFixed(2)}`;
-          } else {
-            customerName.textContent = "Booking details unavailable.";
-          }
-        })
-        .catch((err) => {
-          console.error("Fetch error:", err);
-          loading.classList.add("hidden");
-          customerName.textContent = "Error loading booking details.";
-        });
-    } else {
-      customerName.textContent = "Invalid booking reference.";
-    }
-  })();
+        fetch(`https://rental-backend-0kz1.onrender.com/bookingpayments/list/${bookingID}`)
+          .then((res) => res.json())
+          .then((data) => {
+            loading.classList.add("hidden");
+            if (data && data.customer) {
+              customerName.textContent = `Name: ${data.customer}`;
+              resourceName.textContent = `Vehicle: ${data.resource}`;
+              startDate.textContent = `Start Date: ${data.start}`;
+              endDate.textContent = `End Date: ${data.end}`;
+            } else {
+              customerName.textContent = "Booking details unavailable.";
+            }
+          })
+          .catch((err) => {
+            console.error("Fetch error:", err);
+            loading.classList.add("hidden");
+            customerName.textContent = "Error loading booking details.";
+          });
+      } else {
+        customerName.textContent = "Invalid booking reference.";
+      }
+    })();
   </script>
 </body>
 </html>
