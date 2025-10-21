@@ -270,7 +270,7 @@ app.post("/deposit/create-intent", async (req, res) => {
 // ---------------------------------------------
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
-  const amount = 40000; // £400 hold
+  const amount = 100; // £1 hold
 
   const booking = await fetchPlanyoBooking(bookingID);
 
@@ -419,7 +419,6 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
 setTimeout(() => {
   window.location.href = "https://www.equinetransportuk.com/thank-you?bookingID=" + ${JSON.stringify(bookingID)} + "&amount=" + ${amount};
 }, 2000);
-
       } else {
         resultDiv.textContent = "ℹ️ Status: " + paymentIntent.status;
       }
