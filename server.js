@@ -293,47 +293,128 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
   <title>Deposit Hold - Booking ${bookingID}</title>
   <script src="https://js.stripe.com/v3/"></script>
   <style>
-    body {
-      margin:0; padding:0;
-      background:#f6f7fb;
-      font-family:"Helvetica Neue", Arial, sans-serif;
-      font-size:13px; color:#333;
-      line-height:1.6;
-    }
+  body {
+    margin: 0;
+    padding: 0;
+    background: #f6f7fb;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    color: #333;
+    line-height: 1.6;
+    overflow-x: hidden; /* ✅ Prevent horizontal wobble */
+  }
+
+  .container {
+    max-width: 600px;
+    margin: 20px auto;
+    background: #fff;
+    padding: 16px;
+    border-radius: 10px;
+    box-sizing: border-box;
+  }
+
+  .logo {
+    text-align: center;
+    margin-bottom: 16px;
+  }
+
+  .logo img {
+    width: 140px;
+    height: auto;
+  }
+
+  h2 {
+    text-align: center;
+    margin: 0 0 10px;
+    color: #0070f3;
+    font-size: 1.3rem;
+  }
+
+  p.center {
+    text-align: center;
+    margin: 6px 0;
+    color: #555;
+    word-wrap: break-word;
+  }
+
+  label {
+    display: block;
+    margin-top: 10px;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+
+  /* ✅ Inputs and Stripe Elements – smaller, mobile-safe */
+  .StripeElement,
+  input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px;
+    border: 1.5px solid #d8dce6;
+    border-radius: 8px;
+    background: #fff;
+    margin-top: 4px;
+    font-size: 15px;
+  }
+
+  button {
+    margin-top: 16px;
+    width: 100%;
+    padding: 12px;
+    border: 0;
+    border-radius: 10px;
+    background: #0070f3;
+    color: #fff;
+    font-size: 16px;
+    cursor: pointer;
+  }
+
+  #result {
+    margin-top: 12px;
+    text-align: center;
+    font-size: 0.95rem;
+  }
+
+  hr {
+    margin: 20px 0;
+    border: 0;
+    border-top: 1px solid #ddd;
+  }
+
+  .footer {
+    font-size: 12.5px;
+    color: #777;
+    text-align: center;
+    line-height: 1.5;
+  }
+
+  .footer a {
+    color: #0070f3;
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  /* ✅ Mobile refinements */
+  @media (max-width: 480px) {
     .container {
-      max-width:600px; margin:30px auto;
-      background:#fff; padding:20px;
-      border-radius:8px;
+      margin: 10px;
+      padding: 12px;
+      border-radius: 8px;
     }
-    .logo { text-align:center; margin-bottom:20px; }
-    .logo img { width:160px; height:auto; }
-    h2 {
-      text-align:center; margin:0 0 12px;
-      color:#0070f3;
-    }
-    p.center { text-align:center; margin:6px 0; color:#555; }
-    label { display:block; margin-top:12px; font-weight:600; }
-    .StripeElement, input {
-      padding:12px; border:2px solid #e6e8ef; border-radius:8px;
-      background:#fff; margin-top:6px; font-size:14px; width:100%;
+    .StripeElement,
+    input {
+      padding: 8px;
+      font-size: 14px;
     }
     button {
-      margin-top:18px; width:100%;
-      padding:14px; border:0;
-      border-radius:10px;
-      background:#0070f3; color:#fff;
-      font-size:16px; cursor:pointer;
+      padding: 10px;
+      font-size: 15px;
     }
-    #result { margin-top:14px; text-align:center; }
-    hr { margin:24px 0; border:0; border-top:1px solid #ccc; }
-    .footer {
-      font-size:13px; color:#777; text-align:center;
-      line-height:1.5; font-weight:300;
+    h2 {
+      font-size: 1.1rem;
     }
-    .footer a {
-      color:#0070f3; text-decoration:none; font-weight:500;
-    }
-  </style>
+  }
+</style>
 </head>
 <body>
   <div class="container">
