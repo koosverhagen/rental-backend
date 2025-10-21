@@ -270,7 +270,7 @@ app.post("/deposit/create-intent", async (req, res) => {
 // ---------------------------------------------
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
-  const amount = 100; // £1 hold
+  const amount = 40000; // £400 hold
 
   const booking = await fetchPlanyoBooking(bookingID);
 
