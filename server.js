@@ -266,11 +266,11 @@ app.post("/deposit/create-intent", async (req, res) => {
 });
 
 // ---------------------------------------------
-// ✅ 3) Hosted deposit page (with Full Name input + £400 hold)
+// ✅ 3) Hosted deposit page (with Full Name input + £200 hold)
 // ---------------------------------------------
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
-  const amount = 40000; // £400 hold
+  const amount = 20000; // £200 hold
 
   const booking = await fetchPlanyoBooking(bookingID);
 
@@ -422,7 +422,7 @@ app.get("/deposit/pay/:bookingID", async (req, res) => {
       <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715" alt="Equine Transport UK Logo"/>
     </div>
 
-    <h2>Deposit Hold (£${(amount/100).toFixed(2)})</h2>
+    <h2>Deposit Hold (£${(amount/20000).toFixed(2)})</h2>
     <p class="center">
       Booking <b>#${bookingID}</b><br/>
       ${booking.firstName} ${booking.lastName}<br/>
@@ -564,7 +564,7 @@ app.post("/deposit/send-link", async (req, res) => {
           <b>To:</b> ${booking.end}
         </p>
         <p style="font-size:18px; text-align:center;">
-          Deposit Required: <b>£${(amount/100).toFixed(2)}</b>
+          Deposit Required: <b>£${(amount/20000).toFixed(2)}</b>
         </p>
         <div style="text-align:center; margin:30px 0;">
           <a href="${link}"
@@ -786,7 +786,7 @@ app.post("/email/deposit-confirmation", async (req, res) => {
         <p><b>Note:</b> This is a <b>pre-authorisation (hold)</b>. <b>No money has been taken</b> from your account.</p>
 
         <p>Dear ${booking.firstName} ${booking.lastName},</p>
-        <p>We have successfully placed a deposit hold of <b>£${(amount/100).toFixed(2)}</b> for your booking <b>#${bookingID}</b>.</p>
+        <p>We have successfully placed a deposit hold of <b>£${(amount/20000).toFixed(2)}</b> for your booking <b>#${bookingID}</b>.</p>
 
         <h3>Booking Details</h3>
         <ul>
@@ -1130,11 +1130,11 @@ async function runDepositScheduler(mode) {
           continue;
         }
 
-        console.log(`📩 Sending £400 deposit link for booking #${bookingID} (${resource}) → ${email}`);
+        console.log(`📩 Sending £200 deposit link for booking #${bookingID} (${resource}) → ${email}`);
         await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bookingID, amount: 40000 }),
+          body: JSON.stringify({ bookingID, amount: 20000 }),
         });
 
         markDepositSent(bookingID);
@@ -1177,7 +1177,7 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
       await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingID, amount: 40000 }),
+        body: JSON.stringify({ bookingID, amount: 20000 }),
       });
 
       processedBookings.add(bookingID);
@@ -1213,7 +1213,7 @@ app.post("/deposit/send-link", async (req, res) => {
         <p>Dear ${booking.firstName} ${booking.lastName},</p>
         <p>Please complete your deposit hold for <b>Booking #${bookingID}</b>.</p>
         <p><b>Lorry:</b> ${booking.resource}<br><b>From:</b> ${booking.start}<br><b>To:</b> ${booking.end}</p>
-        <p style="font-size:18px;text-align:center;">Deposit Required: <b>£${(amount / 100).toFixed(2)}</b></p>
+        <p style="font-size:18px;text-align:center;">Deposit Required: <b>£${(amount / 20000).toFixed(2)}</b></p>
         <p style="text-align:center;margin:30px 0;">
           <a href="${link}" style="padding:14px 24px;background:#0070f3;color:#fff;border-radius:6px;text-decoration:none;font-size:16px;">
             💳 Pay Deposit Securely
