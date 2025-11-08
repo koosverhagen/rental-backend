@@ -764,6 +764,47 @@ app.get("/terminal/list/:bookingID", async (req, res) => {
 });
 
 // ---------------------------------------------
+// ✅ 10) Check deposit status for a booking (for HireCheck app)
+// ---------------------------------------------
+app.get("/deposit/status/:bookingID", async (req, res) => {
+  try {
+    const bookingID = String(req.params.bookingID);
+    console.log(`🔎 Checking deposit status for booking #${bookingID}`);
+
+    // List payment intents with this bookingID in metadata
+    const paymentIntents = await stripe.paymentIntents.list({ limit: 100 });
+    const matching = paymentIntents.data.filter(
+      (pi) => pi.metadata && String(pi.metadata.bookingID) === bookingID
+    );
+
+    // Find one that’s either captured or holding funds
+    const successIntent = matching.find(
+      (pi) => pi.status === "succeeded" || pi.status === "requires_capture"
+    );
+
+    if (successIntent) {
+      console.log(
+        `✅ Deposit found for #${bookingID}: ${successIntent.status} (${successIntent.amount / 100} GBP)`
+      );
+      return res.json({
+        success: true,
+        amount: (successIntent.amount / 100).toFixed(2),
+        status: successIntent.status,
+        created: successIntent.created,
+      });
+    }
+
+    console.log(`⚠️ No active deposit found for booking #${bookingID}`);
+    res.json({ success: false });
+  } catch (err) {
+    console.error("❌ Deposit status check failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+// ---------------------------------------------
 // ✅ 9) Deposit confirmation email
 // ---------------------------------------------
 app.post("/email/deposit-confirmation", async (req, res) => {
