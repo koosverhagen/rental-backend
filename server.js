@@ -45,7 +45,10 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
 
 // ✅ Normal middleware only after webhook
 app.use(cors());
-app.use(express.json());
+// ✅ Allow large JSON payloads (up to 20 MB for Base64 PDFs)
+app.use(express.json({ limit: "20mb" }));
+app.use(express.urlencoded({ extended: true, limit: "20mb" }));
+
 
 
 // ---------------------------------------------
