@@ -1405,7 +1405,7 @@ app.get("/booking-thankyou-proxy", (req, res) => {
 // ----------------------------------------------------
 // 📧 Send Damage Report Email (to customer + admin)
 // ----------------------------------------------------
-import sendgrid from "@sendgrid/mail";
+
 sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
 
 app.post("/damage/send-report", express.json({ limit: "20mb" }), async (req, res) => {
