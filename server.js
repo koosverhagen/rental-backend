@@ -1403,6 +1403,73 @@ app.get("/booking-thankyou-proxy", (req, res) => {
 
 
 // ----------------------------------------------------
+// 📧 Send Damage Report Email (to customer + admin)
+// ----------------------------------------------------
+import sendgrid from "@sendgrid/mail";
+sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
+
+app.post("/damage/send-report", express.json({ limit: "20mb" }), async (req, res) => {
+  try {
+    const { bookingID, customerEmail, pdfBase64 } = req.body;
+
+    if (!bookingID || !customerEmail || !pdfBase64) {
+      return res.status(400).json({ error: "Missing bookingID, email, or PDF data" });
+    }
+
+    const pdfBuffer = Buffer.from(pdfBase64, "base64");
+
+    const attachments = [
+      {
+        content: pdfBase64,
+        filename: `DamageReport_${bookingID}.pdf`,
+        type: "application/pdf",
+        disposition: "attachment",
+      },
+    ];
+
+    const htmlBody = `
+      <div style="font-family:Helvetica,Arial,sans-serif;color:#333;background:#f9f9f9;padding:30px;">
+        <div style="text-align:center;margin-bottom:25px;">
+          <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715"
+               alt="Equine Transport UK" width="220" />
+        </div>
+
+        <h2 style="color:#2b2b2b;">Pick-Up Damage & Fuel Report</h2>
+        <p>Dear Customer,</p>
+        <p>
+          Please find attached your Pick-Up Damage & Fuel Report for booking <b>#${bookingID}</b>.
+        </p>
+        <p>Kind regards,<br><strong>Equine Transport UK</strong></p>
+
+        <hr style="margin:30px 0;border:none;border-top:1px solid #ddd;" />
+        <p style="font-size:12px;color:#666;text-align:center;">
+          Equine Transport UK · The Millens · East Sussex ·
+          <a href="mailto:info@equinetransportuk.com" style="color:#666;">info@equinetransportuk.com</a>
+        </p>
+      </div>
+    `;
+
+    await sendgrid.send({
+      to: [customerEmail, "info@equinetransportuk.com"], // 👈 both copies
+      from: {
+        email: "info@equinetransportuk.com",
+        name: "Equine Transport UK",
+      },
+      subject: `Damage / Fuel Report – Booking #${bookingID}`,
+      html: htmlBody,
+      attachments,
+    });
+
+    console.log(`✅ Damage report emailed for booking ${bookingID}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ SendGrid email error:", err.response?.body || err);
+    res.status(500).json({ error: "Email failed to send" });
+  }
+});
+
+
+// ----------------------------------------------------
 // 🚀 Start server
 // ----------------------------------------------------
 const PORT = process.env.PORT || 10000;
