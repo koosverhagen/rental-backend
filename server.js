@@ -1556,6 +1556,57 @@ app.get("/planyo/upcoming", async (req, res) => {
 });
 
 // ----------------------------------------------------
+// ✅ Full booking details for HireCheck app (includes DoB, address, phone)
+// ----------------------------------------------------
+app.get("/planyo/booking/:bookingID", async (req, res) => {
+  try {
+    const bookingID = String(req.params.bookingID);
+    const method = "get_reservation_data";
+    const timestamp = Math.floor(Date.now() / 1000);
+    const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
+    const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
+
+    const url =
+      `https://www.planyo.com/rest/?method=${method}` +
+      `&api_key=${process.env.PLANYO_API_KEY}` +
+      `&site_id=${process.env.PLANYO_SITE_ID}` +
+      `&reservation_id=${bookingID}` +
+      `&hash_timestamp=${timestamp}` +
+      `&hash_key=${hashKey}`;
+
+    const response = await fetch(url);
+    const json = await response.json();
+
+    if (json?.response_code !== 0 || !json.data) {
+      return res.status(400).json({ error: "Invalid Planyo response", json });
+    }
+
+    const data = json.data;
+    const custom = data.custom_fields || {};
+
+    res.json({
+      bookingID,
+      vehicleName: data.name || "N/A",
+      startDate: data.start_time || "",
+      endDate: data.end_time || "",
+      customerName: `${data.first_name || ""} ${data.last_name || ""}`.trim(),
+      email: data.email || "",
+      phoneNumber: data.phone || "",
+      totalPrice: data.total_price || "",
+      amountPaid: data.amount_paid || "",
+      addressLine1: data.address_line_1 || custom.address_line_1 || "",
+      addressLine2: data.address_line_2 || custom.address_line_2 || "",
+      postcode: data.zip_code || custom.postcode || "",
+      dateOfBirth: custom.date_of_birth || custom.dob || ""
+    });
+  } catch (err) {
+    console.error("❌ Error fetching full booking:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ----------------------------------------------------
 // 🚀 Start server
 // ----------------------------------------------------
 const PORT = process.env.PORT || 10000;
