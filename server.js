@@ -1556,60 +1556,77 @@ app.get("/planyo/upcoming", async (req, res) => {
 });`
 
 // ----------------------------------------------------
-// ✅ Full booking details for HireCheck app (includes DoB, address, phone, etc.)
+// ✅ Get full booking details for a single reservation (HireCheck)
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
-    const bookingID = String(req.params.bookingID);
+    const bookingID = req.params.bookingID;
     const method = "get_reservation_data";
-    const timestamp = Math.floor(Date.now() / 1000);
-    const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
-    const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
+    const firstTs = Math.floor(Date.now() / 1000);
 
-    const url =
-      `https://www.planyo.com/rest/?method=${method}` +
-      `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&site_id=${process.env.PLANYO_SITE_ID}` +
-      `&reservation_id=${bookingID}` +
-      `&details=1` + // ✅ includes all custom fields
-      `&hash_timestamp=${timestamp}` +
-      `&hash_key=${hashKey}`;
+    async function fetchBooking(ts) {
+      const hash = crypto
+        .createHash("md5")
+        .update(process.env.PLANYO_HASH_KEY + ts + method)
+        .digest("hex");
 
-    const response = await fetch(url);
-    const json = await response.json();
+      const url =
+        `https://www.planyo.com/rest/?method=${method}` +
+        `&api_key=${process.env.PLANYO_API_KEY}` +
+        `&site_id=${process.env.PLANYO_SITE_ID}` +
+        `&reservation_id=${bookingID}` +
+        `&hash_timestamp=${ts}` +
+        `&hash_key=${hash}`;
 
-    if (json?.response_code !== 0 || !json.data) {
-      console.error("⚠️ Invalid Planyo response:", json);
-      return res.status(400).json({ error: "Invalid Planyo response", json });
+      const resp = await fetch(url);
+      const text = await resp.text();
+
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+      return { json, text };
     }
 
-    const data = json.data;
-    const custom = data.custom_fields || {};
-    const extras = Object.fromEntries(
-      Object.entries(custom).map(([k, v]) => [k.toLowerCase(), v])
-    );
+    // 1️⃣ First attempt
+    let { json, text } = await fetchBooking(firstTs);
 
-    const result = {
+    // 2️⃣ Retry if timestamp invalid
+    if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
+      const match = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
+      if (match && match[1]) {
+        const correctedTs = parseInt(match[1], 10);
+        console.warn(`⚠️ Invalid timestamp — retrying with corrected timestamp ${correctedTs}`);
+        ({ json, text } = await fetchBooking(correctedTs));
+      }
+    }
+
+    if (!json?.data) {
+      return res.status(404).json({ error: "No booking found", raw: text });
+    }
+
+    const b = json.data;
+    const booking = {
       bookingID,
-      vehicleName: data.name || "N/A",
-      startDate: data.start_time || "",
-      endDate: data.end_time || "",
-      customerName: `${data.first_name || ""} ${data.last_name || ""}`.trim(),
-      email: data.email || "",
-      phoneNumber: data.phone || extras.phone || "",
-      totalPrice: data.total_price || "",
-      amountPaid: data.amount_paid || "",
-      addressLine1:
-        data.address_line_1 || extras.address || extras.address_line_1 || "",
-      addressLine2: data.address_line_2 || extras.address_line_2 || "",
-      postcode: data.zip_code || extras.postcode || extras.zip || "",
-      dateOfBirth: extras.date_of_birth || extras.dob || "",
+      vehicleName: b.name || "—",
+      startDate: b.start_time || "",
+      endDate: b.end_time || "",
+      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      email: b.email || "",
+      phoneNumber: b.phone || b.mobile || "",
+      totalPrice: b.total_price || "",
+      amountPaid: b.amount_paid || "",
+      addressLine1: b.address_line_1 || b.address1 || "",
+      addressLine2: b.address_line_2 || b.address2 || "",
+      postcode: b.zip || b.postcode || "",
+      dateOfBirth: b.birth_date || b.dob || ""
     };
 
-    console.log("✅ Booking details:", result);
-    res.json(result);
+    res.json(booking);
   } catch (err) {
-    console.error("❌ Error fetching full booking:", err);
+    console.error("❌ Failed to fetch booking details:", err);
     res.status(500).json({ error: err.message });
   }
 });
