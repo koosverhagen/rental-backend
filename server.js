@@ -1610,6 +1610,8 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
 
     const b = json.data;
     const formItems = b.form_items || {};
+console.log("🧾 Form items returned:", Object.keys(formItems));
+
 
     const booking = {
       bookingID,
