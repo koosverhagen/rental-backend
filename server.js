@@ -1473,6 +1473,64 @@ app.post("/damage/send-report", express.json({ limit: "20mb" }), async (req, res
 
 
 // ----------------------------------------------------
+// ✅ List upcoming & in-progress bookings (for HireCheck app)
+// ----------------------------------------------------
+app.get("/planyo/upcoming", async (req, res) => {
+  try {
+    const method = "list_reservations";
+    const now = new Date();
+    const zurichNow = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Zurich" }));
+    let timestamp = Math.floor(zurichNow.getTime() / 1000);
+
+    const start_time = new Date(now.getTime() - 3 * 60 * 60 * 1000); // 3h before now
+    const end_time = new Date(now.getTime() + 36 * 60 * 60 * 1000); // 36h ahead
+
+    const pad = (n) => String(n).padStart(2, "0");
+    const fmt = (d) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
+    const start = fmt(start_time);
+    const end = fmt(end_time);
+
+    const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
+    const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
+
+    const url =
+      `https://www.planyo.com/rest/?method=${method}` +
+      `&api_key=${process.env.PLANYO_API_KEY}` +
+      `&site_id=${process.env.PLANYO_SITE_ID}` +
+      `&start_time=${start}&end_time=${end}` +
+      `&req_status=4&include_unconfirmed=0` +
+      `&hash_timestamp=${timestamp}` +
+      `&hash_key=${hashKey}`;
+
+    const resp = await fetch(url);
+    const json = await resp.json();
+
+    if (json.response_code !== 0 || !json.data?.results) {
+      console.error("⚠️ Planyo error:", json.response_message);
+      return res.status(500).json({ error: json.response_message });
+    }
+
+    const bookings = json.data.results.map((r) => ({
+      bookingID: String(r.reservation_id),
+      name: `${r.first_name} ${r.last_name}`.trim(),
+      resource: r.name || "N/A",
+      start: r.start_time,
+      end: r.end_time,
+      email: r.email || "",
+    }));
+
+    res.json(bookings);
+  } catch (err) {
+    console.error("❌ Upcoming fetch error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+// ----------------------------------------------------
 // 🚀 Start server
 // ----------------------------------------------------
 const PORT = process.env.PORT || 10000;
