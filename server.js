@@ -1556,77 +1556,58 @@ app.get("/planyo/upcoming", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// ✅ Get full booking details for a single reservation (HireCheck)
+// ✅ Get full booking details for HireCheck QR scan
 // ----------------------------------------------------
-app.get("/planyo/booking/:bookingID", async (req, res) => {
+app.get("/planyo/booking/:id", async (req, res) => {
   try {
-    const bookingID = req.params.bookingID;
-    const method = "get_reservation_data";
-    const firstTs = Math.floor(Date.now() / 1000);
+    const bookingID = req.params.id;
+    const method = "get_reservation_details";
+    const ts = Math.floor(Date.now() / 1000);
+    const hash = crypto
+      .createHash("md5")
+      .update(process.env.PLANYO_HASH_KEY + ts + method)
+      .digest("hex");
 
-    async function fetchBooking(ts) {
-      const hash = crypto
-        .createHash("md5")
-        .update(process.env.PLANYO_HASH_KEY + ts + method)
-        .digest("hex");
+    const url =
+      `https://www.planyo.com/rest/?method=${method}` +
+      `&api_key=${process.env.PLANYO_API_KEY}` +
+      `&site_id=${process.env.PLANYO_SITE_ID}` +
+      `&reservation_id=${bookingID}` +
+      `&hash_timestamp=${ts}` +
+      `&hash_key=${hash}`;
 
-      const url =
-        `https://www.planyo.com/rest/?method=${method}` +
-        `&api_key=${process.env.PLANYO_API_KEY}` +
-        `&site_id=${process.env.PLANYO_SITE_ID}` +
-        `&reservation_id=${bookingID}` +
-        `&hash_timestamp=${ts}` +
-        `&hash_key=${hash}`;
-
-      const resp = await fetch(url);
-      const text = await resp.text();
-
-      let json;
-      try {
-        json = JSON.parse(text);
-      } catch {
-        json = null;
-      }
-      return { json, text };
-    }
-
-    // 1️⃣ First attempt
-    let { json, text } = await fetchBooking(firstTs);
-
-    // 2️⃣ Retry if timestamp invalid
-    if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
-      const match = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
-      if (match && match[1]) {
-        const correctedTs = parseInt(match[1], 10);
-        console.warn(`⚠️ Invalid timestamp — retrying with corrected timestamp ${correctedTs}`);
-        ({ json, text } = await fetchBooking(correctedTs));
-      }
+    const response = await fetch(url);
+    const text = await response.text();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return res.status(500).json({ error: "Invalid JSON from Planyo", raw: text });
     }
 
     if (!json?.data) {
-      return res.status(404).json({ error: "No booking found", raw: text });
+      return res.status(404).json({ error: "No data returned", raw: text });
     }
 
-    const b = json.data;
-    const booking = {
-      bookingID,
-      vehicleName: b.name || "—",
-      startDate: b.start_time || "",
-      endDate: b.end_time || "",
-      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-      email: b.email || "",
-      phoneNumber: b.phone || b.mobile || "",
-      totalPrice: b.total_price || "",
-      amountPaid: b.amount_paid || "",
-      addressLine1: b.address_line_1 || b.address1 || "",
-      addressLine2: b.address_line_2 || b.address2 || "",
-      postcode: b.zip || b.postcode || "",
-      dateOfBirth: b.birth_date || b.dob || ""
-    };
+    const d = json.data;
 
-    res.json(booking);
+    res.json({
+      bookingID: String(d.reservation_id),
+      vehicleName: d.resource_name || "—",
+      startDate: d.start_time || "",
+      endDate: d.end_time || "",
+      customerName: `${d.first_name || ""} ${d.last_name || ""}`.trim(),
+      email: d.email || "",
+      phoneNumber: d.phone || "",
+      totalPrice: d.total_price || "",
+      amountPaid: d.amount_paid || "",
+      addressLine1: d.address_line_1 || "",
+      addressLine2: d.address_line_2 || "",
+      postcode: d.zip || "",
+      dateOfBirth: d.birth_date || ""
+    });
   } catch (err) {
-    console.error("❌ Failed to fetch booking details:", err);
+    console.error("❌ Error in /planyo/booking:", err);
     res.status(500).json({ error: err.message });
   }
 });
