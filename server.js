@@ -1553,10 +1553,10 @@ app.get("/planyo/upcoming", async (req, res) => {
     console.error("❌ Failed to fetch upcoming bookings:", err);
     res.status(500).json({ error: err.message });
   }
-});
+});`
 
 // ----------------------------------------------------
-// ✅ Full booking details for HireCheck app (includes DoB, address, phone)
+// ✅ Full booking details for HireCheck app (includes DoB, address, phone, etc.)
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
@@ -1571,6 +1571,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       `&api_key=${process.env.PLANYO_API_KEY}` +
       `&site_id=${process.env.PLANYO_SITE_ID}` +
       `&reservation_id=${bookingID}` +
+      `&details=1` + // ✅ includes all custom fields
       `&hash_timestamp=${timestamp}` +
       `&hash_key=${hashKey}`;
 
@@ -1578,27 +1579,35 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     const json = await response.json();
 
     if (json?.response_code !== 0 || !json.data) {
+      console.error("⚠️ Invalid Planyo response:", json);
       return res.status(400).json({ error: "Invalid Planyo response", json });
     }
 
     const data = json.data;
     const custom = data.custom_fields || {};
+    const extras = Object.fromEntries(
+      Object.entries(custom).map(([k, v]) => [k.toLowerCase(), v])
+    );
 
-    res.json({
+    const result = {
       bookingID,
       vehicleName: data.name || "N/A",
       startDate: data.start_time || "",
       endDate: data.end_time || "",
       customerName: `${data.first_name || ""} ${data.last_name || ""}`.trim(),
       email: data.email || "",
-      phoneNumber: data.phone || "",
+      phoneNumber: data.phone || extras.phone || "",
       totalPrice: data.total_price || "",
       amountPaid: data.amount_paid || "",
-      addressLine1: data.address_line_1 || custom.address_line_1 || "",
-      addressLine2: data.address_line_2 || custom.address_line_2 || "",
-      postcode: data.zip_code || custom.postcode || "",
-      dateOfBirth: custom.date_of_birth || custom.dob || ""
-    });
+      addressLine1:
+        data.address_line_1 || extras.address || extras.address_line_1 || "",
+      addressLine2: data.address_line_2 || extras.address_line_2 || "",
+      postcode: data.zip_code || extras.postcode || extras.zip || "",
+      dateOfBirth: extras.date_of_birth || extras.dob || "",
+    };
+
+    console.log("✅ Booking details:", result);
+    res.json(result);
   } catch (err) {
     console.error("❌ Error fetching full booking:", err);
     res.status(500).json({ error: err.message });
