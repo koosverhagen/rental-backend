@@ -1473,62 +1473,87 @@ app.post("/damage/send-report", express.json({ limit: "20mb" }), async (req, res
 
 
 // ----------------------------------------------------
-// ✅ List upcoming & in-progress bookings (for HireCheck app)
+// ✅ List upcoming + in-progress bookings for HireCheck
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (req, res) => {
   try {
-    const method = "list_reservations";
     const now = new Date();
-    const zurichNow = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Zurich" }));
-    let timestamp = Math.floor(zurichNow.getTime() / 1000);
+    const threeDaysLater = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-    const start_time = new Date(now.getTime() - 3 * 60 * 60 * 1000); // 3h before now
-    const end_time = new Date(now.getTime() + 36 * 60 * 60 * 1000); // 36h ahead
+    const formatPlanyoTime = (d) => {
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    };
 
-    const pad = (n) => String(n).padStart(2, "0");
-    const fmt = (d) =>
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    const start_time = formatPlanyoTime(now);
+    const end_time = formatPlanyoTime(threeDaysLater);
+    const method = "list_reservations";
 
-    const start = fmt(start_time);
-    const end = fmt(end_time);
+    async function fetchList(ts) {
+      const hash = crypto.createHash("md5").update(process.env.PLANYO_HASH_KEY + ts + method).digest("hex");
+      const url =
+        `https://www.planyo.com/rest/?method=${method}` +
+        `&api_key=${process.env.PLANYO_API_KEY}` +
+        `&site_id=${process.env.PLANYO_SITE_ID}` +
+        `&start_time=${start_time}` +
+        `&end_time=${end_time}` +
+        `&req_status=4` +
+        `&include_unconfirmed=1` +
+        `&hash_timestamp=${ts}` +
+        `&hash_key=${hash}`;
 
-    const hashBase = process.env.PLANYO_HASH_KEY + timestamp + method;
-    const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
+      const resp = await fetch(url);
+      const text = await resp.text();
 
-    const url =
-      `https://www.planyo.com/rest/?method=${method}` +
-      `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&site_id=${process.env.PLANYO_SITE_ID}` +
-      `&start_time=${start}&end_time=${end}` +
-      `&req_status=4&include_unconfirmed=0` +
-      `&hash_timestamp=${timestamp}` +
-      `&hash_key=${hashKey}`;
-
-    const resp = await fetch(url);
-    const json = await resp.json();
-
-    if (json.response_code !== 0 || !json.data?.results) {
-      console.error("⚠️ Planyo error:", json.response_message);
-      return res.status(500).json({ error: json.response_message });
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+      return { url, json, text };
     }
 
-    const bookings = json.data.results.map((r) => ({
-      bookingID: String(r.reservation_id),
-      name: `${r.first_name} ${r.last_name}`.trim(),
-      resource: r.name || "N/A",
-      start: r.start_time,
-      end: r.end_time,
-      email: r.email || "",
+    // --- Initial call ---
+    const firstTs = Math.floor(Date.now() / 1000);
+    let { json, text } = await fetchList(firstTs);
+
+    // --- Retry if timestamp invalid ---
+    if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
+      const match = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
+      if (match && match[1]) {
+        const correctedTs = parseInt(match[1], 10);
+        console.warn(`⚠️ Invalid timestamp — retrying with corrected timestamp ${correctedTs}`);
+        ({ json, text } = await fetchList(correctedTs));
+      }
+    }
+
+    if (!json?.data?.results?.length) {
+      return res.json([]);
+    }
+
+    const bookings = json.data.results.map((b) => ({
+      bookingID: String(b.reservation_id),
+      vehicleName: b.name || "—",
+      startDate: b.start_time || "",
+      endDate: b.end_time || "",
+      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      email: b.email || "",
+      phoneNumber: b.phone || "",
+      totalPrice: b.total_price || "",
+      amountPaid: b.amount_paid || "",
+      addressLine1: b.address_line_1 || "",
+      addressLine2: b.address_line_2 || "",
+      postcode: b.zip || "",
+      dateOfBirth: b.birth_date || ""
     }));
 
     res.json(bookings);
   } catch (err) {
-    console.error("❌ Upcoming fetch error:", err);
+    console.error("❌ Failed to fetch upcoming bookings:", err);
     res.status(500).json({ error: err.message });
   }
 });
-
-
 
 // ----------------------------------------------------
 // 🚀 Start server
