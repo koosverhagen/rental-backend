@@ -1553,7 +1553,7 @@ app.get("/planyo/upcoming", async (req, res) => {
     console.error("❌ Failed to fetch upcoming bookings:", err);
     res.status(500).json({ error: err.message });
   }
-});`
+});
 
 // ----------------------------------------------------
 // ✅ Get full booking details for a single reservation (HireCheck)
