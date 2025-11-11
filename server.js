@@ -1556,7 +1556,7 @@ app.get("/planyo/upcoming", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// ✅ Get full booking details for a single reservation (HireCheck)
+// ✅ Get full booking details including custom form fields
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
@@ -1570,11 +1570,13 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         .update(process.env.PLANYO_HASH_KEY + ts + method)
         .digest("hex");
 
+      // include_form_items=1 ensures we get all custom fields like phone/address/DOB
       const url =
         `https://www.planyo.com/rest/?method=${method}` +
         `&api_key=${process.env.PLANYO_API_KEY}` +
         `&site_id=${process.env.PLANYO_SITE_ID}` +
         `&reservation_id=${bookingID}` +
+        `&include_form_items=1` +
         `&hash_timestamp=${ts}` +
         `&hash_key=${hash}`;
 
@@ -1590,10 +1592,8 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       return { json, text };
     }
 
-    // 1️⃣ First attempt
     let { json, text } = await fetchBooking(firstTs);
 
-    // 2️⃣ Retry if timestamp invalid
     if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
       const match = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
       if (match && match[1]) {
@@ -1609,6 +1609,8 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     }
 
     const b = json.data;
+    const formItems = b.form_items || {};
+
     const booking = {
       bookingID,
       vehicleName: b.name || b.resource_name || "—",
@@ -1616,13 +1618,23 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       endDate: b.end_time || "",
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
-      phoneNumber: b.phone || b.mobile || "",
+      phoneNumber:
+        b.phone ||
+        b.mobile ||
+        formItems.phone ||
+        formItems["Phone number"] ||
+        formItems["Mobile"] ||
+        "",
       totalPrice: b.total_price || "",
       amountPaid: b.amount_paid || "",
-      addressLine1: b.address_line_1 || b.address1 || b.address || "",
-      addressLine2: b.address_line_2 || "",
-      postcode: b.zip || b.postcode || "",
-      dateOfBirth: b.birth_date || b.dob || "",
+      addressLine1:
+        b.address_line_1 ||
+        formItems["Address line 1"] ||
+        formItems["Address"] ||
+        "",
+      addressLine2: b.address_line_2 || formItems["Address line 2"] || "",
+      postcode: b.zip || formItems["Postcode"] || "",
+      dateOfBirth: formItems["Date of birth"] || formItems["DOB"] || "",
     };
 
     res.json(booking);
@@ -1631,7 +1643,6 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // ----------------------------------------------------
 // 🚀 Start server
