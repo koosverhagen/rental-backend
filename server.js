@@ -1591,7 +1591,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       return { json, text };
     }
 
-    // 1️⃣ Initial request
+    // 1️⃣ Try once with current timestamp
     let { json, text } = await fetchBooking(firstTs);
 
     // 2️⃣ Retry if timestamp invalid
@@ -1610,15 +1610,47 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
 
     const b = json.data;
 
-    // ✅ Extract date of birth from form_items if available
-    let dateOfBirth = b.birth_date || b.dob || "";
-    if (!dateOfBirth && Array.isArray(b.form_items)) {
-      const dobField = b.form_items.find((f) =>
-        /birth|dob/i.test(f.name || "")
-      );
-      if (dobField?.value) dateOfBirth = dobField.value;
+    // ✅ Pull form items if available
+    const formItems = Array.isArray(b.form_items) ? b.form_items : [];
+
+    function findFormValue(...names) {
+      const regex = new RegExp(names.join("|"), "i");
+      const item = formItems.find((f) => regex.test(f.name || ""));
+      return item?.value?.trim() || "";
     }
 
+    // ✅ Extract fields with multiple fallbacks
+    const dateOfBirth =
+      b.birth_date ||
+      b.dob ||
+      findFormValue("date.?of.?birth", "dob") ||
+      "";
+
+    const addressLine1 =
+      b.address_line_1 ||
+      b.address1 ||
+      findFormValue("address.?line.?1", "address") ||
+      "";
+
+    const addressLine2 =
+      b.address_line_2 ||
+      b.address2 ||
+      findFormValue("address.?line.?2") ||
+      "";
+
+    const postcode =
+      b.zip ||
+      b.postcode ||
+      findFormValue("postcode", "postal", "zip") ||
+      "";
+
+    const phone =
+      b.phone ||
+      b.mobile_number ||
+      findFormValue("mobile", "phone") ||
+      "";
+
+    // ✅ Final structured booking
     const booking = {
       bookingID,
       vehicleName: b.name || "—",
@@ -1626,13 +1658,13 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       endDate: b.end_time || "",
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
-      phoneNumber: b.phone || b.mobile_number || "",
+      phoneNumber: phone,
       totalPrice: b.total_price || "",
       amountPaid: b.amount_paid || "",
-      addressLine1: b.address_line_1 || b.address1 || "",
-      addressLine2: b.address_line_2 || b.address2 || "",
-      postcode: b.zip || b.postcode || "",
-      dateOfBirth
+      addressLine1,
+      addressLine2,
+      postcode,
+      dateOfBirth,
     };
 
     res.json(booking);
