@@ -1556,7 +1556,7 @@ app.get("/planyo/upcoming", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// ✅ Get full booking details (works with HireCheck + Planyo)
+// ✅ Get full booking details for a single reservation (HireCheck)
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
@@ -1591,7 +1591,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       return { json, text };
     }
 
-    // 1️⃣ Attempt request
+    // 1️⃣ Initial request
     let { json, text } = await fetchBooking(firstTs);
 
     // 2️⃣ Retry if timestamp invalid
@@ -1605,11 +1605,19 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     }
 
     if (!json?.data) {
-      console.error("❌ No valid data from Planyo:", text);
-      return res.status(404).json({ error: "No data returned", raw: text });
+      return res.status(404).json({ error: "No booking found", raw: text });
     }
 
     const b = json.data;
+
+    // ✅ Extract date of birth from form_items if available
+    let dateOfBirth = b.birth_date || b.dob || "";
+    if (!dateOfBirth && Array.isArray(b.form_items)) {
+      const dobField = b.form_items.find((f) =>
+        /birth|dob/i.test(f.name || "")
+      );
+      if (dobField?.value) dateOfBirth = dobField.value;
+    }
 
     const booking = {
       bookingID,
@@ -1618,13 +1626,13 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       endDate: b.end_time || "",
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
-      phoneNumber: b.mobile_number || b.phone_number || "",
+      phoneNumber: b.phone || b.mobile_number || "",
       totalPrice: b.total_price || "",
       amountPaid: b.amount_paid || "",
-      addressLine1: b.address || "",
-      addressLine2: b.city || "",
-      postcode: b.zip || "",
-      dateOfBirth: b.birth_date || "" // may not exist, but kept for completeness
+      addressLine1: b.address_line_1 || b.address1 || "",
+      addressLine2: b.address_line_2 || b.address2 || "",
+      postcode: b.zip || b.postcode || "",
+      dateOfBirth
     };
 
     res.json(booking);
