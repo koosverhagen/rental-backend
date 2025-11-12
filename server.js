@@ -1555,21 +1555,109 @@ app.get("/planyo/upcoming", async (req, res) => {
   }
 });
 
-{
-  "bookingID": "18568348",
-  "vehicleName": "7.5 T 4 Horses No Living",
-  "startDate": "2025-11-13 07:00:00",
-  "endDate": "2025-11-13 18:59:59",
-  "customerName": "Max Verhagen",
-  "email": "koosverhagenjacob@gmail.com",
-  "phoneNumber": "(44) 07584578654",
-  "totalPrice": "165.00",
-  "amountPaid": "1",
-  "addressLine1": "Upper Broadreed Farm, Stonehurst Ln, Five Ashes, Mayfield TN20 6LL, UK",
-  "addressLine2": "Mayfield",
-  "postcode": "TN20 6LL",
-  "dateOfBirth": "04 January 1967"
-}
+// ----------------------------------------------------
+// ✅ Get full booking details for a single reservation (HireCheck)
+// ----------------------------------------------------
+app.get("/planyo/booking/:bookingID", async (req, res) => {
+  try {
+    const bookingID = req.params.bookingID;
+    const method = "get_reservation_data";
+    const firstTs = Math.floor(Date.now() / 1000);
+
+    async function fetchBooking(ts) {
+      const hash = crypto
+        .createHash("md5")
+        .update(process.env.PLANYO_HASH_KEY + ts + method)
+        .digest("hex");
+
+      const url =
+        `https://www.planyo.com/rest/?method=${method}` +
+        `&api_key=${process.env.PLANYO_API_KEY}` +
+        `&site_id=${process.env.PLANYO_SITE_ID}` +
+        `&reservation_id=${bookingID}` +
+        `&include_form_items=1` +
+        `&hash_timestamp=${ts}` +
+        `&hash_key=${hash}`;
+
+      const resp = await fetch(url);
+      const text = await resp.text();
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
+      return { json, text };
+    }
+
+    // 🔁 Try with current timestamp, retry if invalid
+    let { json, text } = await fetchBooking(firstTs);
+    if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
+      const match = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
+      if (match && match[1]) {
+        const correctedTs = parseInt(match[1], 10);
+        console.warn(`⚠️ Retrying with corrected timestamp ${correctedTs}`);
+        ({ json, text } = await fetchBooking(correctedTs));
+      }
+    }
+
+    if (!json?.data) {
+      return res.status(404).json({ error: "No booking found", raw: text });
+    }
+
+    const b = json.data;
+
+    // ✅ Extract Date of Birth from properties or form_items
+    const dateOfBirth =
+      b.birth_date ||
+      b.dob ||
+      b.properties?.Date_of_Birth ||
+      b.properties?.date_of_birth ||
+      "";
+
+    // ✅ Build Address
+    const addressLine1 =
+      b.address_line_1 ||
+      b.address1 ||
+      b.address ||
+      "";
+    const addressLine2 = b.city || "";
+    const postcode =
+      b.zip ||
+      b.postcode ||
+      b.properties?.Postcode ||
+      "";
+
+    // ✅ Phone
+    const phone =
+      b.phone_number ||
+      b.phone ||
+      b.mobile_number ||
+      "";
+
+    // ✅ Final structured booking
+    const booking = {
+      bookingID,
+      vehicleName: b.name || "—",
+      startDate: b.start_time || "",
+      endDate: b.end_time || "",
+      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      email: b.email || "",
+      phoneNumber: phone,
+      totalPrice: b.total_price || "",
+      amountPaid: b.amount_paid || "",
+      addressLine1,
+      addressLine2,
+      postcode,
+      dateOfBirth,
+    };
+
+    res.json(booking);
+  } catch (err) {
+    console.error("❌ Failed to fetch booking details:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ----------------------------------------------------
 // 🚀 Start server
