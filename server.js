@@ -1556,16 +1556,19 @@ app.get("/planyo/upcoming", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// ✅ Get full booking details including custom form fields (HireCheck compatible)
+// ✅ Get full booking details (works with HireCheck + Planyo)
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
     const bookingID = req.params.bookingID;
     const method = "get_reservation_data";
+    const firstTs = Math.floor(Date.now() / 1000);
 
     async function fetchBooking(ts) {
-      const hashBase = process.env.PLANYO_HASH_KEY + ts + method;
-      const hashKey = crypto.createHash("md5").update(hashBase).digest("hex");
+      const hash = crypto
+        .createHash("md5")
+        .update(process.env.PLANYO_HASH_KEY + ts + method)
+        .digest("hex");
 
       const url =
         `https://www.planyo.com/rest/?method=${method}` +
@@ -1574,77 +1577,54 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         `&reservation_id=${bookingID}` +
         `&include_form_items=1` +
         `&hash_timestamp=${ts}` +
-        `&hash_key=${hashKey}`;
+        `&hash_key=${hash}`;
 
       const resp = await fetch(url);
       const text = await resp.text();
+
       let json;
       try {
         json = JSON.parse(text);
       } catch {
         json = null;
       }
-      return { json, text, url };
+      return { json, text };
     }
 
-    // --- Initial call
-    const firstTs = Math.floor(Date.now() / 1000);
-    let { json, text, url } = await fetchBooking(firstTs);
+    // 1️⃣ Attempt request
+    let { json, text } = await fetchBooking(firstTs);
 
-    // --- Retry with corrected timestamp if needed
+    // 2️⃣ Retry if timestamp invalid
     if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
       const match = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
       if (match && match[1]) {
         const correctedTs = parseInt(match[1], 10);
-        console.warn(`⚠️ Invalid timestamp (${firstTs}) — retrying with corrected timestamp ${correctedTs}`);
+        console.warn(`⚠️ Invalid timestamp — retrying with corrected timestamp ${correctedTs}`);
         ({ json, text } = await fetchBooking(correctedTs));
       }
     }
 
     if (!json?.data) {
-      console.error("❌ No valid data from Planyo:", text?.slice(0, 400));
+      console.error("❌ No valid data from Planyo:", text);
       return res.status(404).json({ error: "No data returned", raw: text });
     }
 
     const b = json.data;
 
-    // ✅ Convert form_items array to key/value map (this fixes missing DoB/address/phone)
-    const formItems = {};
-    if (Array.isArray(b.form_items)) {
-      for (const item of b.form_items) {
-        if (item.caption) formItems[item.caption.trim()] = item.value || "";
-      }
-    }
-    console.log("🧾 Form items returned:", formItems);
-
     const booking = {
       bookingID,
-      vehicleName: b.name || b.resource_name || "—",
+      vehicleName: b.name || "—",
       startDate: b.start_time || "",
       endDate: b.end_time || "",
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
-      phoneNumber:
-        b.phone ||
-        b.mobile ||
-        formItems["Phone number"] ||
-        formItems["Mobile"] ||
-        formItems["Mobile number"] ||
-        "",
+      phoneNumber: b.mobile_number || b.phone_number || "",
       totalPrice: b.total_price || "",
       amountPaid: b.amount_paid || "",
-      addressLine1:
-        b.address_line_1 ||
-        formItems["Address line 1"] ||
-        formItems["Address"] ||
-        "",
-      addressLine2: b.address_line_2 || formItems["Address line 2"] || "",
-      postcode: b.zip || formItems["Postcode"] || formItems["ZIP"] || "",
-      dateOfBirth:
-        formItems["Date of birth"] ||
-        formItems["DOB"] ||
-        formItems["Birth date"] ||
-        "",
+      addressLine1: b.address || "",
+      addressLine2: b.city || "",
+      postcode: b.zip || "",
+      dateOfBirth: b.birth_date || "" // may not exist, but kept for completeness
     };
 
     res.json(booking);
