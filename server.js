@@ -1628,12 +1628,11 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       b.properties?.Postcode ||
       "";
 
-    // ✅ Phone
-    const phone =
-      b.phone_number ||
-      b.phone ||
-      b.mobile_number ||
-      "";
+   // ✅ Prefer mobile_number if available
+const phone =
+  b.mobile_number && b.mobile_number.trim().length > 4
+    ? b.mobile_number
+    : b.phone_number || b.phone || "";
 
     // ✅ Final structured booking
     const booking = {
