@@ -1579,6 +1579,7 @@ app.get("/planyo/upcoming", async (req, res) => {
         .update(process.env.PLANYO_HASH_KEY + ts + method)
         .digest("hex");
 
+      // ✅ Use the same filters as you see in Planyo’s “Confirmed”, “Upcoming”, and “In Progress” pages
       const url =
         `https://www.planyo.com/rest/?method=${method}` +
         `&api_key=${process.env.PLANYO_API_KEY}` +
@@ -1587,7 +1588,7 @@ app.get("/planyo/upcoming", async (req, res) => {
         `&end_time=${end_time}` +
         `&statuses=confirmed,in_progress` +
         `&include_unconfirmed=0` +
-        `&include_form_items=1` +
+        `&include_form_items=1` + // ✅ get custom form data like DOB
         `&hash_timestamp=${ts}` +
         `&hash_key=${hash}`;
 
@@ -1602,11 +1603,11 @@ app.get("/planyo/upcoming", async (req, res) => {
       return { json, text, url };
     }
 
-    // --- Try request ---
+    // --- First call
     const firstTs = Math.floor(Date.now() / 1000);
     let { json, text } = await fetchList(firstTs);
 
-    // --- Retry if timestamp invalid ---
+    // --- Retry if timestamp invalid
     if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
       const match = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
       if (match && match[1]) {
@@ -1621,7 +1622,7 @@ app.get("/planyo/upcoming", async (req, res) => {
     }
 
     const bookings = json.data.results.map((b) => {
-      // ✅ Extract Date of Birth
+      // ✅ Extract same fields as /planyo/booking
       const dateOfBirth =
         b.birth_date ||
         b.dob ||
@@ -1629,7 +1630,6 @@ app.get("/planyo/upcoming", async (req, res) => {
         b.properties?.date_of_birth ||
         "";
 
-      // ✅ Build Address
       const addressLine1 =
         b.address_line_1 ||
         b.address1 ||
@@ -1642,7 +1642,6 @@ app.get("/planyo/upcoming", async (req, res) => {
         b.properties?.Postcode ||
         "";
 
-      // ✅ Prefer mobile_number if available
       const phone =
         b.mobile_number && b.mobile_number.trim().length > 4
           ? b.mobile_number
