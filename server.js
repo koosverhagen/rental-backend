@@ -1556,12 +1556,15 @@ app.get("/planyo/upcoming", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// ✅ List confirmed + in-progress bookings (force log flush)
+// ✅ List confirmed + in-progress bookings (unbuffered logging)
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (req, res) => {
+  const flush = (msg) => {
+    process.stdout.write(msg + "\n");
+  };
+
   try {
-    console.log("📡 /planyo/upcoming request received — fetching from Planyo...");
-    process.stdout.write("\n");
+    flush("📡 /planyo/upcoming → fetching Planyo reservations...");
 
     const now = new Date();
     const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -1593,9 +1596,7 @@ app.get("/planyo/upcoming", async (req, res) => {
         `&hash_timestamp=${ts}` +
         `&hash_key=${hash}`;
 
-      console.log("🔗 Fetching:", url);
-      process.stdout.write("\n");
-
+      flush("🔗 Fetching from Planyo: " + url);
       const resp = await fetch(url);
       const text = await resp.text();
       let json;
@@ -1607,45 +1608,38 @@ app.get("/planyo/upcoming", async (req, res) => {
       return { url, json, text };
     }
 
-    // --- Initial call ---
     const firstTs = Math.floor(Date.now() / 1000);
     let { json, text } = await fetchList(firstTs);
 
-    // --- Retry if timestamp invalid ---
+    // Retry if timestamp invalid
     if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
       const match = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
       if (match && match[1]) {
         const correctedTs = parseInt(match[1], 10);
-        console.warn(`⚠️ Invalid timestamp — retrying with corrected timestamp ${correctedTs}`);
-        process.stdout.write("\n");
+        flush(`⚠️ Invalid timestamp — retrying with corrected timestamp ${correctedTs}`);
         ({ json, text } = await fetchList(correctedTs));
       }
     }
 
     if (!json?.data?.results?.length) {
-      console.log("⚠️ No results returned from Planyo.");
-      process.stdout.write("\n");
+      flush("⚠️ No reservations returned from Planyo.");
       return res.json([]);
     }
 
-    console.log("📋 Raw reservation statuses:");
+    flush("📋 Raw reservation statuses:");
     json.data.results.forEach((r) => {
-      console.log(
-        `#${r.reservation_id} – ${r.name || "unknown"} | status: ${r.status} | reservation_status: ${r.reservation_status}`
-      );
+      flush(`#${r.reservation_id} | ${r.name || "—"} | status: ${r.status} | reservation_status: ${r.reservation_status}`);
     });
-    process.stdout.write("\n");
 
-    // ✅ Filter confirmed or in-progress
-    const validReservations = json.data.results.filter((r) => {
+    // ✅ Keep only confirmed (4) + in-progress (5)
+    const valid = json.data.results.filter((r) => {
       const status = String(r.status || r.reservation_status || "");
       return status === "4" || status === "5";
     });
 
-    console.log(`✅ Returned ${validReservations.length} filtered bookings (confirmed + in progress)`);
-    process.stdout.write("\n");
+    flush(`✅ ${valid.length} bookings kept (confirmed + in progress)`);
 
-    const bookings = validReservations.map((b) => ({
+    const bookings = valid.map((b) => ({
       bookingID: String(b.reservation_id),
       vehicleName: b.name || "—",
       startDate: b.start_time || "",
@@ -1663,7 +1657,7 @@ app.get("/planyo/upcoming", async (req, res) => {
 
     res.json(bookings);
   } catch (err) {
-    console.error("❌ Failed to fetch upcoming bookings:", err);
+    flush("❌ Failed to fetch upcoming bookings: " + err.message);
     res.status(500).json({ error: err.message });
   }
 });
