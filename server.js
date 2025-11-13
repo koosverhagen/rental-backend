@@ -1556,10 +1556,13 @@ app.get("/planyo/upcoming", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// ✅ List confirmed + in-progress bookings (with status debug)
+// ✅ List confirmed + in-progress bookings (force log flush)
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (req, res) => {
   try {
+    console.log("📡 /planyo/upcoming request received — fetching from Planyo...");
+    process.stdout.write("\n");
+
     const now = new Date();
     const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
@@ -1590,6 +1593,9 @@ app.get("/planyo/upcoming", async (req, res) => {
         `&hash_timestamp=${ts}` +
         `&hash_key=${hash}`;
 
+      console.log("🔗 Fetching:", url);
+      process.stdout.write("\n");
+
       const resp = await fetch(url);
       const text = await resp.text();
       let json;
@@ -1611,31 +1617,34 @@ app.get("/planyo/upcoming", async (req, res) => {
       if (match && match[1]) {
         const correctedTs = parseInt(match[1], 10);
         console.warn(`⚠️ Invalid timestamp — retrying with corrected timestamp ${correctedTs}`);
+        process.stdout.write("\n");
         ({ json, text } = await fetchList(correctedTs));
       }
     }
 
     if (!json?.data?.results?.length) {
+      console.log("⚠️ No results returned from Planyo.");
+      process.stdout.write("\n");
       return res.json([]);
     }
 
-    // ✅ Log status codes for inspection
     console.log("📋 Raw reservation statuses:");
     json.data.results.forEach((r) => {
       console.log(
         `#${r.reservation_id} – ${r.name || "unknown"} | status: ${r.status} | reservation_status: ${r.reservation_status}`
       );
     });
+    process.stdout.write("\n");
 
-    // ✅ Try filtering confirmed/in progress (codes 4 or 5)
+    // ✅ Filter confirmed or in-progress
     const validReservations = json.data.results.filter((r) => {
       const status = String(r.status || r.reservation_status || "");
       return status === "4" || status === "5";
     });
 
     console.log(`✅ Returned ${validReservations.length} filtered bookings (confirmed + in progress)`);
+    process.stdout.write("\n");
 
-    // ✅ Map simplified list output
     const bookings = validReservations.map((b) => ({
       bookingID: String(b.reservation_id),
       vehicleName: b.name || "—",
