@@ -1604,13 +1604,23 @@ app.get("/planyo/upcoming", async (req, res) => {
       listJson = null;
     }
 
-    if (!listJson?.data?.results?.length) {
-      return res.json([]);
-    }
+   if (!listJson?.data?.results?.length) {
+  return res.json([]);
+}
 
-    // --- 2️⃣ For each booking, fetch detailed data
-    const bookings = [];
-    for (const r of listJson.data.results) {
+// ✅ Filter to confirmed (4) or in progress (5)
+const validReservations = listJson.data.results.filter(
+  (r) => String(r.reservation_status) === "4" || String(r.reservation_status) === "5"
+);
+
+if (validReservations.length === 0) {
+  return res.json([]);
+}
+
+// --- 2️⃣ For each valid booking, fetch detailed data
+const bookings = [];
+for (const r of validReservations) {
+
       const bookingID = String(r.reservation_id);
       const detailTs = Math.floor(Date.now() / 1000);
       const detailHash = md5hash(detailTs, detailMethod);
