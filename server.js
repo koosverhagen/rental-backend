@@ -1556,14 +1556,16 @@ app.get("/planyo/upcoming", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// ✅ List confirmed + in-progress + upcoming bookings for HireCheck
+// ✅ Get full booking details for a single reservation (HireCheck)
+//    - Filters out cancelled / not completed bookings
 // ----------------------------------------------------
-app.get("/planyo/upcoming", async (req, res) => {
+app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
-    const method = "list_reservations";
+    const bookingID = req.params.bookingID;
+    const method = "get_reservation_data";
     const firstTs = Math.floor(Date.now() / 1000);
 
-    async function fetchList(ts) {
+    async function fetchBooking(ts) {
       const hash = crypto
         .createHash("md5")
         .update(process.env.PLANYO_HASH_KEY + ts + method)
@@ -1573,67 +1575,97 @@ app.get("/planyo/upcoming", async (req, res) => {
         `https://www.planyo.com/rest/?method=${method}` +
         `&api_key=${process.env.PLANYO_API_KEY}` +
         `&site_id=${process.env.PLANYO_SITE_ID}` +
-        `&response_format=json` +
-        `&status_filter=7,8,9` +  // ✅ confirmed, in-progress, upcoming
-        `&include_unconfirmed=0` +
+        `&reservation_id=${bookingID}` +
         `&include_form_items=1` +
+        `&response_format=json` +
         `&hash_timestamp=${ts}` +
         `&hash_key=${hash}`;
 
       const resp = await fetch(url);
       const text = await resp.text();
-
       let json;
       try {
         json = JSON.parse(text);
       } catch {
         json = null;
       }
-      return { url, json, text };
+      return { json, text };
     }
 
-    // --- Initial call ---
-    let { json, text } = await fetchList(firstTs);
-
-    // --- Retry if timestamp invalid ---
+    // 🔁 Try with current timestamp, retry if invalid
+    let { json, text } = await fetchBooking(firstTs);
     if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
       const match = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
       if (match && match[1]) {
         const correctedTs = parseInt(match[1], 10);
-        console.warn(`⚠️ Invalid timestamp — retrying with corrected timestamp ${correctedTs}`);
-        ({ json, text } = await fetchList(correctedTs));
+        console.warn(`⚠️ Retrying with corrected timestamp ${correctedTs}`);
+        ({ json, text } = await fetchBooking(correctedTs));
       }
     }
 
-    // --- No results ---
-    if (!json?.data?.results?.length) {
-      return res.json([]);
+    // --- Validate API response
+    if (!json?.data) {
+      return res.status(404).json({ error: "No booking found", raw: text });
     }
 
-    // --- Map relevant fields only ---
-    const bookings = json.data.results.map((b) => ({
-      bookingID: String(b.reservation_id),
+    const b = json.data;
+
+    // --- Filter out unwanted statuses
+    const allowedStatuses = ["7", "8", "9"]; // confirmed, in-progress, upcoming
+    const status = String(b.status || "");
+    if (!allowedStatuses.includes(status)) {
+      console.warn(`⚠️ Booking ${bookingID} ignored — status ${status}`);
+      return res.status(403).json({ error: `Booking not eligible (status ${status})` });
+    }
+
+    // ✅ Extract Date of Birth
+    const dateOfBirth =
+      b.birth_date ||
+      b.dob ||
+      b.properties?.Date_of_Birth ||
+      b.properties?.date_of_birth ||
+      "";
+
+    // ✅ Build Address
+    const addressLine1 =
+      b.address_line_1 ||
+      b.address1 ||
+      b.address ||
+      "";
+    const addressLine2 = b.city || "";
+    const postcode =
+      b.zip ||
+      b.postcode ||
+      b.properties?.Postcode ||
+      "";
+
+    // ✅ Prefer mobile_number if available
+    const phone =
+      b.mobile_number && b.mobile_number.trim().length > 4
+        ? b.mobile_number
+        : b.phone_number || b.phone || "";
+
+    // ✅ Final structured booking
+    const booking = {
+      bookingID,
       vehicleName: b.name || "—",
       startDate: b.start_time || "",
       endDate: b.end_time || "",
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
-      phoneNumber: b.phone || "",
+      phoneNumber: phone,
       totalPrice: b.total_price || "",
       amountPaid: b.amount_paid || "",
-      addressLine1: b.address_line_1 || "",
-      addressLine2: b.city || "",
-      postcode: b.zip || "",
-      dateOfBirth:
-        b.birth_date ||
-        b.properties?.Date_of_Birth ||
-        b.properties?.date_of_birth ||
-        "",
-    }));
+      addressLine1,
+      addressLine2,
+      postcode,
+      dateOfBirth,
+      status,
+    };
 
-    res.json(bookings);
+    res.json(booking);
   } catch (err) {
-    console.error("❌ Failed to fetch upcoming bookings:", err);
+    console.error("❌ Failed to fetch booking details:", err);
     res.status(500).json({ error: err.message });
   }
 });
