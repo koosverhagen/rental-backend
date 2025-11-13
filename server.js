@@ -1556,7 +1556,7 @@ app.get("/planyo/upcoming", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// ✅ List upcoming + in-progress + confirmed bookings for HireCheck
+// ✅ Accurate upcoming bookings with full details (HireCheck)
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (req, res) => {
   try {
@@ -1571,98 +1571,102 @@ app.get("/planyo/upcoming", async (req, res) => {
 
     const start_time = formatPlanyoTime(now);
     const end_time = formatPlanyoTime(threeDaysLater);
-    const method = "list_reservations";
+    const listMethod = "list_reservations";
+    const detailMethod = "get_reservation_data";
 
-    async function fetchList(ts) {
-      const hash = crypto
+    // helper to compute hash
+    const md5hash = (ts, method) =>
+      crypto
         .createHash("md5")
         .update(process.env.PLANYO_HASH_KEY + ts + method)
         .digest("hex");
 
-      // ✅ Use the same filters as you see in Planyo’s “Confirmed”, “Upcoming”, and “In Progress” pages
-      const url =
-        `https://www.planyo.com/rest/?method=${method}` +
-        `&api_key=${process.env.PLANYO_API_KEY}` +
-        `&site_id=${process.env.PLANYO_SITE_ID}` +
-        `&start_time=${start_time}` +
-        `&end_time=${end_time}` +
-        `&statuses=confirmed,in_progress` +
-        `&include_unconfirmed=0` +
-        `&include_form_items=1` + // ✅ get custom form data like DOB
-        `&hash_timestamp=${ts}` +
-        `&hash_key=${hash}`;
+    // --- 1️⃣ Get all upcoming IDs (summary list)
+    const listTs = Math.floor(Date.now() / 1000);
+    const listHash = md5hash(listTs, listMethod);
+    const listUrl =
+      `https://www.planyo.com/rest/?method=${listMethod}` +
+      `&api_key=${process.env.PLANYO_API_KEY}` +
+      `&site_id=${process.env.PLANYO_SITE_ID}` +
+      `&start_time=${start_time}` +
+      `&end_time=${end_time}` +
+      `&statuses=confirmed,in_progress` +
+      `&include_unconfirmed=0` +
+      `&hash_timestamp=${listTs}` +
+      `&hash_key=${listHash}`;
 
-      const resp = await fetch(url);
-      const text = await resp.text();
-      let json;
-      try {
-        json = JSON.parse(text);
-      } catch {
-        json = null;
-      }
-      return { json, text, url };
+    const listResp = await fetch(listUrl);
+    const listText = await listResp.text();
+    let listJson;
+    try {
+      listJson = JSON.parse(listText);
+    } catch {
+      listJson = null;
     }
 
-    // --- First call
-    const firstTs = Math.floor(Date.now() / 1000);
-    let { json, text } = await fetchList(firstTs);
-
-    // --- Retry if timestamp invalid
-    if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
-      const match = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
-      if (match && match[1]) {
-        const correctedTs = parseInt(match[1], 10);
-        console.warn(`⚠️ Retrying with corrected timestamp ${correctedTs}`);
-        ({ json, text } = await fetchList(correctedTs));
-      }
-    }
-
-    if (!json?.data?.results?.length) {
+    if (!listJson?.data?.results?.length) {
       return res.json([]);
     }
 
-    const bookings = json.data.results.map((b) => {
-      // ✅ Extract same fields as /planyo/booking
-      const dateOfBirth =
-        b.birth_date ||
-        b.dob ||
-        b.properties?.Date_of_Birth ||
-        b.properties?.date_of_birth ||
-        "";
+    // --- 2️⃣ For each booking, fetch detailed data
+    const bookings = [];
+    for (const r of listJson.data.results) {
+      const bookingID = String(r.reservation_id);
+      const detailTs = Math.floor(Date.now() / 1000);
+      const detailHash = md5hash(detailTs, detailMethod);
+      const detailUrl =
+        `https://www.planyo.com/rest/?method=${detailMethod}` +
+        `&api_key=${process.env.PLANYO_API_KEY}` +
+        `&site_id=${process.env.PLANYO_SITE_ID}` +
+        `&reservation_id=${bookingID}` +
+        `&include_form_items=1` +
+        `&hash_timestamp=${detailTs}` +
+        `&hash_key=${detailHash}`;
 
-      const addressLine1 =
-        b.address_line_1 ||
-        b.address1 ||
-        b.address ||
-        "";
-      const addressLine2 = b.city || "";
-      const postcode =
-        b.zip ||
-        b.postcode ||
-        b.properties?.Postcode ||
-        "";
+      try {
+        const detResp = await fetch(detailUrl);
+        const detText = await detResp.text();
+        const detJson = JSON.parse(detText);
+        const b = detJson?.data;
+        if (!b) continue;
 
-      const phone =
-        b.mobile_number && b.mobile_number.trim().length > 4
-          ? b.mobile_number
-          : b.phone_number || b.phone || "";
+        const dateOfBirth =
+          b.birth_date ||
+          b.dob ||
+          b.properties?.Date_of_Birth ||
+          b.properties?.date_of_birth ||
+          "";
 
-      return {
-        bookingID: String(b.reservation_id || ""),
-        vehicleName: b.name || "—",
-        startDate: b.start_time || "",
-        endDate: b.end_time || "",
-        customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-        email: b.email || "",
-        phoneNumber: phone,
-        totalPrice: b.total_price || "",
-        amountPaid: b.amount_paid || "",
-        addressLine1,
-        addressLine2,
-        postcode,
-        dateOfBirth,
-      };
-    });
+        const addressLine1 =
+          b.address_line_1 || b.address1 || b.address || "";
+        const addressLine2 = b.city || "";
+        const postcode =
+          b.zip || b.postcode || b.properties?.Postcode || "";
+
+        const phone =
+          b.mobile_number && b.mobile_number.trim().length > 4
+            ? b.mobile_number
+            : b.phone_number || b.phone || "";
+
+        bookings.push({
+          bookingID,
+          vehicleName: b.name || "—",
+          startDate: b.start_time || "",
+          endDate: b.end_time || "",
+          customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+          email: b.email || "",
+          phoneNumber: phone,
+          totalPrice: b.total_price || "",
+          amountPaid: b.amount_paid || "",
+          addressLine1,
+          addressLine2,
+          postcode,
+          dateOfBirth,
+        });
+      } catch (err) {
+        console.warn(`⚠️ Skipping booking ${r.reservation_id}:`, err.message);
+      }
+    }
 
     res.json(bookings);
   } catch (err) {
