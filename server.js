@@ -1557,6 +1557,7 @@ app.get("/planyo/upcoming", async (req, res) => {
 
 // ----------------------------------------------------
 // ✅ Get full booking details for a single reservation (HireCheck)
+//    - Filters out cancelled / not completed bookings
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
@@ -1576,6 +1577,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         `&site_id=${process.env.PLANYO_SITE_ID}` +
         `&reservation_id=${bookingID}` +
         `&include_form_items=1` +
+        `&response_format=json` +
         `&hash_timestamp=${ts}` +
         `&hash_key=${hash}`;
 
@@ -1601,13 +1603,22 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       }
     }
 
+    // --- Validate API response
     if (!json?.data) {
       return res.status(404).json({ error: "No booking found", raw: text });
     }
 
     const b = json.data;
 
-    // ✅ Extract Date of Birth from properties or form_items
+    // --- Filter out unwanted statuses
+    const allowedStatuses = ["7", "8", "9"]; // confirmed, in-progress, upcoming
+    const status = String(b.status || "");
+    if (!allowedStatuses.includes(status)) {
+      console.warn(`⚠️ Booking ${bookingID} ignored — status ${status}`);
+      return res.status(403).json({ error: `Booking not eligible (status ${status})` });
+    }
+
+    // ✅ Extract Date of Birth
     const dateOfBirth =
       b.birth_date ||
       b.dob ||
@@ -1628,11 +1639,11 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       b.properties?.Postcode ||
       "";
 
-   // ✅ Prefer mobile_number if available
-const phone =
-  b.mobile_number && b.mobile_number.trim().length > 4
-    ? b.mobile_number
-    : b.phone_number || b.phone || "";
+    // ✅ Prefer mobile_number if available
+    const phone =
+      b.mobile_number && b.mobile_number.trim().length > 4
+        ? b.mobile_number
+        : b.phone_number || b.phone || "";
 
     // ✅ Final structured booking
     const booking = {
@@ -1649,6 +1660,7 @@ const phone =
       addressLine2,
       postcode,
       dateOfBirth,
+      status,
     };
 
     res.json(booking);
