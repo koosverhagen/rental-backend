@@ -1556,16 +1556,24 @@ app.get("/planyo/upcoming", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// ✅ Get full booking details for a single reservation (HireCheck)
-//    - Filters out cancelled / not completed bookings
+// ✅ List upcoming + in-progress + confirmed bookings for HireCheck
 // ----------------------------------------------------
-app.get("/planyo/booking/:bookingID", async (req, res) => {
+app.get("/planyo/upcoming", async (req, res) => {
   try {
-    const bookingID = req.params.bookingID;
-    const method = "get_reservation_data";
-    const firstTs = Math.floor(Date.now() / 1000);
+    const now = new Date();
+    const threeDaysLater = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-    async function fetchBooking(ts) {
+    const pad = (n) => String(n).padStart(2, "0");
+    const formatPlanyoTime = (d) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+        d.getHours()
+      )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
+    const start_time = formatPlanyoTime(now);
+    const end_time = formatPlanyoTime(threeDaysLater);
+    const method = "list_reservations";
+
+    async function fetchList(ts) {
       const hash = crypto
         .createHash("md5")
         .update(process.env.PLANYO_HASH_KEY + ts + method)
@@ -1575,9 +1583,11 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         `https://www.planyo.com/rest/?method=${method}` +
         `&api_key=${process.env.PLANYO_API_KEY}` +
         `&site_id=${process.env.PLANYO_SITE_ID}` +
-        `&reservation_id=${bookingID}` +
+        `&start_time=${start_time}` +
+        `&end_time=${end_time}` +
+        `&statuses=confirmed,in_progress` +
+        `&include_unconfirmed=0` +
         `&include_form_items=1` +
-        `&response_format=json` +
         `&hash_timestamp=${ts}` +
         `&hash_key=${hash}`;
 
@@ -1589,83 +1599,75 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       } catch {
         json = null;
       }
-      return { json, text };
+      return { json, text, url };
     }
 
-    // 🔁 Try with current timestamp, retry if invalid
-    let { json, text } = await fetchBooking(firstTs);
+    // --- Try request ---
+    const firstTs = Math.floor(Date.now() / 1000);
+    let { json, text } = await fetchList(firstTs);
+
+    // --- Retry if timestamp invalid ---
     if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
       const match = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
       if (match && match[1]) {
         const correctedTs = parseInt(match[1], 10);
         console.warn(`⚠️ Retrying with corrected timestamp ${correctedTs}`);
-        ({ json, text } = await fetchBooking(correctedTs));
+        ({ json, text } = await fetchList(correctedTs));
       }
     }
 
-    // --- Validate API response
-    if (!json?.data) {
-      return res.status(404).json({ error: "No booking found", raw: text });
+    if (!json?.data?.results?.length) {
+      return res.json([]);
     }
 
-    const b = json.data;
+    const bookings = json.data.results.map((b) => {
+      // ✅ Extract Date of Birth
+      const dateOfBirth =
+        b.birth_date ||
+        b.dob ||
+        b.properties?.Date_of_Birth ||
+        b.properties?.date_of_birth ||
+        "";
 
-    // --- Filter out unwanted statuses
-    const allowedStatuses = ["7", "8", "9"]; // confirmed, in-progress, upcoming
-    const status = String(b.status || "");
-    if (!allowedStatuses.includes(status)) {
-      console.warn(`⚠️ Booking ${bookingID} ignored — status ${status}`);
-      return res.status(403).json({ error: `Booking not eligible (status ${status})` });
-    }
+      // ✅ Build Address
+      const addressLine1 =
+        b.address_line_1 ||
+        b.address1 ||
+        b.address ||
+        "";
+      const addressLine2 = b.city || "";
+      const postcode =
+        b.zip ||
+        b.postcode ||
+        b.properties?.Postcode ||
+        "";
 
-    // ✅ Extract Date of Birth
-    const dateOfBirth =
-      b.birth_date ||
-      b.dob ||
-      b.properties?.Date_of_Birth ||
-      b.properties?.date_of_birth ||
-      "";
+      // ✅ Prefer mobile_number if available
+      const phone =
+        b.mobile_number && b.mobile_number.trim().length > 4
+          ? b.mobile_number
+          : b.phone_number || b.phone || "";
 
-    // ✅ Build Address
-    const addressLine1 =
-      b.address_line_1 ||
-      b.address1 ||
-      b.address ||
-      "";
-    const addressLine2 = b.city || "";
-    const postcode =
-      b.zip ||
-      b.postcode ||
-      b.properties?.Postcode ||
-      "";
+      return {
+        bookingID: String(b.reservation_id || ""),
+        vehicleName: b.name || "—",
+        startDate: b.start_time || "",
+        endDate: b.end_time || "",
+        customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+        email: b.email || "",
+        phoneNumber: phone,
+        totalPrice: b.total_price || "",
+        amountPaid: b.amount_paid || "",
+        addressLine1,
+        addressLine2,
+        postcode,
+        dateOfBirth,
+      };
+    });
 
-    // ✅ Prefer mobile_number if available
-    const phone =
-      b.mobile_number && b.mobile_number.trim().length > 4
-        ? b.mobile_number
-        : b.phone_number || b.phone || "";
-
-    // ✅ Final structured booking
-    const booking = {
-      bookingID,
-      vehicleName: b.name || "—",
-      startDate: b.start_time || "",
-      endDate: b.end_time || "",
-      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-      email: b.email || "",
-      phoneNumber: phone,
-      totalPrice: b.total_price || "",
-      amountPaid: b.amount_paid || "",
-      addressLine1,
-      addressLine2,
-      postcode,
-      dateOfBirth,
-      status,
-    };
-
-    res.json(booking);
+    res.json(bookings);
   } catch (err) {
-    console.error("❌ Failed to fetch booking details:", err);
+    console.error("❌ Failed to fetch upcoming bookings:", err);
     res.status(500).json({ error: err.message });
   }
 });
