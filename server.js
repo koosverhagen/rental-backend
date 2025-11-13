@@ -1592,7 +1592,6 @@ app.get("/planyo/upcoming", async (req, res) => {
 
       const resp = await fetch(url);
       const text = await resp.text();
-
       let json;
       try {
         json = JSON.parse(text);
@@ -1620,10 +1619,13 @@ app.get("/planyo/upcoming", async (req, res) => {
       return res.json([]);
     }
 
-    // ✅ Filter only confirmed (4) or in progress (5)
-    const validReservations = json.data.results.filter(
-      (r) => String(r.reservation_status) === "4" || String(r.reservation_status) === "5"
-    );
+    // ✅ Filter only confirmed (status=4) or in progress (status=5)
+    const validReservations = json.data.results.filter((r) => {
+      const status = String(r.status || r.reservation_status || "");
+      return status === "4" || status === "5";
+    });
+
+    console.log(`✅ Returned ${validReservations.length} filtered bookings (confirmed + in progress)`);
 
     if (validReservations.length === 0) {
       return res.json([]);
@@ -1643,7 +1645,7 @@ app.get("/planyo/upcoming", async (req, res) => {
       addressLine1: b.address_line_1 || "",
       addressLine2: b.city || "",
       postcode: b.zip || "",
-      dateOfBirth: b.birth_date || ""
+      dateOfBirth: b.birth_date || "",
     }));
 
     res.json(bookings);
