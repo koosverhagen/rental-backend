@@ -1545,15 +1545,19 @@ app.get("/planyo/upcoming", async (req, res) => {
     }
 
     flush("📋 Raw reservation statuses:");
-    json.data.results.forEach((r) => {
-      flush(`#${r.reservation_id} | ${r.name || "—"} | status: ${r.status} | reservation_status: ${r.reservation_status}`);
-    });
+   json.data.results.forEach((r) => {
+  const status = String(r.status || r.reservation_status || "");
+  if (!["4", "5", "7"].includes(status)) {
+    flush(`🚫 Skipping #${r.reservation_id} (${r.name}) — status ${status}`);
+  }
+});
 
-    // ✅ Keep only confirmed (4) + in-progress (5)
-    const valid = json.data.results.filter((r) => {
-      const status = String(r.status || r.reservation_status || "");
-      return status === "4" || status === "5";
-    });
+
+   // ✅ Keep only confirmed (4), in-progress (5), or upcoming (7)
+const valid = json.data.results.filter((r) => {
+  const status = String(r.status || r.reservation_status || "");
+  return status === "4" || status === "5" || status === "7";
+});
 
     flush(`✅ ${valid.length} bookings kept (confirmed + in progress)`);
 
