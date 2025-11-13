@@ -1556,7 +1556,7 @@ app.get("/planyo/upcoming", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// ✅ List confirmed + in-progress bookings (next 7 days + current)
+// ✅ List confirmed + in-progress bookings (with status debug)
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (req, res) => {
   try {
@@ -1570,7 +1570,7 @@ app.get("/planyo/upcoming", async (req, res) => {
       )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     };
 
-    const start_time = formatPlanyoTime(new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000)); // include 1 day back
+    const start_time = formatPlanyoTime(new Date(now.getTime() - 24 * 60 * 60 * 1000)); // include 1 day back
     const end_time = formatPlanyoTime(sevenDaysLater);
     const method = "list_reservations";
 
@@ -1619,17 +1619,21 @@ app.get("/planyo/upcoming", async (req, res) => {
       return res.json([]);
     }
 
-    // ✅ Filter only confirmed (status=4) or in progress (status=5)
+    // ✅ Log status codes for inspection
+    console.log("📋 Raw reservation statuses:");
+    json.data.results.forEach((r) => {
+      console.log(
+        `#${r.reservation_id} – ${r.name || "unknown"} | status: ${r.status} | reservation_status: ${r.reservation_status}`
+      );
+    });
+
+    // ✅ Try filtering confirmed/in progress (codes 4 or 5)
     const validReservations = json.data.results.filter((r) => {
       const status = String(r.status || r.reservation_status || "");
       return status === "4" || status === "5";
     });
 
     console.log(`✅ Returned ${validReservations.length} filtered bookings (confirmed + in progress)`);
-
-    if (validReservations.length === 0) {
-      return res.json([]);
-    }
 
     // ✅ Map simplified list output
     const bookings = validReservations.map((b) => ({
