@@ -1148,6 +1148,109 @@ async function runDepositScheduler(mode) {
 }
 
 // ----------------------------------------------------
+// 📱 Daily SMS deposit reminder at 06:00 London time
+// ----------------------------------------------------
+cron.schedule("0 6 * * *", async () => {
+  console.log("⏰ [SMS] 06:00 automated deposit check running...");
+
+  try {
+    const tz = "Europe/London";
+    const now = new Date();
+    const todayParts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    })
+      .formatToParts(now)
+      .reduce((acc, part) => {
+        if (part.type !== "literal") acc[part.type] = part.value;
+        return acc;
+      }, {});
+
+    const todayStr = `${todayParts.year}-${todayParts.month}-${todayParts.day}`;
+
+    // We check the existing list endpoint:
+    const list = await fetch(`${process.env.SERVER_URL}/planyo/upcoming`).then(r => r.json());
+
+    for (const booking of list) {
+      const bookingID = booking.bookingID;
+
+      // Only send for bookings starting TODAY
+      if (!booking.startDate.startsWith(todayStr)) {
+        continue;
+      }
+
+      // Skip if SMS already sent this booking in the last 3 days
+      if (smsAlreadySentRecently(bookingID)) continue;
+
+      // Skip if deposit already placed
+      if (await hasActiveDeposit(bookingID)) continue;
+
+      const phone = normaliseUkMobile(booking.phoneNumber);
+      if (!phone) {
+        console.log(`📱 [SMS] No mobile number for booking #${bookingID}`);
+        continue;
+      }
+
+      const link = `${process.env.SERVER_URL}/deposit/pay/${bookingID}`;
+      const body =
+        `Hi, this is regarding your hire booking #${bookingID} at Equine Transport UK.\n\n` +
+        `Please complete the £200 deposit hold before pickup today:\n${link}\n\n` +
+        `With kind regards,\nKoos`;
+
+      await twilioClient.messages.create({
+        to: phone,
+        from: process.env.TWILIO_FROM,
+        body
+      });
+
+      markSmsSent(bookingID);
+      console.log(`📱 [SMS] Automated 06:00 reminder sent → booking #${bookingID}`);
+    }
+  } catch (err) {
+    console.error("❌ 06:00 SMS deposit scheduler error:", err.message);
+  }
+});
+
+// ----------------------------------------------------
+// 📱 Manual SMS deposit link send (for HireCheck app)
+// ----------------------------------------------------
+app.post("/deposit/send-sms", async (req, res) => {
+  try {
+    const { bookingID } = req.body;
+
+    const booking = await fetchPlanyoBooking(bookingID);
+    const phone = normaliseUkMobile(booking.phone);
+
+    if (!phone) {
+      return res.status(400).json({ error: "No mobile number on file" });
+    }
+
+    const link = `${process.env.SERVER_URL}/deposit/pay/${bookingID}`;
+    const body =
+      `Hi, this is regarding your hire booking #${bookingID} at Equine Transport UK.\n\n` +
+      `Please complete the £200 deposit hold:\n${link}\n\n` +
+      `With kind regards,\nKoos`;
+
+    await twilioClient.messages.create({
+      to: phone,
+      from: process.env.TWILIO_FROM,
+      body
+    });
+
+    markSmsSent(bookingID);
+    console.log(`📱 Manual SMS sent for booking #${bookingID}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Manual SMS send error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+// ----------------------------------------------------
 // Start server
 // ----------------------------------------------------
 const PORT = process.env.PORT || 10000;
