@@ -1261,27 +1261,36 @@ app.post("/deposit/send-link", async (req, res) => {
       return res.status(400).json({ error: "Missing bookingID or customer email" });
     }
 
-    // 🛑 Duplicate prevention — but skip if manual resend (force = true)
-    if (!force && alreadySentRecently(bookingID)) {
+    const isForced =
+      force === true ||
+      force === "true" ||
+      force === 1 ||
+      force === "1";
+
+    // 🛑 Duplicate prevention — skip ONLY if NOT manual override
+    if (!isForced && alreadySentRecently(bookingID)) {
       console.log(`⏩ Skipping duplicate deposit send for #${bookingID} (recent)`);
       return res.status(200).json({ skipped: true });
     }
 
-    console.log(`📧 Sending deposit link email for booking #${bookingID} to ${email}`);
+    console.log(
+      isForced
+        ? `📧 MANUAL override — forcing deposit resend for booking #${bookingID}`
+        : `📧 Sending deposit link email for booking #${bookingID}`
+    );
 
     await sendDepositEmail(bookingID, email, amount);
 
-    // 📝 Only record for auto sends, not manual resends
-    if (!force) markDepositSent(bookingID);
+    // 📝 Only track sends when non-manual
+    if (!isForced) markDepositSent(bookingID);
 
-    return res.json({ success: true, bookingID, email, manual: !!force });
+    return res.json({ success: true, bookingID, email, forced: isForced });
+
   } catch (err) {
     console.error("❌ Error sending deposit link:", err);
     res.status(500).json({ error: err.message });
   }
 });
-
-
 
 // ----------------------------------------------------
 // Start server
