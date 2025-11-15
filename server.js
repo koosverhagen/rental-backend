@@ -1248,6 +1248,33 @@ app.post("/deposit/send-sms", async (req, res) => {
   }
 });
 
+// ============================================================
+// 📬 MANUAL OVERRIDE — ALWAYS send deposit email
+// (never blocked by duplicate protection / timing rules)
+// ============================================================
+app.post("/deposit/manual-resend", async (req, res) => {
+  try {
+    const { bookingID } = req.body;
+    if (!bookingID) return res.status(400).json({ error: "Missing bookingID" });
+
+    console.log(`📨 Manual DEPOSIT resend triggered for booking #${bookingID}`);
+
+    // Always send, ignore duplicate protection
+    const result = await sendDepositEmail(bookingID); // <— your existing email function
+
+    return res.json({
+      success: true,
+      manual: true,
+      bookingID,
+      info: "Manual resend completed",
+      result
+    });
+  } catch (err) {
+    console.error("❌ Manual deposit resend failed:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 
 
 // ----------------------------------------------------
