@@ -1250,7 +1250,7 @@ app.post("/deposit/send-sms", async (req, res) => {
 
 // ============================================================
 // 📬 MANUAL OVERRIDE — ALWAYS send deposit email
-// (never blocked by duplicate protection / timing rules)
+// (ignores duplicate prevention & timing limits)
 // ============================================================
 app.post("/deposit/manual-resend", async (req, res) => {
   try {
@@ -1259,14 +1259,19 @@ app.post("/deposit/manual-resend", async (req, res) => {
 
     console.log(`📨 Manual DEPOSIT resend triggered for booking #${bookingID}`);
 
-    // Always send, ignore duplicate protection
-    const result = await sendDepositEmail(bookingID); // <— your existing email function
+    // 🔥 Call the same email logic used by /deposit/send-link
+    const response = await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingID, manual: true, force: true })
+    });
+
+    const result = await response.json();
 
     return res.json({
       success: true,
       manual: true,
       bookingID,
-      info: "Manual resend completed",
       result
     });
   } catch (err) {
