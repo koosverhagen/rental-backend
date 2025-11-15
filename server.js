@@ -1252,31 +1252,32 @@ app.post("/deposit/send-sms", async (req, res) => {
 // 📬 MANUAL OVERRIDE — ALWAYS send deposit email
 // (ignores duplicate prevention & timing limits)
 // ============================================================
-app.post("/deposit/manual-resend", async (req, res) => {
+app.post("/deposit/send-link", async (req, res) => {
   try {
-    const { bookingID } = req.body;
-    if (!bookingID) return res.status(400).json({ error: "Missing bookingID" });
+    const { bookingID, amount, force } = req.body;
+    const email = await getEmailForBooking(bookingID);
 
-    console.log(`📨 Manual DEPOSIT resend triggered for booking #${bookingID}`);
+    if (!bookingID || !email) {
+      return res.status(400).json({ error: "Missing bookingID or customer email" });
+    }
 
-    // 🔥 Call the same email logic used by /deposit/send-link
-    const response = await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingID, manual: true, force: true })
-    });
+    // 🛑 Duplicate prevention — but skip if manual resend (force = true)
+    if (!force && alreadySentRecently(bookingID)) {
+      console.log(`⏩ Skipping duplicate deposit send for #${bookingID} (recent)`);
+      return res.status(200).json({ skipped: true });
+    }
 
-    const result = await response.json();
+    console.log(`📧 Sending deposit link email for booking #${bookingID} to ${email}`);
 
-    return res.json({
-      success: true,
-      manual: true,
-      bookingID,
-      result
-    });
+    await sendDepositEmail(bookingID, email, amount);
+
+    // 📝 Only record for auto sends, not manual resends
+    if (!force) markDepositSent(bookingID);
+
+    return res.json({ success: true, bookingID, email, manual: !!force });
   } catch (err) {
-    console.error("❌ Manual deposit resend failed:", err);
-    return res.status(500).json({ error: err.message });
+    console.error("❌ Error sending deposit link:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
