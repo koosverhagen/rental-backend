@@ -1,4 +1,3 @@
-/// server.js
 // ----------------------------------------------------
 // Imports & Setup
 // ----------------------------------------------------
@@ -16,119 +15,132 @@ require("dotenv").config();
 const app = express();
 app.use(cors());
 
-// Static (for thank-you embed)
+// Serve static (Thank-you embed assets if needed)
 app.use(express.static("public"));
 
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
 
-// IMPORTANT: Do NOT use express.json() before Stripe webhook
-// We add JSON middleware AFTER the webhook.
-
+// IMPORTANT ⚠️
+// Stripe Webhook requires raw body. JSON middleware comes AFTER this.
 // ----------------------------------------------------
 // Stripe Webhook (raw body required)
 // ----------------------------------------------------
-app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
-  const sig = req.headers["stripe-signature"];
-  let event;
+app.post(
+  "/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    let event;
 
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    console.error("❌ Webhook verification failed:", err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.error("❌ Webhook verification failed:", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
 
-  const obj = event.data.object;
+    const obj = event.data.object;
 
-  try {
-    switch (event.type) {
-      case "payment_intent.succeeded":
-        console.log("✅ payment_intent.succeeded:", obj.id);
-        break;
+    try {
+      switch (event.type) {
+        case "payment_intent.succeeded":
+          console.log("✅ payment_intent.succeeded:", obj.id);
+          break;
 
-      case "payment_intent.payment_failed":
-        console.log("❌ payment_intent.payment_failed:", obj.id);
-        break;
+        case "payment_intent.payment_failed":
+          console.log("❌ payment_intent.payment_failed:", obj.id);
+          break;
 
-      case "payment_intent.canceled":
-        console.log("⚠️ payment_intent.canceled:", obj.id);
-        if (obj.metadata?.bookingID) {
-          const bk = await fetchPlanyoBooking(obj.metadata.bookingID);
-          if (bk.email) {
-            const htmlBody = emailTemplate({
-              title: "Deposit Hold Canceled",
-              color: "#d9534f",
-              bodyTop: `The deposit hold for <b>Booking #${obj.metadata.bookingID}</b> has been <b>canceled</b>.`,
-              bookingID: obj.metadata.bookingID,
-              booking: bk,
-            });
-            await Promise.all([
-              sendgrid.send({
-                to: bk.email,
-                from: "Equine Transport UK <info@equinetransportuk.com>",
-                subject: `Equine Transport UK | Deposit Hold Canceled | Booking #${obj.metadata.bookingID}`,
-                html: htmlBody,
-              }),
-              sendgrid.send({
-                to: "kverhagen@mac.com",
-                from: "Equine Transport UK <info@equinetransportuk.com>",
-                subject: `Admin Copy | Deposit Hold Canceled | Booking #${obj.metadata.bookingID}`,
-                html: htmlBody,
-              }),
-            ]);
-          }
-        }
-        break;
-
-      case "charge.refunded":
-        console.log("💸 charge.refunded:", obj.id);
-        // obj is a Charge; its payment_intent may carry metadata.bookingID
-        if (obj.payment_intent) {
-          const pi = await stripe.paymentIntents.retrieve(obj.payment_intent);
-          const bookingID = pi?.metadata?.bookingID;
-          if (bookingID) {
-            const bk = await fetchPlanyoBooking(bookingID);
-            if (bk.email) {
-              const htmlBody = emailTemplate({
-                title: "Deposit Refunded",
-                color: "#28a745",
-                bodyTop: `Your deposit for <b>Booking #${bookingID}</b> has been <b>refunded</b>.<br/>Funds typically appear back in 5–10 working days.`,
+        case "payment_intent.canceled":
+          console.log("⚠️ payment_intent.canceled:", obj.id);
+          // When a deposit is canceled, attempt to notify customer + admin
+          if (obj.metadata?.bookingID) {
+            const bookingID = obj.metadata.bookingID;
+            const booking = await fetchPlanyoBooking(bookingID);
+            if (booking.email) {
+              const html = emailTemplate({
+                title: "Deposit Hold Canceled",
+                color: "#d9534f",
+                bodyTop: `The deposit hold for <b>Booking #${bookingID}</b> has been <b>canceled</b>.`,
                 bookingID,
-                booking: bk,
+                booking,
               });
+
               await Promise.all([
                 sendgrid.send({
-                  to: bk.email,
+                  to: booking.email,
                   from: "Equine Transport UK <info@equinetransportuk.com>",
-                  subject: `Equine Transport UK | Deposit Refunded | Booking #${bookingID}`,
-                  html: htmlBody,
+                  subject: `Equine Transport UK | Deposit Hold Canceled | Booking #${bookingID}`,
+                  html,
                 }),
                 sendgrid.send({
                   to: "kverhagen@mac.com",
                   from: "Equine Transport UK <info@equinetransportuk.com>",
-                  subject: `Admin Copy | Deposit Refunded | Booking #${bookingID}`,
-                  html: htmlBody,
+                  subject: `Admin Copy | Deposit Hold Canceled | Booking #${bookingID}`,
+                  html,
                 }),
               ]);
             }
           }
-        }
-        break;
+          break;
 
-      default:
-        console.log(`ℹ️ Unhandled event type: ${event.type}`);
+        case "charge.refunded":
+          console.log("💸 charge.refunded:", obj.id);
+          // Use payment_intent metadata to identify booking
+          try {
+            const pi = await stripe.paymentIntents.retrieve(obj.payment_intent);
+            const bookingID = pi?.metadata?.bookingID;
+            if (bookingID) {
+              const booking = await fetchPlanyoBooking(bookingID);
+              if (booking.email) {
+                const html = emailTemplate({
+                  title: "Deposit Refunded",
+                  color: "#28a745",
+                  bodyTop: `Your deposit for <b>Booking #${bookingID}</b> has been <b>refunded</b> and will return to your account within 5–10 business days.`,
+                  bookingID,
+                  booking,
+                });
+
+                await Promise.all([
+                  sendgrid.send({
+                    to: booking.email,
+                    from: "Equine Transport UK <info@equinetransportuk.com>",
+                    subject: `Equine Transport UK | Deposit Refunded | Booking #${bookingID}`,
+                    html,
+                  }),
+                  sendgrid.send({
+                    to: "kverhagen@mac.com",
+                    from: "Equine Transport UK <info@equinetransportuk.com>",
+                    subject: `Admin Copy | Deposit Refunded | Booking #${bookingID}`,
+                    html,
+                  }),
+                ]);
+              }
+            }
+          } catch (e) {
+            console.error("⚠️ charge.refunded handler error:", e);
+          }
+          break;
+
+        default:
+          console.log(`ℹ️ Unhandled Stripe event: ${event.type}`);
+      }
+
+      res.send();
+    } catch (err) {
+      console.error("❌ Webhook handler error:", err);
+      res.status(500).send("Webhook handler error");
     }
-
-    res.send();
-  } catch (e) {
-    console.error("❌ Webhook handler error:", e);
-    res.status(500).send("Webhook handler error");
   }
-});
-
+);
 // ----------------------------------------------------
 // Normal middleware AFTER webhook
+// (Stripe webhook must remain FIRST because it needs raw body)
 // ----------------------------------------------------
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
@@ -168,7 +180,7 @@ function emailTemplate({ title, color, bodyTop, bookingID, booking }) {
 }
 
 // ----------------------------------------------------
-// Planyo fetch (simple) for emails/descriptions
+// Fetch basic booking summary from Planyo (for emails, descriptions)
 // ----------------------------------------------------
 async function fetchPlanyoBooking(bookingID) {
   try {
@@ -208,12 +220,10 @@ async function fetchPlanyoBooking(bookingID) {
     email: null,
   };
 }
-
 // ----------------------------------------------------
 // Persistent duplicate-protection (Render disk at /data)
 // ----------------------------------------------------
-// STEP 1/2: Add a disk on Render mounted at /data
-// STEP 2: Use /data here
+// Use Render disk mounted at /data so we remember what we've sent between restarts
 const DATA_DIR = "/data";
 const SENT_FILE = path.join(DATA_DIR, "sentDeposits.json");
 const CALLBACK_FILE = path.join(DATA_DIR, "processedCallbacks.json");
@@ -223,7 +233,7 @@ function loadSet(file) {
     if (fs.existsSync(file)) {
       const arr = JSON.parse(fs.readFileSync(file, "utf8"));
       if (Array.isArray(arr)) return new Set(arr);
-      // allow map of {bookingID: [timestamps]} from older versions
+      // allow old format { bookingID: [timestamps] }
       if (arr && typeof arr === "object") return new Set(Object.keys(arr));
     }
   } catch (e) {
@@ -241,11 +251,14 @@ function saveSet(file, set) {
   }
 }
 
-let processedBookings = loadSet(CALLBACK_FILE);  // confirmed bookings handled
-let sentDepositBookings = loadSet(SENT_FILE);    // deposit links already emailed (3-day window)
+// confirmed bookings we've already reacted to via /planyo/callback
+let processedBookings = loadSet(CALLBACK_FILE);
+// bookings we've emailed a deposit link to in the last 3 days (dedupe)
+let sentDepositBookings = loadSet(SENT_FILE);
 
-// Cleanup nightly: drop entries older than 3 days (we store "bookingID:timestamp" style)
 const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+
+// cleanup each night: remove sent entries older than 3 days
 cron.schedule("0 0 * * *", () => {
   try {
     const cutoff = Date.now() - THREE_DAYS_MS;
@@ -256,7 +269,9 @@ cron.schedule("0 0 * * *", () => {
       })
     );
     if (clean.size !== sentDepositBookings.size) {
-      console.log(`🧹 Cleaned old sent deposit tags (${sentDepositBookings.size - clean.size} removed)`);
+      console.log(
+        `🧹 Cleaned old sent deposit tags (${sentDepositBookings.size - clean.size} removed)`
+      );
       sentDepositBookings = clean;
       saveSet(SENT_FILE, sentDepositBookings);
     }
@@ -291,7 +306,9 @@ async function planyoCall(method, params = {}) {
       site_id: process.env.PLANYO_SITE_ID,
       hash_timestamp: String(timestamp),
       hash_key: hashKey,
-      ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
+      ...Object.fromEntries(
+        Object.entries(params).map(([k, v]) => [k, String(v)])
+      ),
     });
     return `https://www.planyo.com/rest/?${query.toString()}`;
   };
@@ -301,15 +318,23 @@ async function planyoCall(method, params = {}) {
     const resp = await fetch(url);
     const text = await resp.text();
     let json;
-    try { json = JSON.parse(text); } catch { json = null; }
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
     return { url, json, text };
   }
 
   let ts = Math.floor(Date.now() / 1000);
   let { url, json, text } = await fetchOnce(ts);
 
-  if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
-    const m = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
+  // self-heal invalid timestamp
+  if (json?.response_code === 1 &&
+      /Invalid timestamp/i.test(json.response_message || text)) {
+    const m = (json.response_message || "").match(
+      /Current timestamp is\s+(\d+)/i
+    );
     if (m?.[1]) {
       ts = parseInt(m[1], 10);
       ({ url, json, text } = await fetchOnce(ts));
@@ -317,34 +342,48 @@ async function planyoCall(method, params = {}) {
   }
 
   if (!json) {
-    console.error("❌ Planyo non-JSON response:", (text || "").slice(0, 300));
-    return { url, json: { response_code: 1, response_message: "Non-JSON response" } };
+    console.error(
+      "❌ Planyo non-JSON response:",
+      (text || "").slice(0, 300)
+    );
+    return {
+      url,
+      json: { response_code: 1, response_message: "Non-JSON response" },
+    };
   }
+
   return { url, json };
 }
 
 // ----------------------------------------------------
 // Stripe Terminal & Deposit endpoints
 // ----------------------------------------------------
+
+// connection token for Stripe Terminal app (HireCheck)
 app.post("/terminal/connection_token", async (_req, res) => {
   try {
     const connectionToken = await stripe.terminal.connectionTokens.create();
     res.json({ secret: connectionToken.secret });
   } catch (err) {
+    console.error("❌ /terminal/connection_token error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
+// create PaymentIntent for terminal (capture_method: manual)
 app.post("/deposit/create-intent", async (req, res) => {
   try {
     const { bookingID, amount } = req.body;
     const booking = await fetchPlanyoBooking(bookingID);
+
     const description = [
       `Booking #${bookingID}`,
       `${booking.firstName} ${booking.lastName}`.trim(),
       booking.resource,
       `${booking.start} → ${booking.end}`,
-    ].filter(Boolean).join(" | ");
+    ]
+      .filter(Boolean)
+      .join(" | ");
 
     const intent = await stripe.paymentIntents.create({
       amount,
@@ -357,13 +396,16 @@ app.post("/deposit/create-intent", async (req, res) => {
 
     res.json({ clientSecret: intent.client_secret });
   } catch (err) {
+    console.error("❌ /deposit/create-intent error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
+// web-based deposit page (standard card form)
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
   const amount = 20000; // £200 hold
+
   const bk = await fetchPlanyoBooking(bookingID);
 
   const intent = await stripe.paymentIntents.create({
@@ -442,6 +484,7 @@ document.getElementById("payment-form").addEventListener("submit", async (e) => 
 </body></html>`);
 });
 
+// update PaymentIntent metadata (e.g. fullName)
 app.post("/update-metadata", async (req, res) => {
   try {
     const { payment_intent_id, metadata } = req.body;
@@ -453,6 +496,7 @@ app.post("/update-metadata", async (req, res) => {
   }
 });
 
+// list all open holds (requires_capture) for internal admin
 app.get("/terminal/list-all", async (_req, res) => {
   try {
     const paymentIntents = await stripe.paymentIntents.list({ limit: 50 });
@@ -475,16 +519,22 @@ app.get("/terminal/list-all", async (_req, res) => {
     }
     res.json(deposits);
   } catch (err) {
+    console.error("❌ /terminal/list-all error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
+// cancel hold (PaymentIntent cancel)
 app.post("/terminal/cancel", async (req, res) => {
   try {
     const { payment_intent_id } = req.body;
     const canceled = await stripe.paymentIntents.cancel(payment_intent_id);
     const bookingID = canceled.metadata?.bookingID;
-    console.log(`⚠️ Deposit canceled: ${payment_intent_id} (Booking #${bookingID || "unknown"})`);
+    console.log(
+      `⚠️ Deposit canceled: ${payment_intent_id} (Booking #${
+        bookingID || "unknown"
+      })`
+    );
 
     if (bookingID) {
       const bk = await fetchPlanyoBooking(bookingID);
@@ -510,7 +560,9 @@ app.post("/terminal/cancel", async (req, res) => {
             html: htmlBody,
           }),
         ]);
-        console.log(`📩 Cancel emails sent for booking #${bookingID} → ${bk.email} & admin`);
+        console.log(
+          `📩 Cancel emails sent for booking #${bookingID} → ${bk.email} & admin`
+        );
       }
     }
     res.json({ id: canceled.id, status: canceled.status });
@@ -520,16 +572,19 @@ app.post("/terminal/cancel", async (req, res) => {
   }
 });
 
+// capture hold (PaymentIntent capture)
 app.post("/terminal/capture", async (req, res) => {
   try {
     const { payment_intent_id } = req.body;
     const captured = await stripe.paymentIntents.capture(payment_intent_id);
     res.json(captured);
   } catch (err) {
+    console.error("❌ Capture error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
+// list all PaymentIntents for a specific bookingID
 app.get("/terminal/list/:bookingID", async (req, res) => {
   try {
     const bookingID = String(req.params.bookingID);
@@ -555,10 +610,12 @@ app.get("/terminal/list/:bookingID", async (req, res) => {
 
     res.json(result);
   } catch (err) {
+    console.error("❌ /terminal/list error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
+// public: check deposit status from Wix thank-you / other frontends
 app.get("/deposit/status/:bookingID", async (req, res) => {
   try {
     const bookingID = String(req.params.bookingID);
@@ -594,13 +651,16 @@ app.get("/deposit/status/:bookingID", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// Deposit emails
+// Deposit confirmation email sent after successful hold
 // ----------------------------------------------------
 app.post("/email/deposit-confirmation", async (req, res) => {
   try {
     const { bookingID, amount } = req.body;
     const bk = await fetchPlanyoBooking(bookingID);
-    if (!bk.email) return res.status(400).json({ error: "Could not find customer email" });
+    if (!bk.email)
+      return res
+        .status(400)
+        .json({ error: "Could not find customer email" });
 
     const htmlBody = `
       <div style="font-family: Arial, sans-serif; line-height:1.6; color:#333;">
@@ -610,7 +670,9 @@ app.post("/email/deposit-confirmation", async (req, res) => {
         <h2 style="text-align:center; color:#0070f3;">Deposit Hold Confirmation</h2>
         <p><b>Note:</b> This is a <b>pre-authorisation (hold)</b>. <b>No money has been taken</b> from your account.</p>
         <p>Dear ${bk.firstName} ${bk.lastName},</p>
-        <p>We have successfully placed a deposit hold of <b>£${(amount/100).toFixed(2)}</b> for your booking <b>#${bookingID}</b>.</p>
+        <p>We have successfully placed a deposit hold of <b>£${(
+          amount / 100
+        ).toFixed(2)}</b> for your booking <b>#${bookingID}</b>.</p>
         <h3>Booking Details</h3>
         <ul>
           <li><b>Lorry:</b> ${bk.resource}</li>
@@ -634,6 +696,7 @@ app.post("/email/deposit-confirmation", async (req, res) => {
           📞 +44 7584578654 | ✉️ <a href="mailto:info@equinetransportuk.com">info@equinetransportuk.com</a>
         </p>
       </div>`;
+
     await Promise.all([
       sendgrid.send({
         to: bk.email,
@@ -657,21 +720,28 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// Deposit link sender (deduped) — USED by scheduler/callback/manual
+// Deposit link sender (V2 with manual override)
+//  - automatic (callback / scheduler): deduped
+//  - manual (force=true): always send
 // ----------------------------------------------------
 app.post("/deposit/send-link", async (req, res) => {
   try {
-    const { bookingID, amount = 20000 } = req.body;
+    const { bookingID, amount = 20000, force } = req.body;
     const link = `${process.env.SERVER_URL}/deposit/pay/${bookingID}`;
 
-    // STEP 4: guard BEFORE sending
-    if (alreadySentRecently(bookingID)) {
-      console.log(`⏩ Skipping duplicate deposit send for #${bookingID} (recent)`);
+    const isForced =
+      force === true || force === "true" || force === 1 || force === "1";
+
+    if (!isForced && alreadySentRecently(bookingID)) {
+      console.log(
+        `⏩ Skipping duplicate deposit send for #${bookingID} (recent)`
+      );
       return res.json({ success: true, url: link, alreadySent: true });
     }
 
     const bk = await fetchPlanyoBooking(bookingID);
-    if (!bk.email) return res.status(400).json({ error: "No customer email" });
+    if (!bk.email)
+      return res.status(400).json({ error: "No customer email" });
 
     const html = `
       <div style="font-family:Arial;line-height:1.5;color:#333;">
@@ -679,11 +749,15 @@ app.post("/deposit/send-link", async (req, res) => {
           <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
                alt="Equine Transport UK" style="width:160px; height:auto;" />
         </div>
-        <h2 style="color:#0070f3;text-align:center;">Deposit Payment Request</h2>
+        <h2 style="color:#0070f3;text-align:center;">
+          Deposit Payment Request${isForced ? " (Resent)" : ""}
+        </h2>
         <p>Dear ${bk.firstName} ${bk.lastName},</p>
         <p>Please complete your deposit hold for <b>Booking #${bookingID}</b>.</p>
         <p><b>Lorry:</b> ${bk.resource}<br><b>From:</b> ${bk.start}<br><b>To:</b> ${bk.end}</p>
-        <p style="font-size:18px;text-align:center;">Deposit Required: <b>£${(amount / 100).toFixed(2)}</b></p>
+        <p style="font-size:18px;text-align:center;">Deposit Required: <b>£${(
+          amount / 100
+        ).toFixed(2)}</b></p>
         <p style="text-align:center;margin:30px 0;">
           <a href="${link}" style="padding:14px 24px;background:#0070f3;color:#fff;border-radius:6px;text-decoration:none;font-size:16px;">
             💳 Pay Deposit Securely
@@ -704,75 +778,48 @@ app.post("/deposit/send-link", async (req, res) => {
       sendgrid.send({
         to: bk.email,
         from: "Equine Transport UK <info@equinetransportuk.com>",
-        subject: `Equine Transport UK | Secure Deposit Link | Booking #${bookingID} | ${bk.firstName} ${bk.lastName}`,
+        subject: `Equine Transport UK | Secure Deposit Link${
+          isForced ? " (Resent)" : ""
+        } | Booking #${bookingID} | ${bk.firstName} ${bk.lastName}`,
         html,
       }),
       sendgrid.send({
         to: "kverhagen@mac.com",
         from: "Equine Transport UK <info@equinetransportuk.com>",
-        subject: `Admin Copy | Deposit Link Sent | Booking #${bookingID} | ${bk.firstName} ${bk.lastName}`,
+        subject: `Admin Copy | Deposit Link ${
+          isForced ? "Resent" : "Sent"
+        } | Booking #${bookingID} | ${bk.firstName} ${bk.lastName}`,
         html,
       }),
     ]);
 
-    markDepositSent(bookingID);
-    console.log(`✅ Deposit link sent for booking #${bookingID} to ${bk.email}`);
-    res.json({ success: true, url: link });
+    if (!isForced) {
+      markDepositSent(bookingID);
+    }
+
+    console.log(
+      `✅ Deposit link ${isForced ? "resent" : "sent"} for booking #${bookingID} to ${
+        bk.email
+      }`
+    );
+    res.json({ success: true, url: link, forced: isForced });
   } catch (err) {
-    console.error("❌ SendGrid email error:", err);
+    console.error("❌ SendGrid deposit-link error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ----------------------------------------------------
-// NEW: Manual resend (bypass duplicate check) — STEP 5
-// ----------------------------------------------------
+// optional explicit "resend" wrapper if app prefers this endpoint
 app.post("/deposit/resend", async (req, res) => {
   try {
     const { bookingID, amount = 20000 } = req.body;
-    const link = `${process.env.SERVER_URL}/deposit/pay/${bookingID}`;
-    const bk = await fetchPlanyoBooking(bookingID);
-    if (!bk.email) return res.status(400).json({ error: "No customer email" });
-
-    const html = `
-      <div style="font-family:Arial;line-height:1.5;color:#333;">
-        <div style="text-align:center; margin-bottom:20px;">
-          <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
-               alt="Equine Transport UK" style="width:160px; height:auto;" />
-        </div>
-        <h2 style="color:#0070f3;text-align:center;">Deposit Payment Request (Resent)</h2>
-        <p>Dear ${bk.firstName} ${bk.lastName},</p>
-        <p>This is a reminder to complete your deposit hold for <b>Booking #${bookingID}</b>.</p>
-        <p><b>Lorry:</b> ${bk.resource}<br><b>From:</b> ${bk.start}<br><b>To:</b> ${bk.end}</p>
-        <p style="font-size:18px;text-align:center;">Deposit Required: <b>£${(amount / 100).toFixed(2)}</b></p>
-        <p style="text-align:center;margin:30px 0;">
-          <a href="${link}" style="padding:14px 24px;background:#0070f3;color:#fff;border-radius:6px;text-decoration:none;font-size:16px;">
-            💳 Pay Deposit Securely
-          </a>
-        </p>
-        <p style="margin-top:30px;">Kind regards,<br/>Koos & Avril<br/><b>Equine Transport UK</b></p>
-      </div>`;
-
-    await Promise.all([
-      sendgrid.send({
-        to: bk.email,
-        from: "Equine Transport UK <info@equinetransportuk.com>",
-        subject: `Equine Transport UK | Deposit Link (Resent) | Booking #${bookingID}`,
-        html,
-      }),
-      sendgrid.send({
-        to: "kverhagen@mac.com",
-        from: "Equine Transport UK <info@equinetransportuk.com>",
-        subject: `Admin Copy | Deposit Link Resent | Booking #${bookingID}`,
-        html,
-      }),
-    ]);
-
-    // still mark as sent (so scheduler won’t also send right after)
-    markDepositSent(bookingID);
-
-    console.log(`✅ Manual resend done for booking #${bookingID}`);
-    res.json({ success: true, url: link, resent: true });
+    // just call main endpoint with force=true
+    const resp = await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingID, amount, force: true }),
+    }).then((r) => r.json());
+    res.json({ success: true, ...resp });
   } catch (err) {
     console.error("❌ Manual resend error:", err);
     res.status(500).json({ error: err.message });
@@ -780,7 +827,7 @@ app.post("/deposit/resend", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// Manual deposit scheduler trigger (unchanged)
+// Manual scheduler trigger
 // ----------------------------------------------------
 app.get("/trigger-daily-deposits", async (_req, res) => {
   try {
@@ -794,12 +841,13 @@ app.get("/trigger-daily-deposits", async (_req, res) => {
 });
 
 // ----------------------------------------------------
-// Booking payments (for Wix thank-you)
+// Booking payments (for Wix thank-you embed)
 // ----------------------------------------------------
 app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const { bookingID } = req.params;
     const method = "get_reservation_data";
+
     const buildUrl = (ts) =>
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
@@ -809,11 +857,19 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
       `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}` +
       `&details=1`;
 
-    let ts = Math.floor(new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Zurich" })).getTime() / 1000);
+    // use Switzerland timezone to match Planyo's server time
+    let ts = Math.floor(
+      new Date(
+        new Date().toLocaleString("en-US", { timeZone: "Europe/Zurich" })
+      ).getTime() / 1000
+    );
     let resp = await fetch(buildUrl(ts));
     let json = await resp.json();
 
-    if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message)) {
+    if (
+      json?.response_code === 1 &&
+      /Invalid timestamp/i.test(json.response_message)
+    ) {
       const m = json.response_message.match(/Current timestamp is (\d+)/);
       if (m?.[1]) {
         ts = parseInt(m[1], 10);
@@ -832,18 +888,23 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
         end: r.end_time,
         total: parseFloat(r.total_price || 0).toFixed(2),
         paid: parseFloat(r.amount_paid || 0).toFixed(2),
-        balance: parseFloat((r.total_price || 0) - (r.amount_paid || 0)).toFixed(2),
+        balance: parseFloat(
+          (r.total_price || 0) - (r.amount_paid || 0)
+        ).toFixed(2),
       });
     }
 
     console.error("❌ Invalid Planyo response:", json);
-    return res.status(500).json({ error: "Invalid Planyo response", raw: json });
+    return res
+      .status(500)
+      .json({ error: "Invalid Planyo response", raw: json });
   } catch (err) {
     console.error("Booking fetch error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
+// proxy HTML wrapper so Wix can embed thank-you page nicely
 app.get("/booking-thankyou-proxy", (req, res) => {
   const query = req.url.split("?")[1] || "";
   const url = `https://rental-backend-0kz1.onrender.com/thankyou-embed.html?${query}`;
@@ -854,17 +915,23 @@ app.get("/booking-thankyou-proxy", (req, res) => {
 });
 
 // ----------------------------------------------------
-// Damage report email (PDF)
+// Damage report email (PDF from HireCheck app)
 // ----------------------------------------------------
-app.post("/damage/send-report", express.json({ limit: "20mb" }), async (req, res) => {
+app.post("/damage/send-report", async (req, res) => {
   try {
     const { bookingID, customerEmail, pdfBase64 } = req.body;
     if (!bookingID || !customerEmail || !pdfBase64) {
-      return res.status(400).json({ error: "Missing bookingID, email, or PDF data" });
+      return res
+        .status(400)
+        .json({ error: "Missing bookingID, email, or PDF data" });
     }
+
     await sendgrid.send({
       to: [customerEmail, "info@equinetransportuk.com"],
-      from: { email: "info@equinetransportuk.com", name: "Equine Transport UK" },
+      from: {
+        email: "info@equinetransportuk.com",
+        name: "Equine Transport UK",
+      },
       subject: `Damage / Fuel Report – Booking #${bookingID}`,
       html: `
         <div style="font-family:Helvetica,Arial,sans-serif;color:#333;background:#f9f9f9;padding:30px;">
@@ -881,23 +948,25 @@ app.post("/damage/send-report", express.json({ limit: "20mb" }), async (req, res
             <a href="mailto:info@equinetransportuk.com" style="color:#666;">info@equinetransportuk.com</a>
           </p>
         </div>`,
-      attachments: [{
-        content: pdfBase64,
-        filename: `DamageReport_${bookingID}.pdf`,
-        type: "application/pdf",
-        disposition: "attachment",
-      }],
+      attachments: [
+        {
+          content: pdfBase64,
+          filename: `DamageReport_${bookingID}.pdf`,
+          type: "application/pdf",
+          disposition: "attachment",
+        },
+      ],
     });
     console.log(`✅ Damage report emailed for booking ${bookingID}`);
     res.json({ success: true });
   } catch (err) {
-    console.error("❌ SendGrid email error:", err.response?.body || err);
+    console.error("❌ SendGrid damage report error:", err.response?.body || err);
     res.status(500).json({ error: "Email failed to send" });
   }
 });
 
 // ----------------------------------------------------
-// Planyo list for HireCheck (confirmed/in-progress/upcoming)
+// Planyo list for HireCheck (confirmed / in-progress / upcoming)
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
   const log = (m) => process.stdout.write(m + "\n");
@@ -905,13 +974,22 @@ app.get("/planyo/upcoming", async (_req, res) => {
     log("📡 /planyo/upcoming → fetching reservations…");
 
     const now = new Date();
-    const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const sevenDaysLater = new Date(
+      now.getTime() + 7 * 24 * 60 * 60 * 1000
+    );
 
     const pad = (n) => String(n).padStart(2, "0");
-    const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    const fmt = (d) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+        d.getDate()
+      )}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(
+        d.getSeconds()
+      )}`;
 
     // include 1 day back to keep “in progress” visible
-    const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+    const start_time = fmt(
+      new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    );
     const end_time = fmt(sevenDaysLater);
 
     const method = "list_reservations";
@@ -930,7 +1008,12 @@ app.get("/planyo/upcoming", async (_req, res) => {
     const resp = await fetch(url);
     const text = await resp.text();
 
-    let json; try { json = JSON.parse(text); } catch { json = null; }
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
     if (!json?.data?.results?.length) {
       log("⚠️ No reservations returned.");
       return res.json([]);
@@ -939,7 +1022,8 @@ app.get("/planyo/upcoming", async (_req, res) => {
     log("📋 Raw statuses:");
     json.data.results.forEach((r) => {
       const st = String(r.status || r.reservation_status || "");
-      if (!["4", "5", "7"].includes(st)) log(`🚫 Skip #${r.reservation_id} — status ${st}`);
+      if (!["4", "5", "7"].includes(st))
+        log(`🚫 Skip #${r.reservation_id} — status ${st}`);
     });
 
     // Keep confirmed(4), in_progress(5), upcoming/future(7)
@@ -954,7 +1038,9 @@ app.get("/planyo/upcoming", async (_req, res) => {
       vehicleName: b.name || "—",
       startDate: b.start_time || "",
       endDate: b.end_time || "",
-      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      customerName: `${b.first_name || ""} ${
+        b.last_name || ""
+      }`.trim(),
       email: b.email || "",
       phoneNumber: b.phone || "",
       totalPrice: b.total_price || "",
@@ -973,7 +1059,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
 });
 
 // ----------------------------------------------------
-// Planyo single booking (rich details for scan)
+// Planyo single booking (rich details for QR scan / HireCheck)
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
@@ -992,30 +1078,46 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
 
       const resp = await fetch(url);
       const text = await resp.text();
-      let json; try { json = JSON.parse(text); } catch { json = null; }
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
       return { json, text };
     };
 
     let ts = Math.floor(Date.now() / 1000);
     let { json, text } = await call(ts);
 
-    if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
-      const m = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
+    if (
+      json?.response_code === 1 &&
+      /Invalid timestamp/i.test(json.response_message || text)
+    ) {
+      const m = (json.response_message || "").match(
+        /Current timestamp is\s+(\d+)/i
+      );
       if (m?.[1]) {
         ts = parseInt(m[1], 10);
         ({ json, text } = await call(ts));
       }
     }
 
-    if (!json?.data) return res.status(404).json({ error: "No booking found", raw: text });
+    if (!json?.data)
+      return res.status(404).json({ error: "No booking found", raw: text });
 
     const b = json.data;
     const dateOfBirth =
-      b.birth_date || b.dob || b.properties?.Date_of_Birth || b.properties?.date_of_birth || "";
+      b.birth_date ||
+      b.dob ||
+      b.properties?.Date_of_Birth ||
+      b.properties?.date_of_birth ||
+      "";
 
     const addressLine1 = b.address_line_1 || b.address1 || b.address || "";
     const addressLine2 = b.city || "";
-    const postcode = b.zip || b.postcode || b.properties?.Postcode || "";
+    const postcode =
+      b.zip || b.postcode || b.properties?.Postcode || "";
 
     const phone =
       b.mobile_number && b.mobile_number.trim().length > 4
@@ -1027,7 +1129,9 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       vehicleName: b.name || "—",
       startDate: b.start_time || "",
       endDate: b.end_time || "",
-      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      customerName: `${b.first_name || ""} ${
+        b.last_name || ""
+      }`.trim(),
       email: b.email || "",
       phoneNumber: phone,
       totalPrice: b.total_price || "",
@@ -1046,7 +1150,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// Planyo Webhook (reservation_confirmed) → call send-link (deduped)
+// Planyo Webhook (reservation_confirmed) → send deposit link
 // ----------------------------------------------------
 app.post("/planyo/callback", express.json(), async (req, res) => {
   try {
@@ -1063,7 +1167,7 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
         return res.status(200).send("Already processed");
       }
 
-      // rely on /deposit/send-link duplicate guard internally
+      // rely on /deposit/send-link internal duplicate guard
       await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1082,12 +1186,14 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
 });
 
 // ----------------------------------------------------
-// Daily scheduler 19:00 London — sends for “tomorrow” (deduped)
+// Daily scheduler 19:00 London — send links for tomorrow's bookings
 // ----------------------------------------------------
 if (!global.__DEPOSIT_SCHEDULER_SET__) {
   global.__DEPOSIT_SCHEDULER_SET__ = true;
   cron.schedule("0 19 * * *", async () => {
-    console.log("🕓 [AUTO] 19:00 London → Checking upcoming bookings (tomorrow) …");
+    console.log(
+      "🕓 [AUTO] 19:00 London → Checking upcoming bookings (tomorrow) …"
+    );
     await runDepositScheduler("auto");
   });
 }
@@ -1096,39 +1202,63 @@ async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
     const now = new Date();
-    const lond = new Date(new Intl.DateTimeFormat("en-GB", {
-      timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-    }).format(now).replace(
-      /(\d{2})\/(\d{2})\/(\d{4}),\s*(\d{2}):(\d{2}):(\d{2})/,
-      "$3-$2-$1T$4:$5:$6"
-    ));
+    const lond = new Date(
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      })
+        .format(now)
+        .replace(
+          /(\d{2})\/(\d{2})\/(\d{4}),\s*(\d{2}):(\d{2}):(\d{2})/,
+          "$3-$2-$1T$4:$5:$6"
+        )
+    );
 
     const pad = (n) => String(n).padStart(2, "0");
-    const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    const fmt = (d) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+        d.getDate()
+      )}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(
+        d.getSeconds()
+      )}`;
 
     const tomorrow = new Date(lond);
     tomorrow.setDate(lond.getDate() + 1);
-    tomorrow.setHours(0,0,0,0);
+    tomorrow.setHours(0, 0, 0, 0);
 
     const start_time = fmt(tomorrow);
-    const end_time = fmt(new Date(tomorrow.getTime() + 24*60*60*1000));
+    const end_time = fmt(
+      new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000)
+    );
 
     const list = await planyoCall("list_reservations", {
-      start_time, end_time, req_status: 4, include_unconfirmed: 1
+      start_time,
+      end_time,
+      req_status: 4,
+      include_unconfirmed: 1,
     });
 
     if (!list.json?.data?.results?.length) {
       console.log("ℹ️ Scheduler: no bookings found for tomorrow.");
       return;
     }
-    console.log(`✅ Scheduler found ${list.json.data.results.length} booking(s)`);
+    console.log(
+      `✅ Scheduler found ${list.json.data.results.length} booking(s)`
+    );
 
     for (const item of list.json.data.results) {
       const bookingID = String(item.reservation_id);
 
-      // status 7 (confirmed) is the only one we target for sending the night before
-      const details = await planyoCall("get_reservation_data", { reservation_id: bookingID });
+      // status 7 (confirmed future) is the only one we want the night before
+      const details = await planyoCall("get_reservation_data", {
+        reservation_id: bookingID,
+      });
       const status = details.json?.data?.status;
       if (status !== "7" && status !== 7) {
         console.log(`⏸️ Scheduler skip #${bookingID} (status=${status})`);
@@ -1148,168 +1278,13 @@ async function runDepositScheduler(mode) {
 }
 
 // ----------------------------------------------------
-// 📱 Daily SMS deposit reminder at 06:00 London time
+// Root + Server start
 // ----------------------------------------------------
-cron.schedule("0 6 * * *", async () => {
-  console.log("⏰ [SMS] 06:00 automated deposit check running...");
-
-  try {
-    const tz = "Europe/London";
-    const now = new Date();
-    const todayParts = new Intl.DateTimeFormat("en-GB", {
-      timeZone: tz,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    })
-      .formatToParts(now)
-      .reduce((acc, part) => {
-        if (part.type !== "literal") acc[part.type] = part.value;
-        return acc;
-      }, {});
-
-    const todayStr = `${todayParts.year}-${todayParts.month}-${todayParts.day}`;
-
-    // We check the existing list endpoint:
-    const list = await fetch(`${process.env.SERVER_URL}/planyo/upcoming`).then(r => r.json());
-
-    for (const booking of list) {
-      const bookingID = booking.bookingID;
-
-      // Only send for bookings starting TODAY
-      if (!booking.startDate.startsWith(todayStr)) {
-        continue;
-      }
-
-      // Skip if SMS already sent this booking in the last 3 days
-      if (smsAlreadySentRecently(bookingID)) continue;
-
-      // Skip if deposit already placed
-      if (await hasActiveDeposit(bookingID)) continue;
-
-      const phone = normaliseUkMobile(booking.phoneNumber);
-      if (!phone) {
-        console.log(`📱 [SMS] No mobile number for booking #${bookingID}`);
-        continue;
-      }
-
-      const link = `${process.env.SERVER_URL}/deposit/pay/${bookingID}`;
-      const body =
-        `Hi, this is regarding your hire booking #${bookingID} at Equine Transport UK.\n\n` +
-        `Please complete the £200 deposit hold before pickup today:\n${link}\n\n` +
-        `With kind regards,\nKoos`;
-
-      await twilioClient.messages.create({
-        to: phone,
-        from: process.env.TWILIO_FROM,
-        body
-      });
-
-      markSmsSent(bookingID);
-      console.log(`📱 [SMS] Automated 06:00 reminder sent → booking #${bookingID}`);
-    }
-  } catch (err) {
-    console.error("❌ 06:00 SMS deposit scheduler error:", err.message);
-  }
+app.get("/", (_req, res) => {
+  res.send("🚀 Rental backend running");
 });
 
-// ----------------------------------------------------
-// 📱 Manual SMS deposit link send (for HireCheck app)
-// ----------------------------------------------------
-app.post("/deposit/send-sms", async (req, res) => {
-  try {
-    const { bookingID } = req.body;
-
-    const booking = await fetchPlanyoBooking(bookingID);
-    const phone = normaliseUkMobile(booking.phone);
-
-    if (!phone) {
-      return res.status(400).json({ error: "No mobile number on file" });
-    }
-
-    const link = `${process.env.SERVER_URL}/deposit/pay/${bookingID}`;
-    const body =
-      `Hi, this is regarding your hire booking #${bookingID} at Equine Transport UK.\n\n` +
-      `Please complete the £200 deposit hold:\n${link}\n\n` +
-      `With kind regards,\nKoos`;
-
-    await twilioClient.messages.create({
-      to: phone,
-      from: process.env.TWILIO_FROM,
-      body
-    });
-
-    markSmsSent(bookingID);
-    console.log(`📱 Manual SMS sent for booking #${bookingID}`);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("❌ Manual SMS send error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ============================================================
-// 📬 MANUAL OVERRIDE — ALWAYS send deposit email
-// (ignores duplicate prevention & timing limits)
-// ============================================================
-app.post("/deposit/send-link", async (req, res) => {
-  try {
-    const { bookingID, amount, force } = req.body;
-    const email = await getEmailForBooking(bookingID);
-
-    if (!bookingID || !email) {
-      return res.status(400).json({ error: "Missing bookingID or customer email" });
-    }
-
-    const isForced =
-      force === true ||
-      force === "true" ||
-      force === 1 ||
-      force === "1";
-
-    // 🛑 Duplicate prevention — skip ONLY if NOT manual override
-    if (!isForced && alreadySentRecently(bookingID)) {
-      console.log(`⏩ Skipping duplicate deposit send for #${bookingID} (recent)`);
-      return res.status(200).json({ skipped: true });
-    }
-
-    console.log(
-      isForced
-        ? `📧 MANUAL override — forcing deposit resend for booking #${bookingID}`
-        : `📧 Sending deposit link email for booking #${bookingID}`
-    );
-
-    await sendDepositEmail(bookingID, email, amount);
-
-    // 📝 Only track sends when non-manual
-    if (!isForced) markDepositSent(bookingID);
-
-    return res.json({ success: true, bookingID, email, forced: isForced });
-
-  } catch (err) {
-    console.error("❌ Error sending deposit link:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ----------------------------------------------------
-// TEMPORARY TEST — verify /data is mounted & writable
-// ➤ Visit: https://your-backend-url.com/data-test
-// ----------------------------------------------------
-app.get("/data-test", async (req, res) => {
-  try {
-    const testFile = "/data/__test__";
-    fs.writeFileSync(testFile, `ok-${Date.now()}`);
-    const result = fs.readFileSync(testFile, "utf8");
-    return res.send(`✅ /data is mounted and writable — saved: ${result}`);
-  } catch (err) {
-    return res.status(500).send("❌ /data not available — " + err.message);
-  }
-});
-
-
-// ----------------------------------------------------
-// Start server
-// ----------------------------------------------------
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`✅ Server running on port ${PORT}`)
+);
