@@ -1293,6 +1293,22 @@ app.post("/deposit/send-link", async (req, res) => {
 });
 
 // ----------------------------------------------------
+// TEMPORARY TEST — verify /data is mounted & writable
+// ➤ Visit: https://your-backend-url.com/data-test
+// ----------------------------------------------------
+app.get("/data-test", async (req, res) => {
+  try {
+    const testFile = "/data/__test__";
+    fs.writeFileSync(testFile, `ok-${Date.now()}`);
+    const result = fs.readFileSync(testFile, "utf8");
+    return res.send(`✅ /data is mounted and writable — saved: ${result}`);
+  } catch (err) {
+    return res.status(500).send("❌ /data not available — " + err.message);
+  }
+});
+
+
+// ----------------------------------------------------
 // Start server
 // ----------------------------------------------------
 const PORT = process.env.PORT || 10000;
