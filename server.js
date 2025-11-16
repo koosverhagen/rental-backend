@@ -1049,6 +1049,8 @@ app.get("/planyo/upcoming", async (_req, res) => {
       addressLine2: b.city || "",
       postcode: b.zip || "",
       dateOfBirth: b.birth_date || "",
+      userNotes: b.user_notes || "",
+
     }));
 
     res.json(bookings);
