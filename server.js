@@ -970,7 +970,6 @@ app.post("/damage/send-report", async (req, res) => {
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
   const log = (m) => process.stdout.write(m + "\n");
-
   try {
     log("📡 /planyo/upcoming → fetching reservations…");
 
@@ -983,8 +982,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
         d.getHours()
       )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
-    // include 1 day back so "in progress" hires still show
-    const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+    const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000)); // Start yesterday for "in progress"
     const end_time = fmt(sevenDaysLater);
 
     const method = "list_reservations";
@@ -996,64 +994,61 @@ app.get("/planyo/upcoming", async (_req, res) => {
       `&start_time=${start_time}` +
       `&end_time=${end_time}` +
       `&include_unconfirmed=0` +
-      `&include_additional_products=1` +               // ⬅️ bring in products
+      `&include_additional_products=1` +
       `&hash_timestamp=${ts}` +
       `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
 
-    log("🔗 Planyo URL: " + url);
-
     const resp = await fetch(url);
     const text = await resp.text();
-    let json;
+    const json = JSON.parse(text);
 
-    try {
-      json = JSON.parse(text);
-    } catch {
+    const results = json?.data?.results ?? [];
+    if (!results.length) {
+      log("⚠️ No results"); 
       return res.json([]);
     }
 
-    if (!json?.data?.results?.length) {
-      log("⚠️ No reservations returned.");
-      return res.json([]);
-    }
+    // Keep confirmed (4), in progress (5) and future (7)
+    const kept = results.filter((r) =>
+      ["4", "5", "7"].includes(String(r.status || r.reservation_status || ""))
+    );
 
-    // only keep confirmed (4), in progress (5), and future/upcoming (7)
-    const kept = json.data.results.filter((r) => {
-      const st = String(r.status || r.reservation_status || "");
-      return st === "4" || st === "5" || st === "7";
-    });
+    log(`➡️ ${kept.length} bookings kept`);
 
-    log(`✅ ${kept.length} bookings kept`);
+    const mapProducts = (arr = []) =>
+      arr.map((p) => ({
+        id: String(p.id || ""),
+        name: p.name || "",
+        quantity: parseInt(p.quantity || 1),
+      }));
 
-  const bookings = kept.map((b) => {
-  const mapProducts = (arr = []) =>
-    arr.map((p) => ({
-      id: String(p.id || ""),
-      name: p.name || "",
-      quantity: parseInt(p.quantity || 1),
+    const bookings = kept.map((b) => ({
+      bookingID: String(b.reservation_id),
+      vehicleName: b.name || "—",
+      startDate: b.start_time || "",
+      endDate: b.end_time || "",
+      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      email: b.email || "",
+      phoneNumber: b.mobile_number || b.phone_number || "",
+      totalPrice: b.total_price || "",
+      amountPaid: b.amount_paid || "",
+      addressLine1: b.address || "",
+      addressLine2: b.city || "",
+      postcode: b.zip || "",
+      dateOfBirth: b.properties?.Date_of_Birth || "",
+      userNotes: b.user_notes || "",
+      additionalProducts: mapProducts(b.regular_products || [])
     }));
 
-  return {
-    bookingID: String(b.reservation_id),
-    vehicleName: b.name || "—",
-    startDate: b.start_time || "",
-    endDate: b.end_time || "",
-    customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-    email: b.email || "",
-    phoneNumber: b.mobile_number || b.phone_number || "",
-    totalPrice: b.total_price || "",
-    amountPaid: b.amount_paid || "",
-    addressLine1: b.address || "",
-    addressLine2: b.city || "",
-    postcode: b.zip || "",
-    dateOfBirth: b.properties?.Date_of_Birth || "",
-    userNotes: b.user_notes || "",
-    additionalProducts: mapProducts(b.regular_products || [])
-  };
+    res.json(bookings);
+  } catch (err) {
+    console.error("❌ /planyo/upcoming failed:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ----------------------------------------------------
-// Planyo single booking (rich details for QR scan / HireCheck)
+// Planyo single booking (full details for QR scan / HireCheck)
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
@@ -1078,16 +1073,16 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       return { json, text };
     };
 
+    // Retry time sync if needed
     let ts = Math.floor(Date.now() / 1000);
     let { json, text } = await call(ts);
-
     if (
       json?.response_code === 1 &&
       /Invalid timestamp/i.test(json.response_message || text)
     ) {
-      const fixed = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
-      if (fixed?.[1]) {
-        ts = parseInt(fixed[1], 10);
+      const m = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
+      if (m?.[1]) {
+        ts = parseInt(m[1], 10);
         ({ json, text } = await call(ts));
       }
     }
@@ -1096,8 +1091,6 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       return res.status(404).json({ error: "No booking found", raw: text });
 
     const b = json.data;
-
-    // 🔹 helper: strip unnecessary Planyo fields
     const mapProducts = (arr = []) =>
       arr.map((p) => ({
         id: String(p.id || ""),
@@ -1105,7 +1098,6 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         quantity: parseInt(p.quantity || 1),
       }));
 
-    // 🔥 MUST MATCH BookingPrefill EXACTLY
     const booking = {
       bookingID,
       vehicleName: b.name || "—",
@@ -1130,6 +1122,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 // ----------------------------------------------------
 // Planyo Webhook (reservation_confirmed) → send deposit link
 // ----------------------------------------------------
