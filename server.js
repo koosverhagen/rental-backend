@@ -970,26 +970,21 @@ app.post("/damage/send-report", async (req, res) => {
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
   const log = (m) => process.stdout.write(m + "\n");
+
   try {
     log("📡 /planyo/upcoming → fetching reservations…");
 
     const now = new Date();
-    const sevenDaysLater = new Date(
-      now.getTime() + 7 * 24 * 60 * 60 * 1000
-    );
+    const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
     const pad = (n) => String(n).padStart(2, "0");
     const fmt = (d) =>
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
-        d.getDate()
-      )}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(
-        d.getSeconds()
-      )}`;
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+        d.getHours()
+      )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
-    // include 1 day back to keep “in progress” visible
-    const start_time = fmt(
-      new Date(now.getTime() - 24 * 60 * 60 * 1000)
-    );
+    // include 1 day back so "in progress" hires still show
+    const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
     const end_time = fmt(sevenDaysLater);
 
     const method = "list_reservations";
@@ -1001,56 +996,43 @@ app.get("/planyo/upcoming", async (_req, res) => {
       `&start_time=${start_time}` +
       `&end_time=${end_time}` +
       `&include_unconfirmed=0` +
+      `&include_additional_products=1` +               // ⬅️ bring in products
       `&hash_timestamp=${ts}` +
       `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
 
     log("🔗 Planyo URL: " + url);
+
     const resp = await fetch(url);
     const text = await resp.text();
-
     let json;
+
     try {
       json = JSON.parse(text);
     } catch {
-      json = null;
+      return res.json([]);
     }
+
     if (!json?.data?.results?.length) {
       log("⚠️ No reservations returned.");
       return res.json([]);
     }
 
-    log("📋 Raw statuses:");
-    json.data.results.forEach((r) => {
-      const st = String(r.status || r.reservation_status || "");
-      if (!["4", "5", "7"].includes(st))
-        log(`🚫 Skip #${r.reservation_id} — status ${st}`);
-    });
-
-    // Keep confirmed(4), in_progress(5), upcoming/future(7)
+    // only keep confirmed (4), in progress (5), and future/upcoming (7)
     const kept = json.data.results.filter((r) => {
       const st = String(r.status || r.reservation_status || "");
       return st === "4" || st === "5" || st === "7";
     });
 
     log(`✅ ${kept.length} bookings kept`);
+
     const bookings = kept.map((b) => ({
       bookingID: String(b.reservation_id),
       vehicleName: b.name || "—",
       startDate: b.start_time || "",
       endDate: b.end_time || "",
-      customerName: `${b.first_name || ""} ${
-        b.last_name || ""
-      }`.trim(),
-      email: b.email || "",
-      phoneNumber: b.phone || "",
-      totalPrice: b.total_price || "",
-      amountPaid: b.amount_paid || "",
-      addressLine1: b.address_line_1 || "",
-      addressLine2: b.city || "",
-      postcode: b.zip || "",
-      dateOfBirth: b.birth_date || "",
-      userNotes: b.user_notes || "",
-
+      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      additionalProducts: b.regular_products || [],   // ✔ for BookingsListView
+      userNotes: b.user_notes || ""                   // ✔ goes to DamageFormScreen
     }));
 
     res.json(bookings);
@@ -1061,7 +1043,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
 });
 
 // ----------------------------------------------------
-// Planyo single booking (rich details for QR scan / HireCheck)
+// Planyo single booking (QR scan / HireCheck prefill)
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
@@ -1075,6 +1057,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         `&site_id=${process.env.PLANYO_SITE_ID}` +
         `&reservation_id=${bookingID}` +
         `&include_form_items=1` +
+        `&include_additional_products=1` +            // ⬅️ bring in products
         `&hash_timestamp=${ts}` +
         `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
 
@@ -1092,13 +1075,12 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     let ts = Math.floor(Date.now() / 1000);
     let { json, text } = await call(ts);
 
+    // fix desync timestamp issue
     if (
       json?.response_code === 1 &&
       /Invalid timestamp/i.test(json.response_message || text)
     ) {
-      const m = (json.response_message || "").match(
-        /Current timestamp is\s+(\d+)/i
-      );
+      const m = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
       if (m?.[1]) {
         ts = parseInt(m[1], 10);
         ({ json, text } = await call(ts));
@@ -1109,39 +1091,15 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       return res.status(404).json({ error: "No booking found", raw: text });
 
     const b = json.data;
-    const dateOfBirth =
-      b.birth_date ||
-      b.dob ||
-      b.properties?.Date_of_Birth ||
-      b.properties?.date_of_birth ||
-      "";
-
-    const addressLine1 = b.address_line_1 || b.address1 || b.address || "";
-    const addressLine2 = b.city || "";
-    const postcode =
-      b.zip || b.postcode || b.properties?.Postcode || "";
-
-    const phone =
-      b.mobile_number && b.mobile_number.trim().length > 4
-        ? b.mobile_number
-        : b.phone_number || b.phone || "";
 
     const booking = {
       bookingID,
       vehicleName: b.name || "—",
       startDate: b.start_time || "",
       endDate: b.end_time || "",
-      customerName: `${b.first_name || ""} ${
-        b.last_name || ""
-      }`.trim(),
-      email: b.email || "",
-      phoneNumber: phone,
-      totalPrice: b.total_price || "",
-      amountPaid: b.amount_paid || "",
-      addressLine1,
-      addressLine2,
-      postcode,
-      dateOfBirth,
+      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      additionalProducts: b.regular_products || [],   // ✔ is now available in HireCheck
+      userNotes: b.user_notes || ""                   // ✔ DamageForm T&C section
     };
 
     res.json(booking);
