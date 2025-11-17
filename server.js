@@ -970,6 +970,7 @@ app.post("/damage/send-report", async (req, res) => {
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
   const log = (m) => process.stdout.write(m + "\n");
+
   try {
     log("📡 /planyo/upcoming → fetching reservations…");
 
@@ -1043,12 +1044,11 @@ app.get("/planyo/upcoming", async (_req, res) => {
       additionalProducts: mapProducts(b.regular_products || b.group_products || [])
     }));
 
-    // ⬅️ YOU FORGOT THIS
     return res.json(bookings);
 
   } catch (err) {
     console.error("❌ /planyo/upcoming failed:", err);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -1078,9 +1078,10 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       return { json, text };
     };
 
-    // Retry time sync if needed
+    // retry if timestamp out of sync
     let ts = Math.floor(Date.now() / 1000);
     let { json, text } = await call(ts);
+
     if (
       json?.response_code === 1 &&
       /Invalid timestamp/i.test(json.response_message || text)
@@ -1096,6 +1097,8 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       return res.status(404).json({ error: "No booking found", raw: text });
 
     const b = json.data;
+    const fixMoney = (v) =>
+      !v ? "" : String(v).replace(",", ".").replace(/[^0-9.]/g, "");
     const mapProducts = (arr = []) =>
       arr.map((p) => ({
         id: String(p.id || ""),
@@ -1104,23 +1107,30 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       }));
 
     const booking = {
-  bookingID,
-  vehicleName: b.name || "—",
-  startDate: b.start_time || "",
-  endDate: b.end_time || "",
-  customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-  email: b.email || "",
-  phoneNumber: b.mobile_number || b.phone_number || "",
-  totalPrice: fixMoney(b.total_price),
-  amountPaid: fixMoney(b.amount_paid),
-  addressLine1: b.address || "",
-  addressLine2: b.city || "",
-  postcode: b.zip || "",
-  dateOfBirth: b.properties?.Date_of_Birth || "",
-  userNotes: b.user_notes || "",
-  additionalProducts: mapProducts(b.regular_products || b.group_products || [])
-});
+      bookingID,
+      vehicleName: b.name || "—",
+      startDate: b.start_time || "",
+      endDate: b.end_time || "",
+      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      email: b.email || "",
+      phoneNumber: b.mobile_number || b.phone_number || "",
+      totalPrice: fixMoney(b.total_price),
+      amountPaid: fixMoney(b.amount_paid),
+      addressLine1: b.address || "",
+      addressLine2: b.city || "",
+      postcode: b.zip || "",
+      dateOfBirth: b.properties?.Date_of_Birth || "",
+      userNotes: b.user_notes || "",
+      additionalProducts: mapProducts(b.regular_products || b.group_products || [])
+    };
 
+    return res.json(booking);
+
+  } catch (err) {
+    console.error("❌ Get booking details failed:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
 // ----------------------------------------------------
 // Planyo Webhook (reservation_confirmed) → send deposit link
 // ----------------------------------------------------
