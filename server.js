@@ -1022,30 +1022,23 @@ app.get("/planyo/upcoming", async (_req, res) => {
         quantity: parseInt(p.quantity || 1),
       }));
 
-    const bookings = kept.map((b) => ({
-      bookingID: String(b.reservation_id),
-      vehicleName: b.name || "—",
-      startDate: b.start_time || "",
-      endDate: b.end_time || "",
-      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-      email: b.email || "",
-      phoneNumber: b.mobile_number || b.phone_number || "",
-      totalPrice: b.total_price || "",
-      amountPaid: b.amount_paid || "",
-      addressLine1: b.address || "",
-      addressLine2: b.city || "",
-      postcode: b.zip || "",
-      dateOfBirth: b.properties?.Date_of_Birth || "",
-      userNotes: b.user_notes || "",
-      additionalProducts: mapProducts(b.regular_products || [])
-    }));
-
-    res.json(bookings);
-  } catch (err) {
-    console.error("❌ /planyo/upcoming failed:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
+   const bookings = kept.map((b) => ({
+  bookingID: String(b.reservation_id),
+  vehicleName: b.name || "—",
+  startDate: b.start_time || "",
+  endDate: b.end_time || "",
+  customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+  email: b.email || "",
+  phoneNumber: b.mobile_number || b.phone_number || "",
+  totalPrice: fixMoney(b.total_price),
+  amountPaid: fixMoney(b.amount_paid),
+  addressLine1: b.address || "",
+  addressLine2: b.city || "",
+  postcode: b.zip || "",
+  dateOfBirth: b.properties?.Date_of_Birth || "",
+  userNotes: b.user_notes || "",
+  additionalProducts: mapProducts(b.regular_products || b.group_products || [])
+}));
 
 // ----------------------------------------------------
 // Planyo single booking (full details for QR scan / HireCheck)
@@ -1099,29 +1092,22 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       }));
 
     const booking = {
-      bookingID,
-      vehicleName: b.name || "—",
-      startDate: b.start_time || "",
-      endDate: b.end_time || "",
-      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-      email: b.email || "",
-      phoneNumber: b.mobile_number || b.phone_number || "",
-      totalPrice: b.total_price || "",
-      amountPaid: b.amount_paid || "",
-      addressLine1: b.address || "",
-      addressLine2: b.city || "",
-      postcode: b.zip || "",
-      dateOfBirth: b.properties?.Date_of_Birth || "",
-      userNotes: b.user_notes || "",
-      additionalProducts: mapProducts(b.regular_products || [])
-    };
-
-    res.json(booking);
-  } catch (err) {
-    console.error("❌ Get booking details failed:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
+  bookingID,
+  vehicleName: b.name || "—",
+  startDate: b.start_time || "",
+  endDate: b.end_time || "",
+  customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+  email: b.email || "",
+  phoneNumber: b.mobile_number || b.phone_number || "",
+  totalPrice: fixMoney(b.total_price),
+  amountPaid: fixMoney(b.amount_paid),
+  addressLine1: b.address || "",
+  addressLine2: b.city || "",
+  postcode: b.zip || "",
+  dateOfBirth: b.properties?.Date_of_Birth || "",
+  userNotes: b.user_notes || "",
+  additionalProducts: mapProducts(b.regular_products || b.group_products || [])
+};
 
 // ----------------------------------------------------
 // Planyo Webhook (reservation_confirmed) → send deposit link
