@@ -1119,7 +1119,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
   dateOfBirth: b.properties?.Date_of_Birth || "",
   userNotes: b.user_notes || "",
   additionalProducts: mapProducts(b.regular_products || b.group_products || [])
-};
+});
 
 // ----------------------------------------------------
 // Planyo Webhook (reservation_confirmed) → send deposit link
