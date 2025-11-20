@@ -970,6 +970,7 @@ app.post("/damage/send-report", async (req, res) => {
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
   const log = (m) => console.log(m);
+
   try {
     log("📡 /planyo/upcoming → fetching reservations…");
 
@@ -982,7 +983,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
         d.getHours()
       )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
-    const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000)); // include yesterday for "in progress"
+    const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000)); // include yesterday
     const end_time = fmt(sevenDaysLater);
     const method = "list_reservations";
     const ts = Math.floor(Date.now() / 1000);
@@ -994,7 +995,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
       `&start_time=${start_time}` +
       `&end_time=${end_time}` +
       `&include_unconfirmed=0` +
-      `&include_additional_products=1` +
+      `&include_form_items=1` +                // <-- ensures products come through
       `&hash_timestamp=${ts}` +
       `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
 
@@ -1005,17 +1006,19 @@ app.get("/planyo/upcoming", async (_req, res) => {
     const results = json?.data?.results ?? [];
     if (!results.length) return res.json([]);
 
-    // keep confirmed (4), in-progress (5), future (7)
+    // Only keep confirmed / in-progress / upcoming
     const kept = results.filter((r) =>
       ["4", "5", "7"].includes(String(r.status || r.reservation_status || ""))
     );
 
     const mapProducts = (arr = []) =>
-      arr.map((p) => ({
-        id: String(p.id || ""),
-        name: p.name || "",
-        quantity: Number(p.quantity || 1),
-      }));
+      arr
+        .filter((p) => p?.price > 0 && p?.quantity > 0 && !/Deposit/i.test(p.name))
+        .map((p) => ({
+          id: String(p.id || ""),
+          name: p.name || "",
+          quantity: Number(p.quantity || 1),
+        }));
 
     const bookings = kept.map((b) => ({
       bookingID: String(b.reservation_id),
@@ -1025,16 +1028,18 @@ app.get("/planyo/upcoming", async (_req, res) => {
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
       phoneNumber: b.mobile_number || b.phone_number || "",
-      totalPrice: b.total_price || "",
-      amountPaid: b.amount_paid || "",
+
+      // 🔥 FIXED — now always numeric, not empty string
+      totalPrice: parseFloat(b.total_price || 0),
+      amountPaid: parseFloat(b.amount_paid || 0),
+
       addressLine1: b.address || "",
       addressLine2: b.city || "",
       postcode: b.zip || "",
       dateOfBirth: b.properties?.Date_of_Birth || "",
       userNotes: b.user_notes || "",
-      additionalProducts: mapProducts(
-        b.regular_products || b.group_products || []
-      ),
+
+      additionalProducts: mapProducts(b.form_items || []), // real extras
     }));
 
     return res.json(bookings);
