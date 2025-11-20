@@ -970,7 +970,6 @@ app.post("/damage/send-report", async (req, res) => {
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
   const log = (m) => process.stdout.write(m + "\n");
-
   try {
     log("📡 /planyo/upcoming → fetching reservations…");
 
@@ -988,7 +987,6 @@ app.get("/planyo/upcoming", async (_req, res) => {
 
     const method = "list_reservations";
     const ts = Math.floor(Date.now() / 1000);
-
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
@@ -996,12 +994,11 @@ app.get("/planyo/upcoming", async (_req, res) => {
       `&start_time=${start_time}` +
       `&end_time=${end_time}` +
       `&include_unconfirmed=0` +
-      `&include_form_items=1` +                // 👈 required for products
+      `&include_form_items=1` +                // 👈 REQUIRED for additional products
       `&hash_timestamp=${ts}` +
       `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
 
     log("🔗 Planyo URL: " + url);
-
     const resp = await fetch(url);
     const text = await resp.text();
 
@@ -1014,7 +1011,6 @@ app.get("/planyo/upcoming", async (_req, res) => {
       return res.json([]);
     }
 
-    // Keep confirmed / started / upcoming
     const kept = json.data.results.filter((r) =>
       ["4", "5", "7"].includes(String(r.status || r.reservation_status))
     );
@@ -1022,37 +1018,40 @@ app.get("/planyo/upcoming", async (_req, res) => {
     log(`✅ ${kept.length} bookings kept`);
 
     const bookings = kept.map((b) => {
-      // 🔹 Convert form_items into string array for UI
-      let extras = [];
+      // 🔹 Additional products
+      const extras = [];
       if (Array.isArray(b.form_items)) {
-        extras = b.form_items
-          .filter(
-            (item) =>
-              item?.price > 0 &&
-              item?.quantity > 0 &&
-              !/deposit/i.test(item.name)
-          )
-          .map((item) =>
-            `${item.name}${item.quantity > 1 ? " x" + item.quantity : ""}`
-          );
+        b.form_items.forEach((item) => {
+          if (
+            item?.price > 0 &&
+            item?.quantity > 0 &&
+            !/Deposit/i.test(item.name)
+          ) {
+            extras.push({
+              id: String(item.id),
+              name: item.name,
+              quantity: item.quantity,
+            });
+          }
+        });
       }
 
       return {
-        bookingID: String(b.reservation_id ?? ""),
-        vehicleName: b.name ?? "—",
-        startDate: b.start_time ?? "",
-        endDate: b.end_time ?? "",
-        customerName: `${b.first_name ?? ""} ${b.last_name ?? ""}`.trim(),
-        email: b.email ?? "",
-        phoneNumber: b.phone ?? "",
-        totalPrice: b.total_price ?? "",
-        amountPaid: b.amount_paid ?? "",
-        addressLine1: b.address_line_1 ?? "",
-        addressLine2: b.city ?? "",
-        postcode: b.zip ?? "",
-        dateOfBirth: b.birth_date ?? "",
-        userNotes: b.user_notes ?? "",
-        additionalProducts: extras,     // 👈 now a string array (UI friendly)
+        bookingID: String(b.reservation_id),
+        vehicleName: b.name || "—",
+        startDate: b.start_time || "",
+        endDate: b.end_time || "",
+        customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+        email: b.email || "",
+        phoneNumber: b.phone || "",
+        totalPrice: b.total_price || "",
+        amountPaid: b.amount_paid || "",
+        addressLine1: b.address_line_1 || "",
+        addressLine2: b.city || "",
+        postcode: b.zip || "",
+        dateOfBirth: b.birth_date || "",
+        userNotes: b.user_notes || "",
+        additionalProducts: extras,        // ⬅️ NEW
       };
     });
 
