@@ -965,29 +965,35 @@ app.post("/damage/send-report", async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
+/ ----------------------------------------------------
 // Planyo list for HireCheck (confirmed / in-progress / upcoming)
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
-  const log = (m) => console.log(m);
-
+  const log = (m) => process.stdout.write(m + "\n");
   try {
     log("📡 /planyo/upcoming → fetching reservations…");
 
     const now = new Date();
-    const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const sevenDaysLater = new Date(
+      now.getTime() + 7 * 24 * 60 * 60 * 1000
+    );
 
     const pad = (n) => String(n).padStart(2, "0");
     const fmt = (d) =>
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-        d.getHours()
-      )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+        d.getDate()
+      )}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(
+        d.getSeconds()
+      )}`;
 
-    const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000)); // include yesterday
+    // include 1 day back to keep “in progress” visible
+    const start_time = fmt(
+      new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    );
     const end_time = fmt(sevenDaysLater);
+
     const method = "list_reservations";
     const ts = Math.floor(Date.now() / 1000);
-
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
@@ -995,54 +1001,59 @@ app.get("/planyo/upcoming", async (_req, res) => {
       `&start_time=${start_time}` +
       `&end_time=${end_time}` +
       `&include_unconfirmed=0` +
-      `&include_form_items=1` +                // <-- ensures products come through
       `&hash_timestamp=${ts}` +
       `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
 
+    log("🔗 Planyo URL: " + url);
     const resp = await fetch(url);
     const text = await resp.text();
-    const json = JSON.parse(text);
 
-    const results = json?.data?.results ?? [];
-    if (!results.length) return res.json([]);
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
+    if (!json?.data?.results?.length) {
+      log("⚠️ No reservations returned.");
+      return res.json([]);
+    }
 
-    // Only keep confirmed / in-progress / upcoming
-    const kept = results.filter((r) =>
-      ["4", "5", "7"].includes(String(r.status || r.reservation_status || ""))
-    );
+    log("📋 Raw statuses:");
+    json.data.results.forEach((r) => {
+      const st = String(r.status || r.reservation_status || "");
+      if (!["4", "5", "7"].includes(st))
+        log(`🚫 Skip #${r.reservation_id} — status ${st}`);
+    });
 
-    const mapProducts = (arr = []) =>
-      arr
-        .filter((p) => p?.price > 0 && p?.quantity > 0 && !/Deposit/i.test(p.name))
-        .map((p) => ({
-          id: String(p.id || ""),
-          name: p.name || "",
-          quantity: Number(p.quantity || 1),
-        }));
+    // Keep confirmed(4), in_progress(5), upcoming/future(7)
+    const kept = json.data.results.filter((r) => {
+      const st = String(r.status || r.reservation_status || "");
+      return st === "4" || st === "5" || st === "7";
+    });
 
+    log(`✅ ${kept.length} bookings kept`);
     const bookings = kept.map((b) => ({
       bookingID: String(b.reservation_id),
       vehicleName: b.name || "—",
       startDate: b.start_time || "",
       endDate: b.end_time || "",
-      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      customerName: `${b.first_name || ""} ${
+        b.last_name || ""
+      }`.trim(),
       email: b.email || "",
-      phoneNumber: b.mobile_number || b.phone_number || "",
-
-      // 🔥 FIXED — now always numeric, not empty string
-      totalPrice: parseFloat(b.total_price || 0),
-      amountPaid: parseFloat(b.amount_paid || 0),
-
-      addressLine1: b.address || "",
+      phoneNumber: b.phone || "",
+      totalPrice: b.total_price || "",
+      amountPaid: b.amount_paid || "",
+      addressLine1: b.address_line_1 || "",
       addressLine2: b.city || "",
       postcode: b.zip || "",
-      dateOfBirth: b.properties?.Date_of_Birth || "",
+      dateOfBirth: b.birth_date || "",
       userNotes: b.user_notes || "",
 
-      additionalProducts: mapProducts(b.form_items || []), // real extras
     }));
 
-    return res.json(bookings);
+    res.json(bookings);
   } catch (err) {
     console.error("❌ /planyo/upcoming failed:", err);
     res.status(500).json({ error: err.message });
