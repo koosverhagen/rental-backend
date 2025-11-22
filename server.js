@@ -965,7 +965,7 @@ app.post("/damage/send-report", async (req, res) => {
   }
 });
 
-/ ----------------------------------------------------
+// ----------------------------------------------------
 // Planyo list for HireCheck (confirmed / in-progress / upcoming)
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
