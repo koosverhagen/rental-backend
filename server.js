@@ -727,7 +727,8 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 app.post("/deposit/send-link", async (req, res) => {
   try {
     const { bookingID, amount = 20000, force } = req.body;
-    const link = `${process.env.SERVER_URL}/deposit/pay/${bookingID}`;
+    const link = `https://www.equinetransportuk.com/deposit?bookingID=${bookingID}`;
+
 
     const isForced =
       force === true || force === "true" || force === 1 || force === "1";
