@@ -404,7 +404,7 @@ app.post("/deposit/create-intent", async (req, res) => {
 // web-based deposit page (standard card form)
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
-  const amount = 20000; // £200 hold
+  const amount = 100; // £1 hold
 
   const bk = await fetchPlanyoBooking(bookingID);
 
