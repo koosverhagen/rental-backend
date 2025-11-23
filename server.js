@@ -14,6 +14,11 @@ require("dotenv").config();
 
 const app = express();
 app.use(cors());
+app.get("/pay/:bookingID", (req, res) => {
+  const bookingID = req.params.bookingID;
+  const target = `https://www.equinetransportuk.com/deposit?bookingID=${bookingID}`;
+  return res.redirect(target);
+});
 
 // Serve static (Thank-you embed assets if needed)
 app.use(express.static("public"));
