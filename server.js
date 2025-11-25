@@ -233,6 +233,33 @@ const DATA_DIR = "/data";
 const SENT_FILE = path.join(DATA_DIR, "sentDeposits.json");
 const CALLBACK_FILE = path.join(DATA_DIR, "processedCallbacks.json");
 
+const FORM_STATUS_FILE = path.join(DATA_DIR, "form-status.json");
+
+// Load form status from disk: { [bookingID]: { requiredForm, shortDone, longDone } }
+let formStatus = {};
+try {
+  if (fs.existsSync(FORM_STATUS_FILE)) {
+    const raw = fs.readFileSync(FORM_STATUS_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      formStatus = parsed;
+    }
+  }
+} catch (e) {
+  console.warn("⚠️ Could not load form status:", e.message);
+  formStatus = {};
+}
+
+function saveFormStatus() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(FORM_STATUS_FILE, JSON.stringify(formStatus, null, 2));
+  } catch (e) {
+    console.error("❌ Could not write form status:", e.message);
+  }
+}
+
+
 function loadSet(file) {
   try {
     if (fs.existsSync(file)) {
@@ -359,6 +386,178 @@ async function planyoCall(method, params = {}) {
 
   return { url, json };
 }
+
+// ----------------------------------------------------
+// LONG vs SHORT questionnaire decision helpers
+// ----------------------------------------------------
+function parsePlanyoDate(str) {
+  // Planyo format: "YYYY-MM-DD HH:MM:SS"
+  if (!str || typeof str !== "string") return null;
+  const [datePart, timePart] = str.split(" ");
+  if (!datePart || !timePart) return null;
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [hh, mm, ss] = timePart.split(":").map(Number);
+  return new Date(y, m - 1, d, hh, mm, ss || 0);
+}
+
+function diffInDays(a, b) {
+  const ms = Math.abs(a.getTime() - b.getTime());
+  return ms / (1000 * 60 * 60 * 24);
+}
+
+// Format date time for Planyo list_reservations: "YYYY-MM-DD HH:MM:SS"
+function formatPlanyoDateTime(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+// Decide whether this booking should have SHORT or LONG questionnaire
+async function decideFormTypeForBooking(email, currentStartStr, currentReservationId) {
+  if (!email || !currentStartStr) {
+    console.warn("⚠️ Missing email or start time for decideFormTypeForBooking");
+    return "long";
+  }
+
+  const currentStart = parsePlanyoDate(currentStartStr);
+  if (!currentStart || isNaN(currentStart.getTime())) {
+    console.warn("⚠️ Could not parse current start time:", currentStartStr);
+    return "long";
+  }
+
+  // Look back 1 year from the current booking's start
+  const oneYearAgo = new Date(currentStart.getTime() - 365 * 24 * 60 * 60 * 1000);
+  const start_time = formatPlanyoDateTime(oneYearAgo);
+  const end_time = formatPlanyoDateTime(currentStart);
+
+  console.log(
+    `📡 Checking booking history for ${email} between ${start_time} and ${end_time}`
+  );
+
+  const { json } = await planyoCall("list_reservations", {
+    start_time,
+    end_time,
+    user_email: email,
+    required_status: 4,     // confirmed only
+    sort: "start_time",
+    sort_reverse: 1,        // newest first
+    detail_level: 1
+  });
+
+  const results = json?.data?.results || [];
+  if (!results.length) {
+    console.log("🧮 No previous reservations found → LONG form");
+    return "long";
+  }
+
+  // Find most recent booking BEFORE this reservation
+  let lastPrev = null;
+  for (const r of results) {
+    const rid = String(r.reservation_id || "");
+    const stStr = r.start_time;
+    const st = parsePlanyoDate(stStr);
+    if (!st || isNaN(st.getTime())) continue;
+
+    // Skip this exact booking if it's in the list
+    if (rid === String(currentReservationId)) continue;
+
+    if (st < currentStart) {
+      if (!lastPrev || st > lastPrev.start) {
+        lastPrev = { start: st, raw: r };
+      }
+    }
+  }
+
+  if (!lastPrev) {
+    console.log("🧮 No earlier booking before this one → LONG form");
+    return "long";
+  }
+
+  const days = diffInDays(currentStart, lastPrev.start);
+  console.log(`🧮 Last previous booking ${days.toFixed(1)} days before this one`);
+
+  if (days <= 90) {
+    console.log("✅ Within 90 days → SHORT form");
+    return "short";
+  } else {
+    console.log("✅ More than 90 days → LONG form");
+    return "long";
+  }
+}
+
+// Send questionnaire email (SHORT or LONG) via SendGrid
+async function sendQuestionnaireEmail({ bookingID, customerName, email, formType }) {
+  if (!email) {
+    console.warn(`⚠️ No email for booking #${bookingID}, cannot send questionnaire link.`);
+    return;
+  }
+
+  const isShort = formType === "short";
+  const formName = isShort ? "SHORT Form" : "LONG Form";
+  const formUrl = isShort
+    ? "https://www.equinetransportuk.com/shortformsubmit"
+    : "https://www.equinetransportuk.com/longformsubmit";
+
+  const subject = `Equine Transport UK – Please complete ${formName} for booking #${bookingID}`;
+
+  const text = `
+Dear ${customerName || "hirer"},
+
+Thank you for your booking with Equine Transport UK.
+
+Based on your booking history, you are required to complete the Millins Hire Questionnaire ${formName}.
+
+Please open this link on your phone or computer:
+${formUrl}
+
+With kind regards,
+Koos & Avril
+Equine Transport UK
+`.trim();
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height:1.6; color:#333;">
+      <div style="text-align:center; margin-bottom:20px;">
+        <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
+             alt="Equine Transport UK"
+             style="width:160px; height:auto;" />
+      </div>
+      <h2 style="text-align:center; color:#0070f3;">Millins Hire Questionnaire – ${formName}</h2>
+      <p>Dear ${customerName || "hirer"},</p>
+      <p>Thank you for your booking with <b>Equine Transport UK</b>.</p>
+      <p>Based on your booking history, you are required to complete the
+         <b>Millins Hire Questionnaire ${formName}</b>.</p>
+      <p style="text-align:center; margin:24px 0;">
+        <a href="${formUrl}"
+           style="display:inline-block;padding:12px 20px;background:#0070f3;color:#fff;
+                  text-decoration:none;border-radius:6px;font-weight:bold;">
+          Open ${formName}
+        </a>
+      </p>
+      <p>If the button does not work, please copy and paste this link into your browser:<br>
+        <a href="${formUrl}">${formUrl}</a>
+      </p>
+      <p style="margin-top:30px;">With kind regards,<br/>
+         Koos &amp; Avril<br/><b>Equine Transport UK</b></p>
+      <hr style="margin-top:30px;"/>
+      <p style="font-size:12px; color:#777; text-align:center;">
+        Equine Transport UK · Upper Broadreed Farm · Stonehurst Lane · Five Ashes · TN20 6LL · East Sussex, GB<br/>
+        📞 +44 7584578654 · ✉️ <a href="mailto:info@equinetransportuk.com">info@equinetransportuk.com</a>
+      </p>
+    </div>
+  `.trim();
+
+  await sendgrid.send({
+    to: email,
+    from: "Equine Transport UK <info@equinetransportuk.com>",
+    subject,
+    text,
+    html,
+  });
+
+  console.log(`📩 Sent ${formName} email for booking #${bookingID} → ${email}`);
+}
+
 
 // ----------------------------------------------------
 // Stripe Terminal & Deposit endpoints
@@ -654,6 +853,22 @@ app.get("/deposit/status/:bookingID", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ----------------------------------------------------
+// Form status for HireCheck (LONG/SHORT + completion)
+// ----------------------------------------------------
+app.get("/forms/status/:bookingID", (req, res) => {
+  const bookingID = String(req.params.bookingID);
+
+  const status = formStatus[bookingID] || {
+    requiredForm: null,      // "short" | "long" | null
+    shortDone: false,
+    longDone: false,
+  };
+
+  res.json(status);
+});
+
 
 // ----------------------------------------------------
 // Deposit confirmation email sent after successful hold
@@ -1151,7 +1366,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// Planyo Webhook (reservation_confirmed) → send deposit link
+// Planyo Webhook (reservation_confirmed) → questionnaire + deposit link
 // ----------------------------------------------------
 app.post("/planyo/callback", express.json(), async (req, res) => {
   try {
@@ -1160,15 +1375,61 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
 
     if (data.notification_type === "reservation_confirmed") {
       const bookingID = String(data.reservation);
-      const email = data.email;
-      console.log(`✅ Reservation confirmed #${bookingID} for ${email}`);
+      console.log(`✅ Reservation confirmed #${bookingID}`);
 
       if (processedBookings.has(bookingID)) {
         console.log(`⏩ Skip duplicate callback #${bookingID}`);
         return res.status(200).send("Already processed");
       }
 
-      // rely on /deposit/send-link internal duplicate guard
+      // 🔍 Fetch booking summary (start time, name, email)
+      const bk = await fetchPlanyoBooking(bookingID);
+
+      const customerEmail =
+        bk.email || data.email || data.user_email || null;
+      const customerName = `${bk.firstName || data.first_name || ""} ${
+        bk.lastName || data.last_name || ""
+      }`.trim();
+      const currentStartStr = bk.start || data.start_time || data.from || null;
+
+      // 🧠 Decide LONG vs SHORT based on history
+      if (customerEmail && currentStartStr) {
+        try {
+          const formType = await decideFormTypeForBooking(
+            customerEmail,
+            currentStartStr,
+            bookingID
+          );
+
+          // Persist required form type for this booking
+          if (!formStatus[bookingID]) {
+            formStatus[bookingID] = {
+              requiredForm: formType,
+              shortDone: false,
+              longDone: false,
+            };
+          } else {
+            formStatus[bookingID].requiredForm = formType;
+          }
+          saveFormStatus();
+
+          // Send correct questionnaire email (SHORT or LONG)
+          await sendQuestionnaireEmail({
+            bookingID,
+            customerName,
+            email: customerEmail,
+            formType,
+          });
+        } catch (e) {
+          console.error("❌ Error deciding form type or sending questionnaire:", e);
+        }
+      } else {
+        console.warn(
+          `⚠️ Missing email or start time for booking #${bookingID}, cannot decide LONG/SHORT form`
+        );
+      }
+
+      // 💳 Deposit link (existing behaviour, with duplicate guard)
       await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
