@@ -485,7 +485,6 @@ async function decideFormTypeForBooking(email, currentStartStr, currentReservati
   }
 }
 
-// Send questionnaire email (SHORT or LONG) via SendGrid
 async function sendQuestionnaireEmail({ bookingID, customerName, email, formType }) {
   if (!email) {
     console.warn(`⚠️ No email for booking #${bookingID}, cannot send questionnaire link.`);
@@ -515,47 +514,20 @@ Koos & Avril
 Equine Transport UK
 `.trim();
 
-  const html = `
-    <div style="font-family: Arial, sans-serif; line-height:1.6; color:#333;">
-      <div style="text-align:center; margin-bottom:20px;">
-        <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
-             alt="Equine Transport UK"
-             style="width:160px; height:auto;" />
-      </div>
-      <h2 style="text-align:center; color:#0070f3;">Millins Hire Questionnaire – ${formName}</h2>
-      <p>Dear ${customerName || "hirer"},</p>
-      <p>Thank you for your booking with <b>Equine Transport UK</b>.</p>
-      <p>Based on your booking history, you are required to complete the
-         <b>Millins Hire Questionnaire ${formName}</b>.</p>
-      <p style="text-align:center; margin:24px 0;">
-        <a href="${formUrl}"
-           style="display:inline-block;padding:12px 20px;background:#0070f3;color:#fff;
-                  text-decoration:none;border-radius:6px;font-weight:bold;">
-          Open ${formName}
-        </a>
-      </p>
-      <p>If the button does not work, please copy and paste this link into your browser:<br>
-        <a href="${formUrl}">${formUrl}</a>
-      </p>
-      <p style="margin-top:30px;">With kind regards,<br/>
-         Koos &amp; Avril<br/><b>Equine Transport UK</b></p>
-      <hr style="margin-top:30px;"/>
-      <p style="font-size:12px; color:#777; text-align:center;">
-        Equine Transport UK · Upper Broadreed Farm · Stonehurst Lane · Five Ashes · TN20 6LL · East Sussex, GB<br/>
-        📞 +44 7584578654 · ✉️ <a href="mailto:info@equinetransportuk.com">info@equinetransportuk.com</a>
-      </p>
-    </div>
-  `.trim();
+  const html = `...` // keep your existing HTML body here
 
   await sendgrid.send({
     to: email,
+    bcc: "kverhagen@mac.com",          // 👈 admin copy
     from: "Equine Transport UK <info@equinetransportuk.com>",
     subject,
     text,
     html,
   });
 
-  console.log(`📩 Sent ${formName} email for booking #${bookingID} → ${email}`);
+  console.log(
+    `📩 Sent ${formName} email for booking #${bookingID} → ${email} (BCC: kverhagen@mac.com)`
+  );
 }
 
 
@@ -1046,6 +1018,53 @@ app.post("/deposit/resend", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ----------------------------------------------------
+// Wix → mark Short/Long form submitted
+// ----------------------------------------------------
+app.post("/forms/submit", express.json(), (req, res) => {
+  const { email, type, bookingID } = req.body || {};
+
+  if (!email || !type) {
+    return res.status(400).json({ error: "Missing email or form type" });
+  }
+
+  const formType = type.toLowerCase() === "short" ? "short" : "long";
+
+  // Caller CAN pass bookingID — preferred
+  if (bookingID) {
+    console.log(`📨 Form submit: booking ${bookingID} → ${formType} = DONE`);
+    if (!formStatus[bookingID]) {
+      formStatus[bookingID] = {
+        requiredForm: formType,
+        shortDone: false,
+        longDone: false,
+      };
+    }
+    if (formType === "short") formStatus[bookingID].shortDone = true;
+    if (formType === "long") formStatus[bookingID].longDone = true;
+    saveFormStatus();
+    return res.json({ ok: true });
+  }
+
+  // If bookingID isn't provided → find it via stored status
+  const keys = Object.keys(formStatus);
+  let target = keys.find(
+    (bid) => formStatus[bid] && formStatus[bid].email === email
+  );
+
+  if (!target) {
+    console.warn(`⚠️ Form submit: cannot match email ${email} to booking`);
+    return res.status(200).json({ ok: false, warning: "No booking matched" });
+  }
+
+  console.log(`📨 Form submit: inferred booking ${target} → ${formType} = DONE`);
+  if (formType === "short") formStatus[target].shortDone = true;
+  if (formType === "long") formStatus[target].longDone = true;
+  saveFormStatus();
+  res.json({ ok: true });
+});
+
 
 // ----------------------------------------------------
 // Manual scheduler trigger
