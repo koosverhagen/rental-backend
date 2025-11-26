@@ -476,11 +476,11 @@ async function decideFormTypeForBooking(email, currentStartStr, currentReservati
 }
 
 // ----------------------------------------------------
-// Send questionnaire email to customer (+ optional admin copy)
+// Send questionnaire email — ALWAYS admin BCC
 // ----------------------------------------------------
-async function sendQuestionnaireEmail({ bookingID, customerName, email, formType, adminCopy }) {
+async function sendQuestionnaireEmail({ bookingID, customerName, email, formType }) {
   if (!email) {
-    console.warn(`⚠️ No email for booking #${bookingID}, aborting send.`);
+    console.warn(`⚠️ No email for booking #${bookingID}, aborting`);
     return;
   }
 
@@ -507,21 +507,61 @@ Koos & Avril
 Equine Transport UK
 `.trim();
 
-  const html = `...`; // keep your existing full HTML version
+  const html = `
+<div style="font-family: Arial, sans-serif; font-size: 16px; color: #333; line-height: 1.6;">
+  <p>Dear ${customerName || "hirer"},</p>
+
+  <p>Thank you for your booking with <strong>Equine Transport UK</strong>.</p>
+
+  <p>
+    Based on your booking history, you are required to complete the
+    <strong>Millins Hire Questionnaire – ${formName}</strong>.
+  </p>
+
+  <p style="margin: 25px 0; text-align: center;">
+    <a href="${formUrl}"
+       style="background: #0099ff; color: #fff; padding: 14px 28px;
+              border-radius: 6px; font-size: 18px; font-weight: bold;
+              text-decoration: none; display: inline-block;">
+      Complete the ${formName}
+    </a>
+  </p>
+
+  <p>If the button does not work, please use this link:</p>
+  <p><a href="${formUrl}" style="color:#0099ff; font-weight: bold;">${formUrl}</a></p>
+
+  <br>
+
+  <p><strong>Tips:</strong></p>
+  <ul>
+    <li>This form takes only a few minutes.</li>
+    <li>Please complete it before your hire to avoid delays on arrival.</li>
+  </ul>
+
+  <br><br>
+
+  <p>With kind regards,</p>
+  <p><strong>Koos & Avril</strong><br>
+     Equine Transport UK</p>
+
+  <hr style="margin-top:35px; border:0; border-top:1px solid #ccc;">
+  <p style="font-size: 13px; color: #777;">
+    Booking reference: <strong>#${bookingID}</strong><br>
+    If you have already completed the ${formName}, please ignore this email.
+  </p>
+</div>
+`;
 
   await sendgrid.send({
     to: email,
-    ...(adminCopy ? { bcc: "kverhagen@mac.com" } : {}),   // 👑 admin only when manually triggered
+    bcc: "kverhagen@mac.com",       // 👑 ALWAYS send admin copy
     from: "Equine Transport UK <info@equinetransportuk.com>",
     subject,
     text,
     html,
   });
 
-  console.log(
-    `📨 Sent ${formName} form email for booking #${bookingID} → ${email}` +
-      (adminCopy ? " (Admin BCC enabled)" : "")
-  );
+  console.log(`📨 Questionnaire (${formName}) sent to ${email} + admin BCC`);
 }
 
 // ------------------------------------------------------
