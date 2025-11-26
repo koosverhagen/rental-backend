@@ -391,7 +391,6 @@ async function planyoCall(method, params = {}) {
 // LONG vs SHORT questionnaire decision helpers
 // ----------------------------------------------------
 function parsePlanyoDate(str) {
-  // Planyo format: "YYYY-MM-DD HH:MM:SS"
   if (!str || typeof str !== "string") return null;
   const [datePart, timePart] = str.split(" ");
   if (!datePart || !timePart) return null;
@@ -401,70 +400,61 @@ function parsePlanyoDate(str) {
 }
 
 function diffInDays(a, b) {
-  const ms = Math.abs(a.getTime() - b.getTime());
-  return ms / (1000 * 60 * 60 * 24);
+  return Math.abs(a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24);
 }
 
-// Format date time for Planyo list_reservations: "YYYY-MM-DD HH:MM:SS"
 function formatPlanyoDateTime(d) {
   const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-// Decide whether this booking should have SHORT or LONG questionnaire
+// ----------------------------------------------------
+// Decide whether SHORT or LONG questionnaire is required
+// ----------------------------------------------------
 async function decideFormTypeForBooking(email, currentStartStr, currentReservationId) {
   if (!email || !currentStartStr) {
-    console.warn("⚠️ Missing email or start time for decideFormTypeForBooking");
+    console.warn("⚠️ Missing email or start time → default LONG");
     return "long";
   }
 
   const currentStart = parsePlanyoDate(currentStartStr);
   if (!currentStart || isNaN(currentStart.getTime())) {
-    console.warn("⚠️ Could not parse current start time:", currentStartStr);
+    console.warn("⚠️ Start time unparseable → default LONG");
     return "long";
   }
 
-  // Look back 1 year from the current booking's start
+  // Look back 1 year
   const oneYearAgo = new Date(currentStart.getTime() - 365 * 24 * 60 * 60 * 1000);
   const start_time = formatPlanyoDateTime(oneYearAgo);
   const end_time = formatPlanyoDateTime(currentStart);
 
-  console.log(
-    `📡 Checking booking history for ${email} between ${start_time} and ${end_time}`
-  );
+  console.log(`📡 Checking booking history for ${email} between ${start_time} and ${end_time}`);
 
   const { json } = await planyoCall("list_reservations", {
     start_time,
     end_time,
     user_email: email,
-    required_status: 4,     // confirmed only
+    required_status: 4,
     sort: "start_time",
-    sort_reverse: 1,        // newest first
+    sort_reverse: 1,
     detail_level: 1
   });
 
   const results = json?.data?.results || [];
   if (!results.length) {
-    console.log("🧮 No previous reservations found → LONG form");
+    console.log("🧮 First-ever booking → LONG form");
     return "long";
   }
 
-  // Find most recent booking BEFORE this reservation
+  // Most recent booking BEFORE this one
   let lastPrev = null;
   for (const r of results) {
     const rid = String(r.reservation_id || "");
-    const stStr = r.start_time;
-    const st = parsePlanyoDate(stStr);
+    const st = parsePlanyoDate(r.start_time);
     if (!st || isNaN(st.getTime())) continue;
-
-    // Skip this exact booking if it's in the list
-    if (rid === String(currentReservationId)) continue;
-
-    if (st < currentStart) {
-      if (!lastPrev || st > lastPrev.start) {
-        lastPrev = { start: st, raw: r };
-      }
+    if (rid === String(currentReservationId)) continue; // skip current booking
+    if (st < currentStart && (!lastPrev || st > lastPrev.start)) {
+      lastPrev = { start: st };
     }
   }
 
@@ -474,20 +464,23 @@ async function decideFormTypeForBooking(email, currentStartStr, currentReservati
   }
 
   const days = diffInDays(currentStart, lastPrev.start);
-  console.log(`🧮 Last previous booking ${days.toFixed(1)} days before this one`);
+  console.log(`📅 Time since last booking: ${days.toFixed(1)} days`);
 
   if (days <= 90) {
-    console.log("✅ Within 90 days → SHORT form");
+    console.log("📌 Last booking within 90 days → SHORT");
     return "short";
   } else {
-    console.log("✅ More than 90 days → LONG form");
+    console.log("📌 Last booking > 90 days → LONG");
     return "long";
   }
 }
 
-async function sendQuestionnaireEmail({ bookingID, customerName, email, formType }) {
+// ----------------------------------------------------
+// Send questionnaire email to customer (+ optional admin copy)
+// ----------------------------------------------------
+async function sendQuestionnaireEmail({ bookingID, customerName, email, formType, adminCopy }) {
   if (!email) {
-    console.warn(`⚠️ No email for booking #${bookingID}, cannot send questionnaire link.`);
+    console.warn(`⚠️ No email for booking #${bookingID}, aborting send.`);
     return;
   }
 
@@ -504,7 +497,7 @@ Dear ${customerName || "hirer"},
 
 Thank you for your booking with Equine Transport UK.
 
-Based on your booking history, you are required to complete the Millins Hire Questionnaire ${formName}.
+You are required to complete the Millins Hire Questionnaire ${formName}.
 
 Please open this link on your phone or computer:
 ${formUrl}
@@ -514,11 +507,11 @@ Koos & Avril
 Equine Transport UK
 `.trim();
 
-  const html = `...` // keep your existing HTML body here
+  const html = `...`; // keep your existing full HTML version
 
   await sendgrid.send({
     to: email,
-    bcc: "kverhagen@mac.com",          // 👈 admin copy
+    ...(adminCopy ? { bcc: "kverhagen@mac.com" } : {}),   // 👑 admin only when manually triggered
     from: "Equine Transport UK <info@equinetransportuk.com>",
     subject,
     text,
@@ -526,9 +519,71 @@ Equine Transport UK
   });
 
   console.log(
-    `📩 Sent ${formName} email for booking #${bookingID} → ${email} (BCC: kverhagen@mac.com)`
+    `📨 Sent ${formName} form email for booking #${bookingID} → ${email}` +
+      (adminCopy ? " (Admin BCC enabled)" : "")
   );
 }
+
+// ------------------------------------------------------
+// FORCE RESEND QUESTIONNAIRE (from iOS HireCheck app)
+// ------------------------------------------------------
+app.post("/forms/manual-resend", express.json(), async (req, res) => {
+  try {
+    const { bookingID, force, adminCopy } = req.body;
+
+    if (!bookingID) {
+      return res.status(400).json({ error: "Missing bookingID" });
+    }
+
+    console.log(`📨 Force resend triggered for booking #${bookingID}`);
+
+    // Pull latest booking info from /planyo/booking endpoint
+    const bookingUrl = `${process.env.SERVER_URL}/planyo/booking/${bookingID}`;
+    const bookingData = await fetch(bookingUrl).then(r => r.json());
+
+    const {
+      bookingID: id,
+      customerName,
+      email,
+      startDate,
+      formStatus
+    } = bookingData;
+
+    // 🚨 Fallback — if no formStatus yet (first run)
+    let formType = formStatus?.requiredForm;
+
+    // If unknown OR force flag is set → dynamically decide again
+    if (!formType || force) {
+      formType = await decideFormTypeForBooking(
+        email,
+        startDate,
+        bookingID
+      );
+    }
+
+    // 🚀 Send customer + optional admin copy
+    await sendQuestionnaireEmail({
+      bookingID: id,
+      customerName,
+      email,
+      formType,
+      adminCopy: !!adminCopy      // pass boolean
+    });
+
+    console.log(`📬 Questionnaire resent for booking #${bookingID}`);
+
+    return res.json({
+      success: true,
+      sent: true,
+      bookingID,
+      formType
+    });
+
+  } catch (err) {
+    console.error("❌ Force resend error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 
 // ----------------------------------------------------
