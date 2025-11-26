@@ -1160,6 +1160,43 @@ app.post("/forms/submit", express.json(), (req, res) => {
   res.json({ ok: true });
 });
 
+// ----------------------------------------------------
+// Customer finished the questionnaire (SHORT or LONG)
+// Triggered by Wix form submission
+// ----------------------------------------------------
+app.post("/forms/submitted", express.json(), async (req, res) => {
+  try {
+    const { bookingID, formType } = req.body;
+    if (!bookingID || !formType) {
+      return res.status(400).json({ error: "Missing bookingID or formType" });
+    }
+
+    // Load current saved statuses
+    const status = formStatuses.get(String(bookingID)) || {
+      requiredForm: formType,      // fallback
+      shortDone: false,
+      longDone: false
+    };
+
+    // Mark completion
+    if (formType === "short") status.shortDone = true;
+    if (formType === "long")  status.longDone = true;
+
+    // Save back
+    formStatuses.set(String(bookingID), status);
+    saveSet(FORMS_FILE, formStatuses);
+
+    console.log(`🟢 Questionnaire submitted for booking #${bookingID} → ${formType.toUpperCase()} completed`);
+
+    return res.json({ success: true, bookingID, status });
+
+  } catch (err) {
+    console.error("❌ Error in /forms/submitted:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+
 
 // ----------------------------------------------------
 // Manual scheduler trigger
