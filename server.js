@@ -509,7 +509,7 @@ async function decideFormTypeForBooking(email, currentStartStr, currentReservati
 }
 
 // ----------------------------------------------------
-// Send questionnaire email — customer + admin copy with logo
+// Send questionnaire email — customer + admin copy with logo + footer
 // ----------------------------------------------------
 async function sendQuestionnaireEmail({ bookingID, customerName, email, formType }) {
   if (!email) {
@@ -523,7 +523,6 @@ async function sendQuestionnaireEmail({ bookingID, customerName, email, formType
   const baseShort = "https://www.equinetransportuk.com/shortformsubmit";
   const baseLong  = "https://www.equinetransportuk.com/longformsubmit";
 
-  // include bookingID in URL so Wix form automation knows which booking to mark
   const formUrl = isShort
     ? `${baseShort}?bookingID=${encodeURIComponent(bookingID)}`
     : `${baseLong}?bookingID=${encodeURIComponent(bookingID)}`;
@@ -537,7 +536,7 @@ Thank you for your booking with Equine Transport UK.
 
 You are required to complete the Millins Hire Questionnaire ${formName}.
 
-Please open this link on your phone or computer:
+Form link:
 ${formUrl}
 
 With kind regards,
@@ -548,12 +547,11 @@ Equine Transport UK
   const logoUrl = "https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715";
 
   const html = `
-  <div style="font-family: Arial, sans-serif; font-size: 16px; color: #333; line-height: 1.6;">
+  <div style="font-family: Arial, sans-serif; font-size: 16px; color: #333; line-height: 1.6; max-width: 720px; margin: auto;">
 
-    <!-- Logo at the top -->
-    <div style="text-align: center; margin-bottom: 20px;">
-      <img src="${logoUrl}"
-           alt="Equine Transport UK"
+    <!-- Logo -->
+    <div style="text-align: center; margin-bottom: 18px;">
+      <img src="${logoUrl}" alt="Equine Transport UK"
            style="max-width: 160px; height: auto; display: inline-block;" />
     </div>
 
@@ -566,14 +564,14 @@ Equine Transport UK
       <strong>Millins Hire Questionnaire – ${formName}</strong>.
     </p>
 
-    <p style="margin: 25px 0; text-align: center;">
+    <div style="text-align: center; margin: 30px 0;">
       <a href="${formUrl}"
-         style="background: #0099ff; color: #fff; padding: 14px 28px;
+         style="background: #0099ff; color: #ffffff; padding: 14px 32px;
                 border-radius: 6px; font-size: 18px; font-weight: bold;
                 text-decoration: none; display: inline-block;">
         Complete the ${formName}
       </a>
-    </p>
+    </div>
 
     <p>If the button does not work, please use this link:</p>
     <p><a href="${formUrl}" style="color:#0099ff; font-weight: bold;">${formUrl}</a></p>
@@ -584,11 +582,20 @@ Equine Transport UK
     <p><strong>Koos & Avril</strong><br>
       Equine Transport UK</p>
 
-    <hr style="margin-top:35px; border:0; border-top:1px solid #ccc;">
-    <p style="font-size: 13px; color: #777;">
-      Booking reference: <strong>#${bookingID}</strong><br>
-      If you have already completed the ${formName}, please ignore this email.
-    </p>
+    <hr style="margin: 32px 0 20px; border: none; border-top: 1px solid #ccc;">
+
+    <!-- Footer -->
+    <div style="text-align: center; font-size: 13px; color: #777; line-height: 1.5;">
+      <p>
+        📌 <strong>Booking reference:</strong> #${bookingID}<br>
+        📧 <a href="mailto:info@equinetransportuk.com" style="color:#777;">info@equinetransportuk.com</a><br>
+        📞 07815 309805<br>
+        🌍 <a href="https://www.equinetransportuk.com" style="color:#777;">www.equinetransportuk.com</a>
+      </p>
+      <p style="font-size: 12px; color: #aaa; margin-top: 8px;">
+        If you have already completed the ${formName}, please ignore this email.
+      </p>
+    </div>
   </div>
   `;
 
@@ -601,7 +608,7 @@ Equine Transport UK
     html,
   });
 
-  // Admin copy with prefixed subject
+  // Admin copy
   await sendgrid.send({
     to: "kverhagen@mac.com",
     from: "Equine Transport UK <info@equinetransportuk.com>",
@@ -611,7 +618,7 @@ Equine Transport UK
   });
 
   console.log(
-    `📨 Questionnaire (${formName}) sent to ${email} and admin copy sent to kverhagen@mac.com with subject "Admin – ${subject}" and logo included`
+    `📨 Questionnaire (${formName}) sent to ${email} + admin ("Admin – ${subject}") with logo + footer`
   );
 }
 
