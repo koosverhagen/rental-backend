@@ -1199,29 +1199,50 @@ app.post("/forms/submit", express.json(), (req, res) => {
 // ----------------------------------------------------
 app.post("/forms/submitted", express.json(), async (req, res) => {
   try {
-    const { bookingID, formType } = req.body;
+    const bookingID = String(req.body.bookingID || "").trim();
+    const formType = String(req.body.formType || "").toLowerCase();
+
     if (!bookingID || !formType) {
       return res.status(400).json({ error: "Missing bookingID or formType" });
     }
 
-    // Load current saved statuses
-    const status = formStatuses.get(String(bookingID)) || {
-      requiredForm: formType,      // fallback
+    if (!["short", "long"].includes(formType)) {
+      return res.status(400).json({ error: "formType must be 'short' or 'long'" });
+    }
+
+    // Load existing status if any, otherwise create default
+    const status = formStatuses[bookingID] || {
+      requiredForm: formType,    // fallback if first submission
       shortDone: false,
       longDone: false
     };
 
-    // Mark completion
-    if (formType === "short") status.shortDone = true;
-    if (formType === "long")  status.longDone = true;
+    // Mark completion based on submitted type
+    if (formType === "short") {
+      status.shortDone = true;
+      status.requiredForm = "short";
+    }
 
-    // Save back
-    formStatuses.set(String(bookingID), status);
-    saveSet(FORMS_FILE, formStatuses);
+    if (formType === "long") {
+      status.longDone = true;
+      status.requiredForm = "long";
+    }
 
-    console.log(`🟢 Questionnaire submitted for booking #${bookingID} → ${formType.toUpperCase()} completed`);
+    status.updatedAt = new Date().toISOString();
 
-    return res.json({ success: true, bookingID, status });
+    // Save back to memory and disk
+    formStatuses[bookingID] = status;
+    saveFormStatuses();
+
+    console.log(
+      `🟢 Questionnaire submitted for booking #${bookingID} → ${formType.toUpperCase()} completed`
+    );
+
+    return res.json({
+      success: true,
+      bookingID,
+      status
+    });
 
   } catch (err) {
     console.error("❌ Error in /forms/submitted:", err);
