@@ -554,7 +554,7 @@ Equine Transport UK
     <div style="text-align: center; margin-bottom: 20px;">
       <img src="${logoUrl}"
            alt="Equine Transport UK"
-           style="max-width: 220px; height: auto; display: inline-block;" />
+           style="max-width: 160px; height: auto; display: inline-block;" />
     </div>
 
     <p>Dear ${customerName || "hirer"},</p>
