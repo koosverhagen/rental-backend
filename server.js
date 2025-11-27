@@ -509,7 +509,7 @@ async function decideFormTypeForBooking(email, currentStartStr, currentReservati
 }
 
 // ----------------------------------------------------
-// Send questionnaire email — customer + admin copy
+// Send questionnaire email — customer + admin copy with logo
 // ----------------------------------------------------
 async function sendQuestionnaireEmail({ bookingID, customerName, email, formType }) {
   if (!email) {
@@ -523,6 +523,7 @@ async function sendQuestionnaireEmail({ bookingID, customerName, email, formType
   const baseShort = "https://www.equinetransportuk.com/shortformsubmit";
   const baseLong  = "https://www.equinetransportuk.com/longformsubmit";
 
+  // include bookingID in URL so Wix form automation knows which booking to mark
   const formUrl = isShort
     ? `${baseShort}?bookingID=${encodeURIComponent(bookingID)}`
     : `${baseLong}?bookingID=${encodeURIComponent(bookingID)}`;
@@ -544,8 +545,18 @@ Koos & Avril
 Equine Transport UK
 `.trim();
 
+  const logoUrl = "https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715";
+
   const html = `
   <div style="font-family: Arial, sans-serif; font-size: 16px; color: #333; line-height: 1.6;">
+
+    <!-- Logo at the top -->
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="${logoUrl}"
+           alt="Equine Transport UK"
+           style="max-width: 220px; height: auto; display: inline-block;" />
+    </div>
+
     <p>Dear ${customerName || "hirer"},</p>
 
     <p>Thank you for your booking with <strong>Equine Transport UK</strong>.</p>
@@ -590,7 +601,7 @@ Equine Transport UK
     html,
   });
 
-  // Admin copy with modified subject
+  // Admin copy with prefixed subject
   await sendgrid.send({
     to: "kverhagen@mac.com",
     from: "Equine Transport UK <info@equinetransportuk.com>",
@@ -600,7 +611,7 @@ Equine Transport UK
   });
 
   console.log(
-    `📨 Questionnaire (${formName}) sent to ${email} and admin copy sent to kverhagen@mac.com with subject "Admin – ${subject}"`
+    `📨 Questionnaire (${formName}) sent to ${email} and admin copy sent to kverhagen@mac.com with subject "Admin – ${subject}" and logo included`
   );
 }
 
