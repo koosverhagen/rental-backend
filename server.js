@@ -509,7 +509,7 @@ async function decideFormTypeForBooking(email, currentStartStr, currentReservati
 }
 
 // ----------------------------------------------------
-// Send questionnaire email — ALWAYS admin BCC
+// Send questionnaire email — customer + admin copy
 // ----------------------------------------------------
 async function sendQuestionnaireEmail({ bookingID, customerName, email, formType }) {
   if (!email) {
@@ -581,26 +581,28 @@ Equine Transport UK
   </div>
   `;
 
+  // Customer email
   await sendgrid.send({
-  to: email,
-  from: "Equine Transport UK <info@equinetransportuk.com>",
-  subject,
-  text,
-  html,
-});
+    to: email,
+    from: "Equine Transport UK <info@equinetransportuk.com>",
+    subject,
+    text,
+    html,
+  });
 
-// Admin copy with changed subject
-await sendgrid.send({
-  to: "kverhagen@mac.com",
-  from: "Equine Transport UK <info@equinetransportuk.com>",
-  subject: `Admin – ${subject}`,
-  text,
-  html,
-});
+  // Admin copy with modified subject
+  await sendgrid.send({
+    to: "kverhagen@mac.com",
+    from: "Equine Transport UK <info@equinetransportuk.com>",
+    subject: `Admin – ${subject}`,
+    text,
+    html,
+  });
 
-console.log(
-  `📨 Questionnaire (${formName}) sent to ${email} and admin copy sent to kverhagen@mac.com with subject "Admin – ${subject}"`
-);
+  console.log(
+    `📨 Questionnaire (${formName}) sent to ${email} and admin copy sent to kverhagen@mac.com with subject "Admin – ${subject}"`
+  );
+}
 
 // ------------------------------------------------------
 // FORCE RESEND QUESTIONNAIRE (from iOS HireCheck app)
