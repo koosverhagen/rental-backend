@@ -14,6 +14,38 @@ require("dotenv").config();
 
 const app = express();
 app.use(cors());
+
+// ----------------------------------------------------
+// Questionnaire Form Status Storage
+// ----------------------------------------------------
+const FORMS_STATUS_FILE = path.join(__dirname, "forms_status.json");
+let formStatuses = {};
+
+try {
+  if (fs.existsSync(FORMS_STATUS_FILE)) {
+    const raw = fs.readFileSync(FORMS_STATUS_FILE, "utf8");
+    formStatuses = JSON.parse(raw || "{}");
+  }
+} catch (err) {
+  console.error("❌ Failed to load forms_status.json:", err);
+  formStatuses = {};
+}
+
+function saveFormStatuses() {
+  try {
+    fs.writeFileSync(
+      FORMS_STATUS_FILE,
+      JSON.stringify(formStatuses, null, 2),
+      "utf8"
+    );
+  } catch (err) {
+    console.error("❌ Failed to save forms_status.json:", err);
+  }
+}
+
+// ----------------------------------------------------
+// Redirect /pay/:bookingID to Wix deposit page
+// ----------------------------------------------------
 app.get("/pay/:bookingID", (req, res) => {
   const bookingID = req.params.bookingID;
   const target = `https://www.equinetransportuk.com/deposit?bookingID=${bookingID}`;
@@ -25,6 +57,7 @@ app.use(express.static("public"));
 
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
+
 
 // IMPORTANT ⚠️
 // Stripe Webhook requires raw body. JSON middleware comes AFTER this.
