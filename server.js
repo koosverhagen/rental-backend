@@ -589,7 +589,7 @@ Equine Transport UK
       <p>
         📌 <strong>Booking reference:</strong> #${bookingID}<br>
         📧 <a href="mailto:info@equinetransportuk.com" style="color:#777;">info@equinetransportuk.com</a><br>
-        📞 07815 309805<br>
+        📞 07812 188871<br>
         🌍 <a href="https://www.equinetransportuk.com" style="color:#777;">www.equinetransportuk.com</a>
       </p>
       <p style="font-size: 12px; color: #aaa; margin-top: 8px;">
