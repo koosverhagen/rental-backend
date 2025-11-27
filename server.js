@@ -968,14 +968,13 @@ app.get("/forms/status/:bookingID", (req, res) => {
   const bookingID = String(req.params.bookingID);
 
   const status = formStatus[bookingID] || {
-    requiredForm: null,      // "short" | "long" | null
+    requiredForm: null,   // "short" | "long" | null
     shortDone: false,
     longDone: false,
   };
 
-  res.json(status);
+  return res.json(status);
 });
-
 
 // ----------------------------------------------------
 // Deposit confirmation email sent after successful hold
@@ -1217,14 +1216,14 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
       return res.status(400).json({ error: "formType must be 'short' or 'long'" });
     }
 
-    // Load existing status if any, otherwise create default
-    const status = formStatuses[bookingID] || {
-      requiredForm: formType,    // fallback if first submission
+    // Load previous status if exists, otherwise initialize
+    const status = formStatus[bookingID] || {
+      requiredForm: formType, // fallback
       shortDone: false,
       longDone: false
     };
 
-    // Mark completion based on submitted type
+    // Mark completion
     if (formType === "short") {
       status.shortDone = true;
       status.requiredForm = "short";
@@ -1237,26 +1236,19 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
 
     status.updatedAt = new Date().toISOString();
 
-    // Save back to memory and disk
-    formStatuses[bookingID] = status;
-    saveFormStatuses();
+    // Save to memory + disk
+    formStatus[bookingID] = status;
+    saveFormStatus();
 
-    console.log(
-      `🟢 Questionnaire submitted for booking #${bookingID} → ${formType.toUpperCase()} completed`
-    );
+    console.log(`🟢 Questionnaire submitted for booking #${bookingID} → ${formType.toUpperCase()} completed`);
 
-    return res.json({
-      success: true,
-      bookingID,
-      status
-    });
+    return res.json({ success: true, bookingID, status });
 
   } catch (err) {
     console.error("❌ Error in /forms/submitted:", err);
     return res.status(500).json({ error: err.message });
   }
 });
-
 
 
 // ----------------------------------------------------
