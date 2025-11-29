@@ -1144,66 +1144,66 @@ app.post("/deposit/send-link", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// Manual DEPOSIT resend endpoint (for HireCheck button)
+// 💙 MANUAL deposit resend (HireCheck)
+// Always send — even if no previous deposit exists
 // ----------------------------------------------------
-app.post("/deposit/resend", express.json(), async (req, res) => {
+app.post("/deposit/resend", async (req, res) => {
   try {
-    const { bookingID, amount = 20000 } = req.body || {};
+    const { bookingID, amount = 20000 } = req.body;
+    console.log(`📨 Manual deposit resend (HireCheck) for #${bookingID}`);
 
-    if (!bookingID) {
-      console.warn("⚠️ /deposit/resend called without bookingID");
-      return res.status(400).json({
-        success: false,
-        error: "Missing bookingID",
-      });
+    const bk = await fetchPlanyoBooking(bookingID);
+    if (!bk.email) {
+      return res.json({ success: false, error: "No customer email" });
     }
 
-    console.log(`📧 [Manual] Resend deposit for booking #${bookingID}`);
+    const link = `https://www.equinetransportuk.com/deposit?bookingID=${bookingID}`;
 
-    // Call the main sender with force=true so duplicate guard is bypassed
-    const resp = await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        bookingID,
-        amount,
-        force: true,   // 🔥 force resend
+    const html = `
+      <div style="font-family:Arial;line-height:1.5;color:#333;">
+        <div style="text-align:center; margin-bottom:20px;">
+          <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
+               alt="Equine Transport UK" style="width:160px; height:auto;" />
+        </div>
+        <h2 style="color:#0070f3;text-align:center;">Deposit Payment Request (Resent)</h2>
+        <p>Dear ${bk.firstName} ${bk.lastName},</p>
+        <p>Please complete your deposit hold for <b>Booking #${bookingID}</b>.</p>
+        <p style="font-size:18px;text-align:center;">Deposit Required:
+          <b>£${(amount/100).toFixed(2)}</b>
+        </p>
+        <p style="text-align:center;margin:30px 0;">
+          <a href="${link}"
+             style="padding:14px 24px;background:#0070f3;color:#fff;border-radius:6px;
+                    text-decoration:none;font-size:16px;">
+            💳 Pay Deposit Securely
+          </a>
+        </p>
+        <p style="margin-top:30px;">Kind regards,<br/>Koos & Avril<br/><b>Equine Transport UK</b></p>
+      </div>`;
+
+
+    // 📩 customer + admin
+    await Promise.all([
+      sendgrid.send({
+        to: bk.email,
+        from: "Equine Transport UK <info@equinetransportuk.com>",
+        subject: `Equine Transport UK | Secure Deposit Link (Resent) | Booking #${bookingID}`,
+        html
       }),
-    });
+      sendgrid.send({
+        to: "kverhagen@mac.com",
+        from: "Equine Transport UK <info@equinetransportuk.com>",
+        subject: `Admin Copy | Deposit Link Resent | Booking #${bookingID}`,
+        html
+      })
+    ]);
 
-    let json = {};
-    try {
-      json = await resp.json();
-    } catch (e) {
-      console.error("❌ /deposit/resend: invalid JSON from /deposit/send-link");
-      return res.status(500).json({
-        success: false,
-        error: "Invalid JSON from /deposit/send-link",
-      });
-    }
+    console.log(`📧 Deposit resend email delivered → ${bk.email}`);
+    return res.json({ success: true, url: link, forced: true });
 
-    console.log("📧 [Manual] Resend deposit result:", json);
-
-    // If inner endpoint reported error, bubble it up
-    if (!resp.ok || json.error) {
-      return res.status(500).json({
-        success: false,
-        ...json,
-      });
-    }
-
-    // Everything OK
-    return res.json({
-      success: true,
-      ...json,
-      message: "Deposit link resent",
-    });
   } catch (err) {
-    console.error("❌ /deposit/resend error:", err);
-    return res.status(500).json({
-      success: false,
-      error: err.message,
-    });
+    console.error("❌ Manual resend deposit error:", err);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
