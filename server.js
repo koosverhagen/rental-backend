@@ -13,50 +13,43 @@ const path = require("path");
 require("dotenv").config();
 
 // ----------------------------------------------------
-// DVLA + Questionnaire Storage (local JSON database)
+// DVLA + Questionnaire + Form Status Storage (single DB)
 // ----------------------------------------------------
 const DATA_DIR = path.join(__dirname, "data");
 const BOOKINGS_FILE = path.join(DATA_DIR, "bookings.json");
 
-// Create folder + file if missing (first deploy fix)
+// Create /data folder + JSON file on first deploy
 if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR);               // create /data folder
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+if (!fs.existsSync(BOOKINGS_FILE)) {
+  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify({}), "utf8");
 }
 
-if (!fs.existsSync(BOOKINGS_FILE)) {
-  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify({}), "utf8"); // empty DB
+// Load DB into memory
+let bookingsDB = {};
+try {
+  bookingsDB = JSON.parse(fs.readFileSync(BOOKINGS_FILE, "utf8")) || {};
+} catch (e) {
+  console.warn("⚠️ Failed to read bookings.json — starting fresh");
+  bookingsDB = {};
 }
+
+// Helper to persist DB to disk
+function saveBookingsDB() {
+  try {
+    fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(bookingsDB, null, 2), "utf8");
+  } catch (e) {
+    console.error("❌ Failed to save bookings.json:", e);
+  }
+}
+
+// Expose DB to routes
+app.locals.bookingsDB = bookingsDB;
+app.locals.saveBookingsDB = saveBookingsDB;
 
 const app = express();
 app.use(cors());
-
-// ----------------------------------------------------
-// Questionnaire Form Status Storage
-// ----------------------------------------------------
-const FORMS_STATUS_FILE = path.join(__dirname, "forms_status.json");
-let formStatuses = {};
-
-try {
-  if (fs.existsSync(FORMS_STATUS_FILE)) {
-    const raw = fs.readFileSync(FORMS_STATUS_FILE, "utf8");
-    formStatuses = JSON.parse(raw || "{}");
-  }
-} catch (err) {
-  console.error("❌ Failed to load forms_status.json:", err);
-  formStatuses = {};
-}
-
-function saveFormStatuses() {
-  try {
-    fs.writeFileSync(
-      FORMS_STATUS_FILE,
-      JSON.stringify(formStatuses, null, 2),
-      "utf8"
-    );
-  } catch (err) {
-    console.error("❌ Failed to save forms_status.json:", err);
-  }
-}
 
 // ----------------------------------------------------
 // Redirect /pay/:bookingID to Wix deposit page
@@ -1249,48 +1242,43 @@ app.post("/forms/submit", express.json(), (req, res) => {
 });
 
 // ------------------------------------------------------
-// FORM SUBMISSION (short + long) — stores DVLA info too
+// FORM SUBMISSION → store DVLA + formStatus + full booking info
 // ------------------------------------------------------
-app.post("/forms/submitted", (req, res) => {
+app.post("/forms/submitted", async (req, res) => {
   const { bookingID, formType, licenceNumber, dvlaCode } = req.body;
   if (!bookingID) return res.status(400).json({ error: "Missing bookingID" });
 
   const file = path.join(DATA_DIR, "bookings.json");
   let db = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
 
-  // ensure record exists
+  // Create or fetch local record
   if (!db[bookingID]) db[bookingID] = { bookingID };
 
-  // save licence / dvla
+  // 🔄 Pull latest live booking from Planyo
+  const live = await fetch(`${process.env.SERVER_URL}/planyo/booking/${bookingID}`).then(r => r.json());
+  Object.assign(db[bookingID], live); // merge all fields into local DB
+
+  // 💾 DVLA fields
   db[bookingID].licenceNumber = licenceNumber || null;
   db[bookingID].dvlaCode = dvlaCode || null;
+  db[bookingID].dvlaStatus = "pending";
 
-  // ensure formStatus exists inside bookings.json
+  // 💾 formStatus object
   if (!db[bookingID].formStatus) {
-    db[bookingID].formStatus = {
-      requiredForm: null,
-      shortDone: false,
-      longDone: false
-    };
+    db[bookingID].formStatus = { requiredForm: formType, shortDone: false, longDone: false };
   }
-
-  // mark completion
   if (formType === "short") db[bookingID].formStatus.shortDone = true;
   if (formType === "long") db[bookingID].formStatus.longDone = true;
 
-  // requiredForm
-  if (db[bookingID].formStatus.longDone) db[bookingID].formStatus.requiredForm = "long";
-  else if (db[bookingID].formStatus.shortDone) db[bookingID].formStatus.requiredForm = "short";
+  // preserve original requiredForm unless still null
+  if (!db[bookingID].formStatus.requiredForm)
+    db[bookingID].formStatus.requiredForm = formType;
 
-  // 💾 SAVE bookings.json
+  // 📝 Save DB
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(file, JSON.stringify(db, null, 2), "utf8");
 
-  // 🔁 ALSO UPDATE GLOBAL formStatus (this is what the app reads)
-  formStatus[bookingID] = db[bookingID].formStatus;
-  saveFormStatus();
-
-  console.log(`🟢 Stored questionnaire for #${bookingID} → ${formType}`);
+  console.log(`🟢 Saved form + DVLA + full booking for #${bookingID}`);
   return res.json({ ok: true });
 });
 
@@ -1613,48 +1601,42 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
   }
 });
 
+/// ----------------------------------------------------
+// LOCAL BOOKING VIEW (always reflects latest stored DVLA + form status)
 // ----------------------------------------------------
-// 2) Stored booking pulled from backend (DVLA included)
-// ----------------------------------------------------
-app.get("/local/booking/:id", async (req, res) => {
+app.get("/local/booking/:id", (req, res) => {
   const id = req.params.id;
+  const file = path.join(DATA_DIR, "bookings.json");
+  const db = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+  const r = db[id] || {};
 
-  try {
-    const file = path.join(__dirname, "data", "bookings.json");
-    const bookings = fs.existsSync(file)
-      ? JSON.parse(fs.readFileSync(file, "utf8"))
-      : {};
+  res.json({
+    bookingID: id,
+    vehicleName: r.vehicleName || "",
+    startDate: r.startDate || "",
+    endDate: r.endDate || "",
+    customerName: r.customerName || "",
+    email: r.email || "",
+    phoneNumber: r.phoneNumber || "",
+    totalPrice: r.totalPrice || "",
+    amountPaid: r.amountPaid || "",
+    addressLine1: r.addressLine1 || "",
+    addressLine2: r.addressLine2 || "",
+    postcode: r.postcode || "",
+    dateOfBirth: r.dateOfBirth || "",
+    userNotes: r.userNotes || "",
+    additionalProducts: r.additionalProducts || [],
 
-    const record = bookings[id] || {};
+    formStatus: r.formStatus || {
+      requiredForm: null,
+      shortDone: false,
+      longDone: false
+    },
 
-    res.json({
-      bookingID: id,
-      vehicleName: record.vehicleName,
-      startDate: record.startDate,
-      endDate: record.endDate,
-      customerName: record.customerName,
-      email: record.email,
-      phoneNumber: record.phoneNumber,
-      totalPrice: record.totalPrice,
-      amountPaid: record.amountPaid,
-      addressLine1: record.addressLine1,
-      addressLine2: record.addressLine2,
-      postcode: record.postcode,
-      dateOfBirth: record.dateOfBirth,
-      userNotes: record.userNotes,
-      additionalProducts: record.additionalProducts,
-      formStatus: record.formStatus || null,
-
-      // 💙 licence + DVLA
-      licenceNumber: record.licenceNumber || null,
-      dvlaCode: record.dvlaCode || null,
-      dvlaStatus: record.dvlaStatus || "pending"
-    });
-
-  } catch (err) {
-    console.error("❌ booking fetch error:", err);
-    res.status(500).json({ error: "server error" });
-  }
+    licenceNumber: r.licenceNumber || null,
+    dvlaCode: r.dvlaCode || null,
+    dvlaStatus: r.dvlaStatus || "pending"
+  });
 });
 
 // ----------------------------------------------------
