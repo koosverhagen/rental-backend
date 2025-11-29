@@ -12,50 +12,36 @@ const fs = require("fs");
 const path = require("path");
 require("dotenv").config();
 
-// ----------------------------------------------------
-// DVLA + Questionnaire + Form Status Storage (single DB)
-// ----------------------------------------------------
-const DATA_DIR = path.join(__dirname, "data");
-const BOOKINGS_FILE = path.join(DATA_DIR, "bookings.json");
-
-// Create /data folder + JSON file if first deploy
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-if (!fs.existsSync(BOOKINGS_FILE)) {
-  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify({}), "utf8");
-}
-
-// Load bookings DB into memory
-let bookingsDB = {};
-try {
-  bookingsDB = JSON.parse(fs.readFileSync(BOOKINGS_FILE, "utf8")) || {};
-} catch (e) {
-  console.warn("⚠️ Failed to read bookings.json — starting fresh");
-  bookingsDB = {};
-}
-
-// Helper to persist DB to disk
-function saveBookingsDB() {
-  try {
-    fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(bookingsDB, null, 2), "utf8");
-  } catch (e) {
-    console.error("❌ Failed to save bookings.json:", e);
-  }
-}
-
-// ----------------------------------------------------
-// CREATE APP — must be BEFORE app.locals
-// ----------------------------------------------------
 const app = express();
 app.use(cors());
 
 // ----------------------------------------------------
-// Expose DB to routes
+// Questionnaire Form Status Storage
 // ----------------------------------------------------
-app.locals.bookingsDB = bookingsDB;
-app.locals.saveBookingsDB = saveBookingsDB;
+const FORMS_STATUS_FILE = path.join(__dirname, "forms_status.json");
+let formStatuses = {};
 
+try {
+  if (fs.existsSync(FORMS_STATUS_FILE)) {
+    const raw = fs.readFileSync(FORMS_STATUS_FILE, "utf8");
+    formStatuses = JSON.parse(raw || "{}");
+  }
+} catch (err) {
+  console.error("❌ Failed to load forms_status.json:", err);
+  formStatuses = {};
+}
+
+function saveFormStatuses() {
+  try {
+    fs.writeFileSync(
+      FORMS_STATUS_FILE,
+      JSON.stringify(formStatuses, null, 2),
+      "utf8"
+    );
+  } catch (err) {
+    console.error("❌ Failed to save forms_status.json:", err);
+  }
+}
 
 // ----------------------------------------------------
 // Redirect /pay/:bookingID to Wix deposit page
@@ -276,8 +262,7 @@ async function fetchPlanyoBooking(bookingID) {
 // Persistent duplicate-protection (Render disk at /data)
 // ----------------------------------------------------
 // Use Render disk mounted at /data so we remember what we've sent between restarts
-// const DATA_DIR = "/data";   // ❌ old — replaced above with __dirname/data
-
+const DATA_DIR = "/data";
 const SENT_FILE = path.join(DATA_DIR, "sentDeposits.json");
 const CALLBACK_FILE = path.join(DATA_DIR, "processedCallbacks.json");
 
@@ -1163,41 +1148,26 @@ app.post("/deposit/send-link", async (req, res) => {
       }`
     );
     res.json({ success: true, url: link, forced: isForced });
- } catch (err) {
-  console.error("❌ SendGrid deposit-link error:", err);
-  return res.json({ success: false, error: err.message }); // 👈 always reply
-}
-
+  } catch (err) {
+    console.error("❌ SendGrid deposit-link error:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // optional explicit "resend" wrapper if app prefers this endpoint
-app.post("/deposit/manual-resend", express.json(), async (req, res) => {
+app.post("/deposit/resend", async (req, res) => {
   try {
-    const { bookingID } = req.body;
-    console.log("📩 Manual resend deposit for:", bookingID);
-
-    // fetch booking email
-    const planyoURL = `${process.env.SERVER_URL}/planyo/booking/${bookingID}`;
-    const resp = await fetch(planyoURL);
-    const booking = await resp.json();
-    const email = booking.email || null;
-
-    if (!email) throw new Error("Missing email");
-
-    // send email again
-    await sendgrid.send({
-      to: email,
-      from: process.env.SENDGRID_FROM,
-      subject: `Deposit request — Booking #${bookingID}`,
-      html: `<p>Please complete your £200 deposit:</p>
-             <p><a href="https://www.equinetransportuk.com/deposit?bookingID=${bookingID}">Click here to pay securely</a></p>`
-    });
-
-    return res.json({ ok: true });
-
+    const { bookingID, amount = 20000 } = req.body;
+    // just call main endpoint with force=true
+    const resp = await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingID, amount, force: true }),
+    }).then((r) => r.json());
+    res.json({ success: true, ...resp });
   } catch (err) {
-    console.error("❌ /deposit/manual-resend failed:", err);
-    return res.json({ ok: false, error: err.message }); // 👈 NEVER leave app waiting
+    console.error("❌ Manual resend error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -1247,46 +1217,57 @@ app.post("/forms/submit", express.json(), (req, res) => {
   res.json({ ok: true });
 });
 
-// ------------------------------------------------------
-// FORM SUBMISSION → store DVLA + formStatus + full booking info
-// ------------------------------------------------------
-app.post("/forms/submitted", async (req, res) => {
-  const { bookingID, formType, licenceNumber, dvlaCode } = req.body;
-  if (!bookingID) return res.status(400).json({ error: "Missing bookingID" });
+// ----------------------------------------------------
+// Customer finished the questionnaire (SHORT or LONG)
+// Triggered by Wix form submission
+// ----------------------------------------------------
+app.post("/forms/submitted", express.json(), async (req, res) => {
+  try {
+    const bookingID = String(req.body.bookingID || "").trim();
+    const formType = String(req.body.formType || "").toLowerCase();
 
-  const file = path.join(DATA_DIR, "bookings.json");
-  let db = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+    if (!bookingID || !formType) {
+      return res.status(400).json({ error: "Missing bookingID or formType" });
+    }
 
-  // Create or fetch local record
-  if (!db[bookingID]) db[bookingID] = { bookingID };
+    if (!["short", "long"].includes(formType)) {
+      return res.status(400).json({ error: "formType must be 'short' or 'long'" });
+    }
 
-  // 🔄 Pull latest live booking from Planyo
-  const live = await fetch(`${process.env.SERVER_URL}/planyo/booking/${bookingID}`).then(r => r.json());
-  Object.assign(db[bookingID], live); // merge all fields into local DB
+    // Load previous status if exists, otherwise initialize
+    const status = formStatus[bookingID] || {
+      requiredForm: formType, // fallback
+      shortDone: false,
+      longDone: false
+    };
 
-  // 💾 DVLA fields
-  db[bookingID].licenceNumber = licenceNumber || null;
-  db[bookingID].dvlaCode = dvlaCode || null;
-  db[bookingID].dvlaStatus = "pending";
+    // Mark completion
+    if (formType === "short") {
+      status.shortDone = true;
+      status.requiredForm = "short";
+    }
 
-  // 💾 formStatus object
-  if (!db[bookingID].formStatus) {
-    db[bookingID].formStatus = { requiredForm: formType, shortDone: false, longDone: false };
+    if (formType === "long") {
+      status.longDone = true;
+      status.requiredForm = "long";
+    }
+
+    status.updatedAt = new Date().toISOString();
+
+    // Save to memory + disk
+    formStatus[bookingID] = status;
+    saveFormStatus();
+
+    console.log(`🟢 Questionnaire submitted for booking #${bookingID} → ${formType.toUpperCase()} completed`);
+
+    return res.json({ success: true, bookingID, status });
+
+  } catch (err) {
+    console.error("❌ Error in /forms/submitted:", err);
+    return res.status(500).json({ error: err.message });
   }
-  if (formType === "short") db[bookingID].formStatus.shortDone = true;
-  if (formType === "long") db[bookingID].formStatus.longDone = true;
-
-  // preserve original requiredForm unless still null
-  if (!db[bookingID].formStatus.requiredForm)
-    db[bookingID].formStatus.requiredForm = formType;
-
-  // 📝 Save DB
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(db, null, 2), "utf8");
-
-  console.log(`🟢 Saved form + DVLA + full booking for #${bookingID}`);
-  return res.json({ ok: true });
 });
+
 
 // ----------------------------------------------------
 // Manual scheduler trigger
@@ -1526,7 +1507,6 @@ app.get("/planyo/upcoming", async (_req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-
 // ----------------------------------------------------
 // Planyo single booking (full details for QR scan / HireCheck)
 // ----------------------------------------------------
@@ -1605,44 +1585,6 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     console.error("❌ Get booking details failed:", err);
     res.status(500).json({ error: err.message });
   }
-});
-
-/// ----------------------------------------------------
-// LOCAL BOOKING VIEW (always reflects latest stored DVLA + form status)
-// ----------------------------------------------------
-app.get("/local/booking/:id", (req, res) => {
-  const id = req.params.id;
-  const file = path.join(DATA_DIR, "bookings.json");
-  const db = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
-  const r = db[id] || {};
-
-  res.json({
-    bookingID: id,
-    vehicleName: r.vehicleName || "",
-    startDate: r.startDate || "",
-    endDate: r.endDate || "",
-    customerName: r.customerName || "",
-    email: r.email || "",
-    phoneNumber: r.phoneNumber || "",
-    totalPrice: r.totalPrice || "",
-    amountPaid: r.amountPaid || "",
-    addressLine1: r.addressLine1 || "",
-    addressLine2: r.addressLine2 || "",
-    postcode: r.postcode || "",
-    dateOfBirth: r.dateOfBirth || "",
-    userNotes: r.userNotes || "",
-    additionalProducts: r.additionalProducts || [],
-
-    formStatus: r.formStatus || {
-      requiredForm: null,
-      shortDone: false,
-      longDone: false
-    },
-
-    licenceNumber: r.licenceNumber || null,
-    dvlaCode: r.dvlaCode || null,
-    dvlaStatus: r.dvlaStatus || "pending"
-  });
 });
 
 // ----------------------------------------------------
