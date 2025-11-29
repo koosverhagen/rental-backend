@@ -13,22 +13,19 @@ const path = require("path");
 require("dotenv").config();
 
 // ----------------------------------------------------
-// DVLA + Questionnaire Storage (local database file)
+// DVLA + Questionnaire Storage (local JSON database)
 // ----------------------------------------------------
 const DATA_DIR = path.join(__dirname, "data");
 const BOOKINGS_FILE = path.join(DATA_DIR, "bookings.json");
 
-// Ensure storage exists
+// Create folder + file if missing (first deploy fix)
 if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR);
-  console.log("📁 Created /data directory");
+  fs.mkdirSync(DATA_DIR);               // create /data folder
 }
 
 if (!fs.existsSync(BOOKINGS_FILE)) {
-  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify({}), "utf8");
-  console.log("📄 Created bookings.json");
+  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify({}), "utf8"); // empty DB
 }
-
 
 const app = express();
 app.use(cors());
