@@ -277,7 +277,8 @@ async function fetchPlanyoBooking(bookingID) {
 // Persistent duplicate-protection (Render disk at /data)
 // ----------------------------------------------------
 // Use Render disk mounted at /data so we remember what we've sent between restarts
-const DATA_DIR = "/data";
+// const DATA_DIR = "/data";   // ❌ old — replaced above with __dirname/data
+
 const SENT_FILE = path.join(DATA_DIR, "sentDeposits.json");
 const CALLBACK_FILE = path.join(DATA_DIR, "processedCallbacks.json");
 
