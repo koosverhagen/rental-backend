@@ -1217,57 +1217,67 @@ app.post("/forms/submit", express.json(), (req, res) => {
   res.json({ ok: true });
 });
 
-// ----------------------------------------------------
-// Customer finished the questionnaire (SHORT or LONG)
-// Triggered by Wix form submission
-// ----------------------------------------------------
+// ------------------------------------------------------
+// FORM SUBMISSION (short + long) — stores DVLA info too
+// ------------------------------------------------------
 app.post("/forms/submitted", express.json(), async (req, res) => {
   try {
-    const bookingID = String(req.body.bookingID || "").trim();
-    const formType = String(req.body.formType || "").toLowerCase();
+    const { bookingID, formType, licenceNumber, dvlaCode } = req.body;
 
-    if (!bookingID || !formType) {
-      return res.status(400).json({ error: "Missing bookingID or formType" });
+    console.log("📩 Form submitted:", req.body);
+
+    if (!bookingID) {
+      console.warn("⚠️ Missing bookingID in form submission");
+      return res.status(400).send("bookingID required");
     }
 
-    if (!["short", "long"].includes(formType)) {
-      return res.status(400).json({ error: "formType must be 'short' or 'long'" });
+    // Load booking record
+    const file = path.join(__dirname, "data", "bookings.json");
+    let bookings = fs.existsSync(file)
+      ? JSON.parse(fs.readFileSync(file, "utf8"))
+      : {};
+
+    if (!bookings[bookingID]) bookings[bookingID] = {};
+
+    // ----------------------------
+    // SAVE LICENCE + DVLA CODE
+    // ----------------------------
+    if (licenceNumber) bookings[bookingID].licenceNumber = licenceNumber;
+    if (dvlaCode) bookings[bookingID].dvlaCode = dvlaCode;
+
+    // Initialize dvlaStatus if new
+    if (!bookings[bookingID].dvlaStatus) {
+      bookings[bookingID].dvlaStatus = "pending";
     }
 
-    // Load previous status if exists, otherwise initialize
-    const status = formStatus[bookingID] || {
-      requiredForm: formType, // fallback
-      shortDone: false,
-      longDone: false
-    };
+    // ----------------------------
+    // MARK FORM COMPLETE
+    // ----------------------------
+    if (!bookings[bookingID].formStatus) {
+      bookings[bookingID].formStatus = {
+        requiredForm: formType,
+        shortDone: false,
+        longDone: false
+      };
+    }
 
-    // Mark completion
     if (formType === "short") {
-      status.shortDone = true;
-      status.requiredForm = "short";
+      bookings[bookingID].formStatus.shortDone = true;
+    } else if (formType === "long") {
+      bookings[bookingID].formStatus.longDone = true;
     }
 
-    if (formType === "long") {
-      status.longDone = true;
-      status.requiredForm = "long";
-    }
+    // Save file
+    fs.writeFileSync(file, JSON.stringify(bookings, null, 2));
 
-    status.updatedAt = new Date().toISOString();
-
-    // Save to memory + disk
-    formStatus[bookingID] = status;
-    saveFormStatus();
-
-    console.log(`🟢 Questionnaire submitted for booking #${bookingID} → ${formType.toUpperCase()} completed`);
-
-    return res.json({ success: true, bookingID, status });
+    console.log(`🟢 Stored licence + dvlaCode for booking #${bookingID}`);
+    return res.json({ ok: true });
 
   } catch (err) {
     console.error("❌ Error in /forms/submitted:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).send("Server error");
   }
 });
-
 
 // ----------------------------------------------------
 // Manual scheduler trigger
@@ -1507,6 +1517,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
 // ----------------------------------------------------
 // Planyo single booking (full details for QR scan / HireCheck)
 // ----------------------------------------------------
@@ -1584,6 +1595,50 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
   } catch (err) {
     console.error("❌ Get booking details failed:", err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// 2) Stored booking pulled from backend (DVLA included)
+// ----------------------------------------------------
+app.get("/local/booking/:id", async (req, res) => {
+  const id = req.params.id;
+
+  try {
+    const file = path.join(__dirname, "data", "bookings.json");
+    const bookings = fs.existsSync(file)
+      ? JSON.parse(fs.readFileSync(file, "utf8"))
+      : {};
+
+    const record = bookings[id] || {};
+
+    res.json({
+      bookingID: id,
+      vehicleName: record.vehicleName,
+      startDate: record.startDate,
+      endDate: record.endDate,
+      customerName: record.customerName,
+      email: record.email,
+      phoneNumber: record.phoneNumber,
+      totalPrice: record.totalPrice,
+      amountPaid: record.amountPaid,
+      addressLine1: record.addressLine1,
+      addressLine2: record.addressLine2,
+      postcode: record.postcode,
+      dateOfBirth: record.dateOfBirth,
+      userNotes: record.userNotes,
+      additionalProducts: record.additionalProducts,
+      formStatus: record.formStatus || null,
+
+      // 💙 licence + DVLA
+      licenceNumber: record.licenceNumber || null,
+      dvlaCode: record.dvlaCode || null,
+      dvlaStatus: record.dvlaStatus || "pending"
+    });
+
+  } catch (err) {
+    console.error("❌ booking fetch error:", err);
+    res.status(500).json({ error: "server error" });
   }
 });
 
