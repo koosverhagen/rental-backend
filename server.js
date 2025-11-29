@@ -1164,10 +1164,11 @@ app.post("/deposit/send-link", async (req, res) => {
       }`
     );
     res.json({ success: true, url: link, forced: isForced });
-  } catch (err) {
-    console.error("❌ SendGrid deposit-link error:", err);
-    res.status(500).json({ error: err.message });
-  }
+ } catch (err) {
+  console.error("❌ SendGrid deposit-link error:", err);
+  return res.json({ success: false, error: err.message }); // 👈 always reply
+}
+
 });
 
 // optional explicit "resend" wrapper if app prefers this endpoint
@@ -1257,14 +1258,14 @@ app.post("/forms/submitted", (req, res) => {
   const file = path.join(DATA_DIR, "bookings.json");
   let db = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
 
-  // Ensure booking record exists
+  // ensure record exists
   if (!db[bookingID]) db[bookingID] = { bookingID };
 
-  // Update DVLA fields
+  // save licence / dvla
   db[bookingID].licenceNumber = licenceNumber || null;
   db[bookingID].dvlaCode = dvlaCode || null;
 
-  // Init formStatus if needed
+  // ensure formStatus exists inside bookings.json
   if (!db[bookingID].formStatus) {
     db[bookingID].formStatus = {
       requiredForm: null,
@@ -1273,26 +1274,23 @@ app.post("/forms/submitted", (req, res) => {
     };
   }
 
-  // Mark which form was submitted
-  if (formType === "short") {
-    db[bookingID].formStatus.shortDone = true;
-  }
-  if (formType === "long") {
-    db[bookingID].formStatus.longDone = true;
-  }
+  // mark completion
+  if (formType === "short") db[bookingID].formStatus.shortDone = true;
+  if (formType === "long") db[bookingID].formStatus.longDone = true;
 
-  // Set requiredForm based on what's completed
-  if (db[bookingID].formStatus.longDone) {
-    db[bookingID].formStatus.requiredForm = "long";
-  } else if (db[bookingID].formStatus.shortDone) {
-    db[bookingID].formStatus.requiredForm = "short";
-  }
+  // requiredForm
+  if (db[bookingID].formStatus.longDone) db[bookingID].formStatus.requiredForm = "long";
+  else if (db[bookingID].formStatus.shortDone) db[bookingID].formStatus.requiredForm = "short";
 
-  // Save database
+  // 💾 SAVE bookings.json
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(file, JSON.stringify(db, null, 2), "utf8");
 
-  console.log(`🟢 Stored questionnaire + DVLA for booking #${bookingID}`);
+  // 🔁 ALSO UPDATE GLOBAL formStatus (this is what the app reads)
+  formStatus[bookingID] = db[bookingID].formStatus;
+  saveFormStatus();
+
+  console.log(`🟢 Stored questionnaire for #${bookingID} → ${formType}`);
   return res.json({ ok: true });
 });
 
