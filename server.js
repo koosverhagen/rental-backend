@@ -18,7 +18,7 @@ require("dotenv").config();
 const DATA_DIR = path.join(__dirname, "data");
 const BOOKINGS_FILE = path.join(DATA_DIR, "bookings.json");
 
-// Create /data folder + JSON file on first deploy
+// Create /data folder + JSON file if first deploy
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -26,7 +26,7 @@ if (!fs.existsSync(BOOKINGS_FILE)) {
   fs.writeFileSync(BOOKINGS_FILE, JSON.stringify({}), "utf8");
 }
 
-// Load DB into memory
+// Load bookings DB into memory
 let bookingsDB = {};
 try {
   bookingsDB = JSON.parse(fs.readFileSync(BOOKINGS_FILE, "utf8")) || {};
@@ -44,12 +44,18 @@ function saveBookingsDB() {
   }
 }
 
+// ----------------------------------------------------
+// CREATE APP — must be BEFORE app.locals
+// ----------------------------------------------------
+const app = express();
+app.use(cors());
+
+// ----------------------------------------------------
 // Expose DB to routes
+// ----------------------------------------------------
 app.locals.bookingsDB = bookingsDB;
 app.locals.saveBookingsDB = saveBookingsDB;
 
-const app = express();
-app.use(cors());
 
 // ----------------------------------------------------
 // Redirect /pay/:bookingID to Wix deposit page
