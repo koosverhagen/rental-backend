@@ -1063,82 +1063,100 @@ app.post("/email/deposit-confirmation", async (req, res) => {
   }
 });
 
-/// ----------------------------------------------------
+// ----------------------------------------------------
 // Deposit email sender (automatic + manual override)
 // ----------------------------------------------------
 app.post("/deposit/send-link", async (req, res) => {
+  // Destructure variables, providing a default of 20000 for amount (equivalent to £200.00)
+  const { bookingID, amount = 20000, force } = req.body;
+
   try {
-    const { bookingID, amount = 20000, force } = req.body;
+    // Helper functions like fetchPlanyoBooking, alreadySentRecently, and markDepositSent
+    // are assumed to be defined elsewhere in this file (server.js).
+    
+    // Normalize the 'force' parameter to a boolean
     const isForced =
       force === true || force === "true" || force === 1 || force === "1";
 
     const bk = await fetchPlanyoBooking(bookingID);
-    if (!bk.email) {
-      return res.json({ success: false, error: "No customer email" });
+    
+    if (!bk || !bk.email) {
+      console.error(`❌ Deposit email error: No customer email or booking found for #${bookingID}`);
+      return res.status(404).json({ success: false, error: "No customer email or booking found" });
     }
 
+    // The payment link for the customer
     const link = `https://www.equinetransportuk.com/deposit?bookingID=${bookingID}`;
 
-    // Prevent duplicate IF not manual resend
+    // Prevent duplicate sending IF it's not a manual resend (isForced = true)
     if (!isForced && alreadySentRecently(bookingID)) {
-      console.log(`⏩ Skip duplicate send for #${bookingID}`);
+      console.log(`⏩ Skip duplicate send for #${bookingID}. Already sent recently.`);
       return res.json({ success: true, alreadySent: true, url: link });
     }
 
     console.log(
       isForced
-        ? `📨 MANUAL override — resending deposit link for booking #${bookingID}`
-        : `📨 Sending deposit email for booking #${bookingID}`
+        ? `📨 MANUAL override — resending deposit link for booking #${bookingID} (Amount: £${(amount / 100).toFixed(2)})`
+        : `📨 Sending deposit email for booking #${bookingID} (Amount: £${(amount / 100).toFixed(2)})`
     );
 
     const html = `
-      <div style="font-family:Arial;line-height:1.5;color:#333;">
-        <div style="text-align:center;margin-bottom:20px;">
+      <div style="font-family:Arial, sans-serif;line-height:1.6;color:#333;max-width:600px;margin:auto;border:1px solid #eee;padding:20px;border-radius:8px;">
+        <div style="text-align:center;margin-bottom:25px;">
           <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
-               alt="Equine Transport UK" style="width:160px; height:auto;" />
+              alt="Equine Transport UK" style="width:180px; height:auto; border-radius:4px;" />
         </div>
-        <h2 style="color:#0070f3;text-align:center;">
+        <h2 style="color:#0070f3;text-align:center;font-size:24px;border-bottom:2px solid #0070f3;padding-bottom:10px;">
           Deposit Payment Request${isForced ? " (Resent)" : ""}
         </h2>
-        <p>Dear ${bk.firstName} ${bk.lastName},</p>
-        <p>Please complete your deposit hold for <b>Booking #${bookingID}</b>.</p>
-        <p><b>Lorry:</b> ${bk.resource}<br><b>From:</b> ${bk.start}<br><b>To:</b> ${bk.end}</p>
-        <p style="font-size:18px;text-align:center;">
-          Deposit Required: <b>£${(amount / 100).toFixed(2)}</b>
+        <p style="font-size:16px;">Dear ${bk.firstName || bk.lastName || "Customer"},</p>
+        <p style="font-size:16px;">Please complete your deposit hold for <b>Booking #${bookingID}</b> to secure your reservation.</p>
+        <div style="background:#f4f7f9;padding:15px;border-radius:6px;margin:20px 0;">
+          <p style="margin:5px 0;"><b>Lorry:</b> ${bk.resource || "N/A"}</p>
+          <p style="margin:5px 0;"><b>From:</b> ${bk.start || "N/A"}</p>
+          <p style="margin:5px 0;"><b>To:</b> ${bk.end || "N/A"}</p>
+        </div>
+        <p style="font-size:20px;text-align:center;font-weight:bold;color:#cc0000;padding:10px 0;">
+          Deposit Required: <span>£${(amount / 100).toFixed(2)}</span>
         </p>
         <p style="text-align:center;margin:30px 0;">
           <a href="${link}"
-             style="padding:14px 24px;background:#0070f3;color:#fff;border-radius:6px;
-                    text-decoration:none;font-size:16px;">
+              style="padding:15px 30px;background:#0070f3;color:#ffffff;border-radius:8px;
+                     text-decoration:none;font-size:17px;font-weight:bold;display:inline-block;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
             💳 Pay Deposit Securely
           </a>
         </p>
-        <p style="margin-top:30px;">Kind regards,<br/>Koos & Avril<br/><b>Equine Transport UK</b></p>
+        <p style="margin-top:40px;padding-top:15px;border-top:1px dashed #ddd;">
+          Kind regards,<br/>Koos & Avril<br/>
+          <b style="color:#0070f3;">Equine Transport UK</b>
+        </p>
       </div>`;
 
     await Promise.all([
+      // Send to customer
       sendgrid.send({
         to: bk.email,
         from: "Equine Transport UK <info@equinetransportuk.com>",
         subject: `Equine Transport UK | Secure Deposit Link${isForced ? " (Resent)" : ""} | Booking #${bookingID}`,
         html,
       }),
+      // Send admin copy
       sendgrid.send({
-        to: "kverhagen@mac.com",
+        to: "kverhagen@mac.com", // Admin's email
         from: "Equine Transport UK <info@equinetransportuk.com>",
         subject: `Admin Copy | Deposit Link ${isForced ? "Resent" : "Sent"} | Booking #${bookingID}`,
         html,
       }),
     ]);
 
-    // Mark as sent ONLY if automatic
+    // Mark as sent ONLY if automatic (i.e., not forced)
     if (!isForced) markDepositSent(bookingID);
 
     console.log(`📬 Deposit email delivered → ${bk.email}`);
-    return res.json({ success: true, forced: isForced, url: link });
+    return res.json({ success: true, forced: isForced, url: link, amount: amount });
 
   } catch (err) {
-    console.error("❌ Deposit email error:", err);
+    console.error(`❌ Deposit email error for #${bookingID}:`, err.message);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
