@@ -1240,32 +1240,45 @@ app.post("/forms/submitted", (req, res) => {
   const { bookingID, formType, licenceNumber, dvlaCode } = req.body;
   if (!bookingID) return res.status(400).json({ error: "Missing bookingID" });
 
-  // Load DB
   const file = path.join(DATA_DIR, "bookings.json");
   let db = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
 
-  // Ensure booking node exists
+  // Ensure booking record exists
   if (!db[bookingID]) db[bookingID] = { bookingID };
 
-  // Save DVLA fields
+  // Update DVLA fields
   db[bookingID].licenceNumber = licenceNumber || null;
   db[bookingID].dvlaCode = dvlaCode || null;
 
-  // Update questionnaire status
+  // Init formStatus if needed
   if (!db[bookingID].formStatus) {
-    db[bookingID].formStatus = { requiredForm: null, shortDone: false, longDone: false };
+    db[bookingID].formStatus = {
+      requiredForm: null,
+      shortDone: false,
+      longDone: false
+    };
   }
-  if (formType === "short") db[bookingID].formStatus.shortDone = true;
-  if (formType === "long") db[bookingID].formStatus.longDone = true;
 
-  // Resolve required form automatically
-  if (db[bookingID].formStatus.shortDone) db[bookingID].formStatus.requiredForm = "short";
-  if (db[bookingID].formStatus.longDone) db[bookingID].formStatus.requiredForm = "long";
+  // Mark which form was submitted
+  if (formType === "short") {
+    db[bookingID].formStatus.shortDone = true;
+  }
+  if (formType === "long") {
+    db[bookingID].formStatus.longDone = true;
+  }
 
-  // Save file
+  // Set requiredForm based on what's completed
+  if (db[bookingID].formStatus.longDone) {
+    db[bookingID].formStatus.requiredForm = "long";
+  } else if (db[bookingID].formStatus.shortDone) {
+    db[bookingID].formStatus.requiredForm = "short";
+  }
+
+  // Save database
+  fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(file, JSON.stringify(db, null, 2), "utf8");
 
-  console.log(`🟢 Stored questionnaire + DVLA for #${bookingID}`);
+  console.log(`🟢 Stored questionnaire + DVLA for booking #${bookingID}`);
   return res.json({ ok: true });
 });
 
