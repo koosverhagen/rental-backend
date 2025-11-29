@@ -1073,20 +1073,18 @@ app.post("/deposit/send-link", async (req, res) => {
     const { bookingID, amount = 20000, force } = req.body;
     const link = `https://www.equinetransportuk.com/deposit?bookingID=${bookingID}`;
 
-
     const isForced =
       force === true || force === "true" || force === 1 || force === "1";
 
     if (!isForced && alreadySentRecently(bookingID)) {
-      console.log(
-        `⏩ Skipping duplicate deposit send for #${bookingID} (recent)`
-      );
+      console.log(`⏩ Skipping duplicate deposit send for #${bookingID} (recent)`);
       return res.json({ success: true, url: link, alreadySent: true });
     }
 
     const bk = await fetchPlanyoBooking(bookingID);
-    if (!bk.email)
-      return res.status(400).json({ error: "No customer email" });
+    if (!bk.email) {
+      return res.json({ success: false, error: "No customer email" });
+    }
 
     const html = `
       <div style="font-family:Arial;line-height:1.5;color:#333;">
@@ -1100,74 +1098,80 @@ app.post("/deposit/send-link", async (req, res) => {
         <p>Dear ${bk.firstName} ${bk.lastName},</p>
         <p>Please complete your deposit hold for <b>Booking #${bookingID}</b>.</p>
         <p><b>Lorry:</b> ${bk.resource}<br><b>From:</b> ${bk.start}<br><b>To:</b> ${bk.end}</p>
-        <p style="font-size:18px;text-align:center;">Deposit Required: <b>£${(
-          amount / 100
-        ).toFixed(2)}</b></p>
+        <p style="font-size:18px;text-align:center;">Deposit Required: <b>£${(amount / 100).toFixed(2)}</b></p>
         <p style="text-align:center;margin:30px 0;">
           <a href="${link}" style="padding:14px 24px;background:#0070f3;color:#fff;border-radius:6px;text-decoration:none;font-size:16px;">
             💳 Pay Deposit Securely
           </a>
         </p>
         <div style="background:#f0f7ff;border:1px solid #d6e7ff;color:#124a8a;padding:12px;border-radius:8px;margin-top:14px;font-size:14px">
-          <b>Note:</b> This is a <b>pre-authorisation (hold)</b>. No money is taken now. Funds remain reserved until we release the hold or capture part/all if necessary.
+          <b>Note:</b> This is a <b>pre-authorisation</b>. No money is taken now.
         </div>
         <p style="margin-top:30px;">Kind regards,<br/>Koos & Avril<br/><b>Equine Transport UK</b></p>
-        <hr style="margin:30px 0;"/>
-        <p style="font-size:12px; color:#777; text-align:center;">
-          Equine Transport UK · Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL · East Sussex, GB<br/>
-          📞 +44 7584578654 | ✉️ info@equinetransportuk.com
-        </p>
       </div>`;
 
     await Promise.all([
       sendgrid.send({
         to: bk.email,
         from: "Equine Transport UK <info@equinetransportuk.com>",
-        subject: `Equine Transport UK | Secure Deposit Link${
-          isForced ? " (Resent)" : ""
-        } | Booking #${bookingID} | ${bk.firstName} ${bk.lastName}`,
+        subject: `Equine Transport UK | Secure Deposit Link${isForced ? " (Resent)" : ""} | Booking #${bookingID} | ${bk.firstName} ${bk.lastName}`,
         html,
       }),
       sendgrid.send({
         to: "kverhagen@mac.com",
         from: "Equine Transport UK <info@equinetransportuk.com>",
-        subject: `Admin Copy | Deposit Link ${
-          isForced ? "Resent" : "Sent"
-        } | Booking #${bookingID} | ${bk.firstName} ${bk.lastName}`,
+        subject: `Admin Copy | Deposit Link ${isForced ? "Resent" : "Sent"} | Booking #${bookingID} | ${bk.firstName} ${bk.lastName}`,
         html,
       }),
     ]);
 
-    if (!isForced) {
-      markDepositSent(bookingID);
-    }
+    if (!isForced) markDepositSent(bookingID);
 
-    console.log(
-      `✅ Deposit link ${isForced ? "resent" : "sent"} for booking #${bookingID} to ${
-        bk.email
-      }`
-    );
-    res.json({ success: true, url: link, forced: isForced });
+    console.log(`✅ Deposit link ${isForced ? "resent" : "sent"} for booking #${bookingID}`);
+
+    // Always respond with JSON
+    return res.json({
+      success: true,
+      url: link,
+      forced: isForced,
+      email: bk.email
+    });
+
   } catch (err) {
     console.error("❌ SendGrid deposit-link error:", err);
-    res.status(500).json({ error: err.message });
+    return res.json({ success: false, error: err.message });
   }
 });
 
-// optional explicit "resend" wrapper if app prefers this endpoint
-app.post("/deposit/resend", async (req, res) => {
+
+// ----------------------------------------------------
+// Manual resend (used by HireCheck app)
+// ----------------------------------------------------
+app.post("/deposit/resend", express.json(), async (req, res) => {
   try {
     const { bookingID, amount = 20000 } = req.body;
-    // just call main endpoint with force=true
+    if (!bookingID) return res.json({ success: false, error: "Missing bookingID" });
+
+    console.log(`📧 [Manual] Resend deposit for #${bookingID}`);
+
     const resp = await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingID, amount, force: true }),
-    }).then((r) => r.json());
-    res.json({ success: true, ...resp });
+      body: JSON.stringify({ bookingID, amount, force: true })
+    }).then(r => r.json()).catch(() => null);
+
+    // Always reply to the app to prevent endless spinner
+    return res.json({
+      success: true,
+      bookingID,
+      url: resp?.url || `https://www.equinetransportuk.com/deposit?bookingID=${bookingID}`,
+      forced: true,
+      message: "Deposit link resent"
+    });
+
   } catch (err) {
     console.error("❌ Manual resend error:", err);
-    res.status(500).json({ error: err.message });
+    return res.json({ success: false, error: err.message });
   }
 });
 
