@@ -1064,9 +1064,9 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// Deposit link sender (V2 with manual override)
+// Deposit link sender (V2 with automatic + dedupe)
 //  - automatic (callback / scheduler): deduped
-//  - manual (force=true): always send
+//  - manual: only if force = true
 // ----------------------------------------------------
 app.post("/deposit/send-link", async (req, res) => {
   try {
@@ -1076,15 +1076,14 @@ app.post("/deposit/send-link", async (req, res) => {
     const isForced =
       force === true || force === "true" || force === 1 || force === "1";
 
+    // 🛡 automatic sends are dedupted (manual not)
     if (!isForced && alreadySentRecently(bookingID)) {
-      console.log(`⏩ Skipping duplicate deposit send for #${bookingID} (recent)`);
+      console.log(`⏩ Skipping duplicate deposit send for #${bookingID}`);
       return res.json({ success: true, url: link, alreadySent: true });
     }
 
     const bk = await fetchPlanyoBooking(bookingID);
-    if (!bk.email) {
-      return res.json({ success: false, error: "No customer email" });
-    }
+    if (!bk.email) return res.json({ success: false, error: "No customer email" });
 
     const html = `
       <div style="font-family:Arial;line-height:1.5;color:#333;">
@@ -1098,7 +1097,7 @@ app.post("/deposit/send-link", async (req, res) => {
         <p>Dear ${bk.firstName} ${bk.lastName},</p>
         <p>Please complete your deposit hold for <b>Booking #${bookingID}</b>.</p>
         <p><b>Lorry:</b> ${bk.resource}<br><b>From:</b> ${bk.start}<br><b>To:</b> ${bk.end}</p>
-        <p style="font-size:18px;text-align:center;">Deposit Required: <b>£${(amount / 100).toFixed(2)}</b></p>
+        <p style="font-size:18px;text-align:center;">Deposit Required: <b>£${(amount/100).toFixed(2)}</b></p>
         <p style="text-align:center;margin:30px 0;">
           <a href="${link}" style="padding:14px 24px;background:#0070f3;color:#fff;border-radius:6px;text-decoration:none;font-size:16px;">
             💳 Pay Deposit Securely
@@ -1128,14 +1127,7 @@ app.post("/deposit/send-link", async (req, res) => {
     if (!isForced) markDepositSent(bookingID);
 
     console.log(`✅ Deposit link ${isForced ? "resent" : "sent"} for booking #${bookingID}`);
-
-    // Always respond with JSON
-    return res.json({
-      success: true,
-      url: link,
-      forced: isForced,
-      email: bk.email
-    });
+    return res.json({ success: true, url: link, forced: isForced });
 
   } catch (err) {
     console.error("❌ SendGrid deposit-link error:", err);
@@ -1143,19 +1135,18 @@ app.post("/deposit/send-link", async (req, res) => {
   }
 });
 
+
 // ----------------------------------------------------
-// 💙 MANUAL deposit resend (HireCheck)
-// Always send — even if no previous deposit exists
+// 💙 MANUAL DEPOSIT RESEND (HireCheck button)
+// Always send regardless of history
 // ----------------------------------------------------
 app.post("/deposit/resend", async (req, res) => {
   try {
     const { bookingID, amount = 20000 } = req.body;
-    console.log(`📨 Manual deposit resend (HireCheck) for #${bookingID}`);
+    console.log(`📨 Manual deposit RESEND triggered for booking #${bookingID}`);
 
     const bk = await fetchPlanyoBooking(bookingID);
-    if (!bk.email) {
-      return res.json({ success: false, error: "No customer email" });
-    }
+    if (!bk.email) return res.json({ success: false, error: "No customer email" });
 
     const link = `https://www.equinetransportuk.com/deposit?bookingID=${bookingID}`;
 
@@ -1168,21 +1159,16 @@ app.post("/deposit/resend", async (req, res) => {
         <h2 style="color:#0070f3;text-align:center;">Deposit Payment Request (Resent)</h2>
         <p>Dear ${bk.firstName} ${bk.lastName},</p>
         <p>Please complete your deposit hold for <b>Booking #${bookingID}</b>.</p>
-        <p style="font-size:18px;text-align:center;">Deposit Required:
-          <b>£${(amount/100).toFixed(2)}</b>
-        </p>
+        <p style="font-size:18px;text-align:center;">Amount Due: <b>£${(amount/100).toFixed(2)}</b></p>
         <p style="text-align:center;margin:30px 0;">
           <a href="${link}"
-             style="padding:14px 24px;background:#0070f3;color:#fff;border-radius:6px;
-                    text-decoration:none;font-size:16px;">
+             style="padding:14px 24px;background:#0070f3;color:#fff;border-radius:6px;text-decoration:none;font-size:16px;">
             💳 Pay Deposit Securely
           </a>
         </p>
         <p style="margin-top:30px;">Kind regards,<br/>Koos & Avril<br/><b>Equine Transport UK</b></p>
       </div>`;
 
-
-    // 📩 customer + admin
     await Promise.all([
       sendgrid.send({
         to: bk.email,
@@ -1203,9 +1189,10 @@ app.post("/deposit/resend", async (req, res) => {
 
   } catch (err) {
     console.error("❌ Manual resend deposit error:", err);
-    return res.status(500).json({ success: false, error: err.message });
+    return res.json({ success: false, error: err.message });
   }
 });
+
 
 // ----------------------------------------------------
 // Wix → mark Short/Long form submitted
