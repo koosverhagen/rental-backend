@@ -1171,19 +1171,33 @@ app.post("/deposit/send-link", async (req, res) => {
 });
 
 // optional explicit "resend" wrapper if app prefers this endpoint
-app.post("/deposit/resend", async (req, res) => {
+app.post("/deposit/manual-resend", express.json(), async (req, res) => {
   try {
-    const { bookingID, amount = 20000 } = req.body;
-    // just call main endpoint with force=true
-    const resp = await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingID, amount, force: true }),
-    }).then((r) => r.json());
-    res.json({ success: true, ...resp });
+    const { bookingID } = req.body;
+    console.log("📩 Manual resend deposit for:", bookingID);
+
+    // fetch booking email
+    const planyoURL = `${process.env.SERVER_URL}/planyo/booking/${bookingID}`;
+    const resp = await fetch(planyoURL);
+    const booking = await resp.json();
+    const email = booking.email || null;
+
+    if (!email) throw new Error("Missing email");
+
+    // send email again
+    await sendgrid.send({
+      to: email,
+      from: process.env.SENDGRID_FROM,
+      subject: `Deposit request — Booking #${bookingID}`,
+      html: `<p>Please complete your £200 deposit:</p>
+             <p><a href="https://www.equinetransportuk.com/deposit?bookingID=${bookingID}">Click here to pay securely</a></p>`
+    });
+
+    return res.json({ ok: true });
+
   } catch (err) {
-    console.error("❌ Manual resend error:", err);
-    res.status(500).json({ error: err.message });
+    console.error("❌ /deposit/manual-resend failed:", err);
+    return res.json({ ok: false, error: err.message }); // 👈 NEVER leave app waiting
   }
 });
 
