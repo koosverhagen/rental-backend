@@ -1143,35 +1143,67 @@ app.post("/deposit/send-link", async (req, res) => {
   }
 });
 
-
 // ----------------------------------------------------
-// Manual resend (used by HireCheck app)
+// Manual DEPOSIT resend endpoint (for HireCheck button)
 // ----------------------------------------------------
 app.post("/deposit/resend", express.json(), async (req, res) => {
   try {
-    const { bookingID, amount = 20000 } = req.body;
-    if (!bookingID) return res.json({ success: false, error: "Missing bookingID" });
+    const { bookingID, amount = 20000 } = req.body || {};
 
-    console.log(`📧 [Manual] Resend deposit for #${bookingID}`);
+    if (!bookingID) {
+      console.warn("⚠️ /deposit/resend called without bookingID");
+      return res.status(400).json({
+        success: false,
+        error: "Missing bookingID",
+      });
+    }
 
+    console.log(`📧 [Manual] Resend deposit for booking #${bookingID}`);
+
+    // Call the main sender with force=true so duplicate guard is bypassed
     const resp = await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingID, amount, force: true })
-    }).then(r => r.json()).catch(() => null);
-
-    // Always reply to the app to prevent endless spinner
-    return res.json({
-      success: true,
-      bookingID,
-      url: resp?.url || `https://www.equinetransportuk.com/deposit?bookingID=${bookingID}`,
-      forced: true,
-      message: "Deposit link resent"
+      body: JSON.stringify({
+        bookingID,
+        amount,
+        force: true,   // 🔥 force resend
+      }),
     });
 
+    let json = {};
+    try {
+      json = await resp.json();
+    } catch (e) {
+      console.error("❌ /deposit/resend: invalid JSON from /deposit/send-link");
+      return res.status(500).json({
+        success: false,
+        error: "Invalid JSON from /deposit/send-link",
+      });
+    }
+
+    console.log("📧 [Manual] Resend deposit result:", json);
+
+    // If inner endpoint reported error, bubble it up
+    if (!resp.ok || json.error) {
+      return res.status(500).json({
+        success: false,
+        ...json,
+      });
+    }
+
+    // Everything OK
+    return res.json({
+      success: true,
+      ...json,
+      message: "Deposit link resent",
+    });
   } catch (err) {
-    console.error("❌ Manual resend error:", err);
-    return res.json({ success: false, error: err.message });
+    console.error("❌ /deposit/resend error:", err);
+    return res.status(500).json({
+      success: false,
+      error: err.message,
+    });
   }
 });
 
