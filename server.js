@@ -1236,63 +1236,37 @@ app.post("/forms/submit", express.json(), (req, res) => {
 // ------------------------------------------------------
 // FORM SUBMISSION (short + long) — stores DVLA info too
 // ------------------------------------------------------
-app.post("/forms/submitted", express.json(), async (req, res) => {
-  try {
-    const { bookingID, formType, licenceNumber, dvlaCode } = req.body;
+app.post("/forms/submitted", (req, res) => {
+  const { bookingID, formType, licenceNumber, dvlaCode } = req.body;
+  if (!bookingID) return res.status(400).json({ error: "Missing bookingID" });
 
-    console.log("📩 Form submitted:", req.body);
+  // Load DB
+  const file = path.join(DATA_DIR, "bookings.json");
+  let db = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
 
-    if (!bookingID) {
-      console.warn("⚠️ Missing bookingID in form submission");
-      return res.status(400).send("bookingID required");
-    }
+  // Ensure booking node exists
+  if (!db[bookingID]) db[bookingID] = { bookingID };
 
-    // Load booking record
-    const file = path.join(__dirname, "data", "bookings.json");
-    let bookings = fs.existsSync(file)
-      ? JSON.parse(fs.readFileSync(file, "utf8"))
-      : {};
+  // Save DVLA fields
+  db[bookingID].licenceNumber = licenceNumber || null;
+  db[bookingID].dvlaCode = dvlaCode || null;
 
-    if (!bookings[bookingID]) bookings[bookingID] = {};
-
-    // ----------------------------
-    // SAVE LICENCE + DVLA CODE
-    // ----------------------------
-    if (licenceNumber) bookings[bookingID].licenceNumber = licenceNumber;
-    if (dvlaCode) bookings[bookingID].dvlaCode = dvlaCode;
-
-    // Initialize dvlaStatus if new
-    if (!bookings[bookingID].dvlaStatus) {
-      bookings[bookingID].dvlaStatus = "pending";
-    }
-
-    // ----------------------------
-    // MARK FORM COMPLETE
-    // ----------------------------
-    if (!bookings[bookingID].formStatus) {
-      bookings[bookingID].formStatus = {
-        requiredForm: formType,
-        shortDone: false,
-        longDone: false
-      };
-    }
-
-    if (formType === "short") {
-      bookings[bookingID].formStatus.shortDone = true;
-    } else if (formType === "long") {
-      bookings[bookingID].formStatus.longDone = true;
-    }
-
-    // Save file
-    fs.writeFileSync(file, JSON.stringify(bookings, null, 2));
-
-    console.log(`🟢 Stored licence + dvlaCode for booking #${bookingID}`);
-    return res.json({ ok: true });
-
-  } catch (err) {
-    console.error("❌ Error in /forms/submitted:", err);
-    return res.status(500).send("Server error");
+  // Update questionnaire status
+  if (!db[bookingID].formStatus) {
+    db[bookingID].formStatus = { requiredForm: null, shortDone: false, longDone: false };
   }
+  if (formType === "short") db[bookingID].formStatus.shortDone = true;
+  if (formType === "long") db[bookingID].formStatus.longDone = true;
+
+  // Resolve required form automatically
+  if (db[bookingID].formStatus.shortDone) db[bookingID].formStatus.requiredForm = "short";
+  if (db[bookingID].formStatus.longDone) db[bookingID].formStatus.requiredForm = "long";
+
+  // Save file
+  fs.writeFileSync(file, JSON.stringify(db, null, 2), "utf8");
+
+  console.log(`🟢 Stored questionnaire + DVLA for #${bookingID}`);
+  return res.json({ ok: true });
 });
 
 // ----------------------------------------------------
