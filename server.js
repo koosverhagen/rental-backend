@@ -1154,21 +1154,24 @@ app.post("/deposit/send-link", async (req, res) => {
   }
 });
 
-// optional explicit "resend" wrapper if app prefers this endpoint
+// 💙 MANUAL deposit resend (HireCheck)
+// Simply forwards to /deposit/send-link with force=true
 app.post("/deposit/resend", async (req, res) => {
-  try {
-    const { bookingID, amount = 20000 } = req.body;
-    // just call main endpoint with force=true
-    const resp = await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingID, amount, force: true }),
-    }).then((r) => r.json());
-    res.json({ success: true, ...resp });
-  } catch (err) {
-    console.error("❌ Manual resend error:", err);
-    res.status(500).json({ error: err.message });
-  }
+  const { bookingID, amount = 20000 } = req.body;
+
+  console.log(`📩 /deposit/resend → forwarding FORCE resend for booking #${bookingID}`);
+
+  const resp = await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      bookingID,
+      amount,
+      force: true     // always resend
+    })
+  }).then(r => r.json()).catch(err => ({ success: false, error: err.message }));
+
+  return res.json(resp);
 });
 
 // ----------------------------------------------------
