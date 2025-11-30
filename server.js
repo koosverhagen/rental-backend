@@ -1063,96 +1063,103 @@ app.post("/email/deposit-confirmation", async (req, res) => {
   }
 });
 
-/// ----------------------------------------------------
-// Deposit link sender (V3)
-//  - automatic (callback / scheduler): deduped
-//  - manual (force=true): ALWAYS send email immediately
+// ----------------------------------------------------
+// MASTER DEPOSIT SENDER
+//  - automatic (no force) → dedupe + Stripe checks
+//  - manual (force=true) → EMAIL ALWAYS, skip Stripe
 // ----------------------------------------------------
 app.post("/deposit/send-link", async (req, res) => {
   try {
     const { bookingID, amount = 20000, force } = req.body;
+    const link = `https://www.equinetransportuk.com/deposit?bookingID=${bookingID}`;
+
     const isForced =
       force === true || force === "true" || force === 1 || force === "1";
 
-    const link = `https://www.equinetransportuk.com/deposit?bookingID=${bookingID}`;
-
-    // ⛔ Skip only automatic duplicates
-    if (!isForced && alreadySentRecently(bookingID)) {
-      console.log(`⏩ Skipping duplicate deposit send for #${bookingID} (recent)`);
-      return res.json({ success: true, url: link, alreadySent: true });
+    const bk = await fetchPlanyoBooking(bookingID);
+    if (!bk.email) {
+      return res.json({ success: false, error: "No customer email" });
     }
 
-    const bk = await fetchPlanyoBooking(bookingID);
-    if (!bk.email) return res.status(400).json({ error: "No customer email" });
+    // ---- DEDUPE ONLY WHEN NOT FORCED ----
+    if (!isForced && alreadySentRecently(bookingID)) {
+      console.log(`⏭ Duplicate avoided for #${bookingID}`);
+      return res.json({
+        success: true,
+        url: link,
+        alreadySent: true,
+        forced: false,
+      });
+    }
 
+    // ---- Email HTML ----
     const html = `
       <div style="font-family:Arial;line-height:1.5;color:#333;">
-        <div style="text-align:center; margin-bottom:20px;">
-          <img src="https://static.wixstatic.com/media/a9ff84_dfc6008558f94e88a3be92ae9c70201b~mv2.webp"
-               alt="Equine Transport UK" style="width:160px; height:auto;" />
-        </div>
         <h2 style="color:#0070f3;text-align:center;">
           Deposit Payment Request${isForced ? " (Resent)" : ""}
         </h2>
         <p>Dear ${bk.firstName} ${bk.lastName},</p>
-        <p>Please complete your deposit hold for <b>Booking #${bookingID}</b>.</p>
-        <p style="font-size:18px;text-align:center;">Deposit Required: <b>£${(amount/100).toFixed(2)}</b></p>
+        <p>Please secure your hire deposit for <b>Booking #${bookingID}</b>.</p>
+        <p style="font-size:18px;text-align:center;">
+          <b>£${(amount / 100).toFixed(2)}</b>
+        </p>
         <p style="text-align:center;margin:30px 0;">
-          <a href="${link}" style="padding:14px 24px;background:#0070f3;color:#fff;border-radius:6px;text-decoration:none;font-size:16px;">
+          <a href="${link}" style="padding:14px 24px;background:#0070f3;color:#fff;
+            border-radius:6px;text-decoration:none;font-size:16px;">
             💳 Pay Deposit Securely
           </a>
         </p>
-        <div style="background:#f0f7ff;border:1px solid #d6e7ff;color:#124a8a;padding:12px;border-radius:8px;margin-top:14px;font-size:14px">
-          <b>Note:</b> This is a <b>pre-authorisation</b>. No money is taken now.
-        </div>
-        <p style="margin-top:30px;">Kind regards,<br/>Koos & Avril<br/><b>Equine Transport UK</b></p>
-      </div>`;
+        <p>Kind regards,<br/>Koos & Avril<br/><b>Equine Transport UK</b></p>
+      </div>
+    `;
 
-    // 📧 Always send to customer + admin when forced
+    // ---- SEND EMAIL ----
     await Promise.all([
       sendgrid.send({
         to: bk.email,
         from: "Equine Transport UK <info@equinetransportuk.com>",
-        subject: `Equine Transport UK | Secure Deposit Link${isForced ? " (Resent)" : ""} | Booking #${bookingID} | ${bk.firstName} ${bk.lastName}`,
-        html
+        subject: `Deposit Link ${isForced ? "(Resent)" : ""} | Booking #${bookingID}`,
+        html,
       }),
       sendgrid.send({
         to: "kverhagen@mac.com",
         from: "Equine Transport UK <info@equinetransportuk.com>",
-        subject: `Admin Copy | Deposit Link ${isForced ? "Resent" : "Sent"} | Booking #${bookingID} | ${bk.firstName} ${bk.lastName}`,
-        html
-      })
+        subject: `Admin Copy | Deposit Link ${isForced ? "Resent" : "Sent"} | #${bookingID}`,
+        html,
+      }),
     ]);
 
     if (!isForced) markDepositSent(bookingID);
 
-    console.log(`📨 Deposit link EMAIL ${isForced ? "resent" : "sent"} for booking #${bookingID}`);
-    return res.json({ success: true, url: link, forced: isForced });
+    console.log(`📧 Deposit email ${isForced ? "resent" : "sent"} → ${bk.email}`);
 
+    return res.json({
+      success: true,
+      url: link,
+      forced: isForced,
+      email: bk.email,
+    });
   } catch (err) {
-    console.error("❌ deposit send-link error:", err);
-    return res.status(500).json({ success: false, error: err.message });
+    console.error("❌ Deposit send error:", err);
+    return res.json({ success: false, error: err.message });
   }
 });
 
-// 💙 MANUAL deposit resend (HireCheck)
-// Simply forwards to /deposit/send-link with force=true
-app.post("/deposit/resend", async (req, res) => {
+// ----------------------------------------------------
+// HIRECHECK ENDPOINT — always triggers manual resend
+// ----------------------------------------------------
+app.post("/deposit/resend", (req, res) => {
   const { bookingID, amount = 20000 } = req.body;
-
-  console.log(`📩 /deposit/resend → forwarding FORCE resend for booking #${bookingID}`);
-
-  const resp = await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+  return fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      bookingID,
-      amount,
-      force: true     // always resend
-    })
-  }).then(r => r.json()).catch(err => ({ success: false, error: err.message }));
-
-  return res.json(resp);
+    body: JSON.stringify({ bookingID, amount, force: true }),
+  })
+    .then((r) => r.json())
+    .then((data) => res.json(data))
+    .catch((err) =>
+      res.json({ success: false, error: err.message })
+    );
 });
 
 // ----------------------------------------------------
