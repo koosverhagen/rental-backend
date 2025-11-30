@@ -1,3 +1,5 @@
+//// PART 1 OF 4 — START
+
 // ----------------------------------------------------
 // Imports & Setup
 // ----------------------------------------------------
@@ -58,6 +60,22 @@ app.use(express.static("public"));
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
 
+
+// ----------------------------------------------------
+// ⚠️ DATE FORMATTER (dd/mm/yy) — ADDED
+// ----------------------------------------------------
+function formatDateLondon(dateString) {
+  if (!dateString) return "";
+  const d = new Date(dateString.replace(" ", "T"));
+  if (isNaN(d)) return dateString;
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = String(d.getFullYear()).slice(-2);
+  const time = `${String(d.getHours()).padStart(2, "0")}:${String(
+    d.getMinutes()
+  ).padStart(2, "0")}`;
+  return `${dd}/${mm}/${yy} ${time}`;
+}
 
 // IMPORTANT ⚠️
 // Stripe Webhook requires raw body. JSON middleware comes AFTER this.
@@ -139,7 +157,7 @@ app.post(
                 const html = emailTemplate({
                   title: "Deposit Refunded",
                   color: "#28a745",
-                  bodyTop: `Your deposit for <b>Booking #${bookingID}</b> has been <b>refunded</b> and will return to your account within 5–10 business days.`,
+                  bodyTop: `Your deposit for <b>Booking #${bookingID}</b> has been <b>refunded</b>.`,
                   bookingID,
                   booking,
                 });
@@ -176,9 +194,9 @@ app.post(
     }
   }
 );
+
 // ----------------------------------------------------
 // Normal middleware AFTER webhook
-// (Stripe webhook must remain FIRST because it needs raw body)
 // ----------------------------------------------------
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
@@ -191,6 +209,9 @@ function md5(str) {
   return crypto.createHash("md5").update(str).digest("hex");
 }
 
+// ----------------------------------------------------
+// ✨ UPDATED emailTemplate — now formats start/end DD/MM/YY
+// ----------------------------------------------------
 function emailTemplate({ title, color, bodyTop, bookingID, booking }) {
   return `
     <div style="font-family: Arial, sans-serif; line-height:1.6; color:#333;">
@@ -203,8 +224,8 @@ function emailTemplate({ title, color, bodyTop, bookingID, booking }) {
       <ul>
         <li><b>Booking:</b> #${bookingID}</li>
         <li><b>Lorry:</b> ${booking.resource}</li>
-        <li><b>From:</b> ${booking.start}</li>
-        <li><b>To:</b> ${booking.end}</li>
+        <li><b>From:</b> ${formatDateLondon(booking.start)}</li>
+        <li><b>To:</b> ${formatDateLondon(booking.end)}</li>
         <li><b>Customer:</b> ${booking.firstName} ${booking.lastName}</li>
         <li><b>Email:</b> ${booking.email || "—"}</li>
       </ul>
@@ -216,6 +237,8 @@ function emailTemplate({ title, color, bodyTop, bookingID, booking }) {
       </p>
     </div>`;
 }
+
+//// PART 2 OF 4 — START
 
 // ----------------------------------------------------
 // Fetch basic booking summary from Planyo (for emails, descriptions)
@@ -258,25 +281,21 @@ async function fetchPlanyoBooking(bookingID) {
     email: null,
   };
 }
+
 // ----------------------------------------------------
 // Persistent duplicate-protection (Render disk at /data)
 // ----------------------------------------------------
-// Use Render disk mounted at /data so we remember what we've sent between restarts
 const DATA_DIR = "/data";
 const SENT_FILE = path.join(DATA_DIR, "sentDeposits.json");
 const CALLBACK_FILE = path.join(DATA_DIR, "processedCallbacks.json");
-
 const FORM_STATUS_FILE = path.join(DATA_DIR, "form-status.json");
 
-// Load form status from disk: { [bookingID]: { requiredForm, shortDone, longDone } }
 let formStatus = {};
 try {
   if (fs.existsSync(FORM_STATUS_FILE)) {
     const raw = fs.readFileSync(FORM_STATUS_FILE, "utf8");
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      formStatus = parsed;
-    }
+    if (parsed && typeof parsed === "object") formStatus = parsed;
   }
 } catch (e) {
   console.warn("⚠️ Could not load form status:", e.message);
@@ -292,13 +311,11 @@ function saveFormStatus() {
   }
 }
 
-
 function loadSet(file) {
   try {
     if (fs.existsSync(file)) {
       const arr = JSON.parse(fs.readFileSync(file, "utf8"));
       if (Array.isArray(arr)) return new Set(arr);
-      // allow old format { bookingID: [timestamps] }
       if (arr && typeof arr === "object") return new Set(Object.keys(arr));
     }
   } catch (e) {
@@ -316,14 +333,10 @@ function saveSet(file, set) {
   }
 }
 
-// confirmed bookings we've already reacted to via /planyo/callback
 let processedBookings = loadSet(CALLBACK_FILE);
-// bookings we've emailed a deposit link to in the last 3 days (dedupe)
 let sentDepositBookings = loadSet(SENT_FILE);
 
 const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
-
-// cleanup each night: remove sent entries older than 3 days
 cron.schedule("0 0 * * *", () => {
   try {
     const cutoff = Date.now() - THREE_DAYS_MS;
@@ -333,13 +346,8 @@ cron.schedule("0 0 * * *", () => {
         return !isNaN(Number(ts)) && Number(ts) > cutoff;
       })
     );
-    if (clean.size !== sentDepositBookings.size) {
-      console.log(
-        `🧹 Cleaned old sent deposit tags (${sentDepositBookings.size - clean.size} removed)`
-      );
-      sentDepositBookings = clean;
-      saveSet(SENT_FILE, sentDepositBookings);
-    }
+    sentDepositBookings = clean;
+    saveSet(SENT_FILE, clean);
   } catch (e) {
     console.warn("⚠️ Cleanup failed:", e.message);
   }
@@ -394,9 +402,10 @@ async function planyoCall(method, params = {}) {
   let ts = Math.floor(Date.now() / 1000);
   let { url, json, text } = await fetchOnce(ts);
 
-  // self-heal invalid timestamp
-  if (json?.response_code === 1 &&
-      /Invalid timestamp/i.test(json.response_message || text)) {
+  if (
+    json?.response_code === 1 &&
+    /Invalid timestamp/i.test(json.response_message || text)
+  ) {
     const m = (json.response_message || "").match(
       /Current timestamp is\s+(\d+)/i
     );
@@ -407,10 +416,7 @@ async function planyoCall(method, params = {}) {
   }
 
   if (!json) {
-    console.error(
-      "❌ Planyo non-JSON response:",
-      (text || "").slice(0, 300)
-    );
+    console.error("❌ Planyo non-JSON response:", (text || "").slice(0, 300));
     return {
       url,
       json: { response_code: 1, response_message: "Non-JSON response" },
@@ -445,23 +451,14 @@ function formatPlanyoDateTime(d) {
 // Decide whether SHORT or LONG questionnaire is required
 // ----------------------------------------------------
 async function decideFormTypeForBooking(email, currentStartStr, currentReservationId) {
-  if (!email || !currentStartStr) {
-    console.warn("⚠️ Missing email or start time → default LONG");
-    return "long";
-  }
+  if (!email || !currentStartStr) return "long";
 
   const currentStart = parsePlanyoDate(currentStartStr);
-  if (!currentStart || isNaN(currentStart.getTime())) {
-    console.warn("⚠️ Start time unparseable → default LONG");
-    return "long";
-  }
+  if (!currentStart || isNaN(currentStart.getTime())) return "long";
 
-  // Look back 1 year
   const oneYearAgo = new Date(currentStart.getTime() - 365 * 24 * 60 * 60 * 1000);
   const start_time = formatPlanyoDateTime(oneYearAgo);
   const end_time = formatPlanyoDateTime(currentStart);
-
-  console.log(`📡 Checking booking history for ${email} between ${start_time} and ${end_time}`);
 
   const { json } = await planyoCall("list_reservations", {
     start_time,
@@ -474,153 +471,80 @@ async function decideFormTypeForBooking(email, currentStartStr, currentReservati
   });
 
   const results = json?.data?.results || [];
-  if (!results.length) {
-    console.log("🧮 First-ever booking → LONG form");
-    return "long";
-  }
+  if (!results.length) return "long";
 
-  // Most recent booking BEFORE this one
   let lastPrev = null;
   for (const r of results) {
     const rid = String(r.reservation_id || "");
     const st = parsePlanyoDate(r.start_time);
     if (!st || isNaN(st.getTime())) continue;
-    if (rid === String(currentReservationId)) continue; // skip current booking
+    if (rid === String(currentReservationId)) continue;
     if (st < currentStart && (!lastPrev || st > lastPrev.start)) {
       lastPrev = { start: st };
     }
   }
-
-  if (!lastPrev) {
-    console.log("🧮 No earlier booking before this one → LONG form");
-    return "long";
-  }
+  if (!lastPrev) return "long";
 
   const days = diffInDays(currentStart, lastPrev.start);
-  console.log(`📅 Time since last booking: ${days.toFixed(1)} days`);
-
-  if (days <= 90) {
-    console.log("📌 Last booking within 90 days → SHORT");
-    return "short";
-  } else {
-    console.log("📌 Last booking > 90 days → LONG");
-    return "long";
-  }
+  return days <= 90 ? "short" : "long";
 }
 
 // ----------------------------------------------------
-// Send questionnaire email — customer + admin copy with logo + footer
+// Send questionnaire email — customer + admin
 // ----------------------------------------------------
 async function sendQuestionnaireEmail({ bookingID, customerName, email, formType }) {
-  if (!email) {
-    console.warn(`⚠️ No email for booking #${bookingID}, aborting`);
-    return;
-  }
+  if (!email) return;
 
   const isShort = formType === "short";
   const formName = isShort ? "SHORT Form" : "LONG Form";
-
   const baseShort = "https://www.equinetransportuk.com/shortformsubmit";
-  const baseLong  = "https://www.equinetransportuk.com/longformsubmit";
-
+  const baseLong = "https://www.equinetransportuk.com/longformsubmit";
   const formUrl = isShort
     ? `${baseShort}?bookingID=${encodeURIComponent(bookingID)}`
     : `${baseLong}?bookingID=${encodeURIComponent(bookingID)}`;
 
   const subject = `Equine Transport UK – Please complete ${formName} for booking #${bookingID}`;
 
-  const text = `
-Dear ${customerName || "hirer"},
-
-Thank you for your booking with Equine Transport UK.
-
-You are required to complete the Millins Hire Questionnaire ${formName}.
-
-Form link:
-${formUrl}
-
-With kind regards,
-Koos & Avril
-Equine Transport UK
-`.trim();
-
-  const logoUrl = "https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715";
-
   const html = `
   <div style="font-family: Arial, sans-serif; font-size: 16px; color: #333; line-height: 1.6; max-width: 720px; margin: auto;">
-
-    <!-- Logo -->
     <div style="text-align: center; margin-bottom: 18px;">
-      <img src="${logoUrl}" alt="Equine Transport UK"
-           style="max-width: 160px; height: auto; display: inline-block;" />
+      <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715"
+           alt="Equine Transport UK" style="max-width: 160px; height: auto;" />
     </div>
-
     <p>Dear ${customerName || "hirer"},</p>
-
-    <p>Thank you for your booking with <strong>Equine Transport UK</strong>.</p>
-
     <p>
       Based on your booking history, you are required to complete the
       <strong>Millins Hire Questionnaire – ${formName}</strong>.
     </p>
-
     <div style="text-align: center; margin: 30px 0;">
       <a href="${formUrl}"
-         style="background: #0099ff; color: #ffffff; padding: 14px 32px;
-                border-radius: 6px; font-size: 18px; font-weight: bold;
-                text-decoration: none; display: inline-block;">
+         style="background: #0099ff; color:#fff; padding:14px 32px; border-radius:6px; font-size:18px; font-weight:bold; text-decoration:none;">
         Complete the ${formName}
       </a>
     </div>
-
-    <p>If the button does not work, please use this link:</p>
-    <p><a href="${formUrl}" style="color:#0099ff; font-weight: bold;">${formUrl}</a></p>
-
+    <p>If the button does not work, click the link:</p>
+    <p><a href="${formUrl}" style="color:#0099ff; font-weight:bold;">${formUrl}</a></p>
     <br>
-
-    <p>With kind regards,</p>
-    <p><strong>Koos & Avril</strong><br>
-      Equine Transport UK</p>
-
-    <hr style="margin: 32px 0 20px; border: none; border-top: 1px solid #ccc;">
-
-    <!-- Footer -->
-    <div style="text-align: center; font-size: 13px; color: #777; line-height: 1.5;">
-      <p>
-        📌 <strong>Booking reference:</strong> #${bookingID}<br>
-        📧 <a href="mailto:info@equinetransportuk.com" style="color:#777;">info@equinetransportuk.com</a><br>
-        📞 07812 188871<br>
-        🌍 <a href="https://www.equinetransportuk.com" style="color:#777;">www.equinetransportuk.com</a>
-      </p>
-      <p style="font-size: 12px; color: #aaa; margin-top: 8px;">
-        If you have already completed the ${formName}, please ignore this email.
-      </p>
-    </div>
+    <p>With kind regards,<br><strong>Koos & Avril</strong><br>Equine Transport UK</p>
   </div>
   `;
 
-  // Customer email
   await sendgrid.send({
     to: email,
     from: "Equine Transport UK <info@equinetransportuk.com>",
     subject,
-    text,
     html,
   });
 
-  // Admin copy
   await sendgrid.send({
     to: "kverhagen@mac.com",
     from: "Equine Transport UK <info@equinetransportuk.com>",
     subject: `Admin – ${subject}`,
-    text,
     html,
   });
-
-  console.log(
-    `📨 Questionnaire (${formName}) sent to ${email} + admin ("Admin – ${subject}") with logo + footer`
-  );
 }
+
+//// PART 3 OF 4 — START
 
 // ------------------------------------------------------
 // FORCE RESEND QUESTIONNAIRE (from iOS HireCheck app)
@@ -635,37 +559,29 @@ app.post("/forms/manual-resend", express.json(), async (req, res) => {
 
     console.log(`📨 Force resend triggered for booking #${bookingID}`);
 
-    // Pull latest booking info from /planyo/booking endpoint
     const bookingUrl = `${process.env.SERVER_URL}/planyo/booking/${bookingID}`;
-    const bookingData = await fetch(bookingUrl).then(r => r.json());
+    const bookingData = await fetch(bookingUrl).then((r) => r.json());
 
     const {
       bookingID: id,
       customerName,
       email,
       startDate,
-      formStatus
+      formStatus,
     } = bookingData;
 
-    // 🚨 Fallback — if no formStatus yet (first run)
     let formType = formStatus?.requiredForm;
 
-    // If unknown OR force flag is set → dynamically decide again
     if (!formType || force) {
-      formType = await decideFormTypeForBooking(
-        email,
-        startDate,
-        bookingID
-      );
+      formType = await decideFormTypeForBooking(email, startDate, bookingID);
     }
 
-    // 🚀 Send customer + optional admin copy
     await sendQuestionnaireEmail({
       bookingID: id,
       customerName,
       email,
       formType,
-      adminCopy: !!adminCopy      // pass boolean
+      adminCopy: !!adminCopy,
     });
 
     console.log(`📬 Questionnaire resent for booking #${bookingID}`);
@@ -674,15 +590,13 @@ app.post("/forms/manual-resend", express.json(), async (req, res) => {
       success: true,
       sent: true,
       bookingID,
-      formType
+      formType,
     });
-
   } catch (err) {
     console.error("❌ Force resend error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
-
 
 // ----------------------------------------------------
 // Stripe Terminal & Deposit endpoints
@@ -733,7 +647,7 @@ app.post("/deposit/create-intent", async (req, res) => {
 // web-based deposit page (standard card form)
 app.get("/deposit/pay/:bookingID", async (req, res) => {
   const bookingID = req.params.bookingID;
-  const amount = 20000; // £200 hold
+  const amount = 20000;
 
   const bk = await fetchPlanyoBooking(bookingID);
 
@@ -769,7 +683,7 @@ button{margin-top:16px;width:100%;padding:12px;border:0;border-radius:10px;backg
   <div class="logo">
     <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715" alt="Equine Transport UK Logo"/>
   </div>
-  <h2>Deposit Hold (£${(amount/100).toFixed(2)})</h2>
+  <h2>Deposit Hold (£${(amount / 100).toFixed(2)})</h2>
   <p class="center">
     Booking <b>#${bookingID}</b><br/>${bk.firstName} ${bk.lastName}<br/>${bk.resource}<br/>${bk.start} → ${bk.end}
   </p>
@@ -813,7 +727,7 @@ document.getElementById("payment-form").addEventListener("submit", async (e) => 
 </body></html>`);
 });
 
-// update PaymentIntent metadata (e.g. fullName)
+// update PaymentIntent metadata
 app.post("/update-metadata", async (req, res) => {
   try {
     const { payment_intent_id, metadata } = req.body;
@@ -986,13 +900,15 @@ app.get("/forms/status/:bookingID", (req, res) => {
   const bookingID = String(req.params.bookingID);
 
   const status = formStatus[bookingID] || {
-    requiredForm: null,   // "short" | "long" | null
+    requiredForm: null,
     shortDone: false,
     longDone: false,
   };
 
   return res.json(status);
 });
+
+//// PART 4 OF 4 — START
 
 // ----------------------------------------------------
 // Deposit confirmation email sent after successful hold
@@ -1001,10 +917,11 @@ app.post("/email/deposit-confirmation", async (req, res) => {
   try {
     const { bookingID, amount } = req.body;
     const bk = await fetchPlanyoBooking(bookingID);
-    if (!bk.email)
+    if (!bk.email) {
       return res
         .status(400)
         .json({ error: "Could not find customer email" });
+    }
 
     const htmlBody = `
       <div style="font-family: Arial, sans-serif; line-height:1.6; color:#333;">
@@ -1020,8 +937,8 @@ app.post("/email/deposit-confirmation", async (req, res) => {
         <h3>Booking Details</h3>
         <ul>
           <li><b>Lorry:</b> ${bk.resource}</li>
-          <li><b>From:</b> ${bk.start}</li>
-          <li><b>To:</b> ${bk.end}</li>
+          <li><b>From:</b> ${formatDateLondon(bk.start)}</li>
+          <li><b>To:</b> ${formatDateLondon(bk.end)}</li>
           <li><b>Customer:</b> ${bk.firstName} ${bk.lastName}</li>
           <li><b>Email:</b> ${bk.email}</li>
         </ul>
@@ -1065,8 +982,6 @@ app.post("/email/deposit-confirmation", async (req, res) => {
 
 // ----------------------------------------------------
 // Deposit link sender (V2 with manual override)
-//  - automatic (callback / scheduler): deduped
-//  - manual (force=true): always send
 // ----------------------------------------------------
 app.post("/deposit/send-link", async (req, res) => {
   try {
@@ -1116,8 +1031,8 @@ app.post("/deposit/send-link", async (req, res) => {
           <ul style="padding-left:18px; margin:0;">
             <li><strong>Booking reference:</strong> #${bookingID}</li>
             <li><strong>Lorry:</strong> ${bk.resource || "N/A"}</li>
-            <li><strong>From:</strong> ${bk.start || "N/A"}</li>
-            <li><strong>To:</strong> ${bk.end || "N/A"}</li>
+            <li><strong>From:</strong> ${bk.start ? formatDateLondon(bk.start) : "N/A"}</li>
+            <li><strong>To:</strong> ${bk.end ? formatDateLondon(bk.end) : "N/A"}</li>
             <li><strong>Customer:</strong> ${bk.firstName || ""} ${bk.lastName || ""}</li>
             <li><strong>Email:</strong> ${bk.email || "N/A"}</li>
           </ul>
@@ -1177,14 +1092,12 @@ app.post("/deposit/send-link", async (req, res) => {
     const subjectDetail = `Booking #${bookingID} | ${bk.firstName || ""} ${bk.lastName || ""}`.trim();
 
     await Promise.all([
-      // Customer email
       sendgrid.send({
         to: bk.email,
         from: "Equine Transport UK <info@equinetransportuk.com>",
         subject: `${subjectBase} | ${subjectDetail}`,
         html,
       }),
-      // Admin copy
       sendgrid.send({
         to: "kverhagen@mac.com",
         from: "Equine Transport UK <info@equinetransportuk.com>",
@@ -1207,7 +1120,6 @@ app.post("/deposit/send-link", async (req, res) => {
       forced: isForced,
       email: bk.email,
     });
-
   } catch (err) {
     console.error("❌ SendGrid deposit-link error:", err);
     return res.json({ success: false, error: err.message });
@@ -1226,9 +1138,7 @@ app.post("/deposit/resend", (req, res) => {
   })
     .then((r) => r.json())
     .then((data) => res.json(data))
-    .catch((err) =>
-      res.json({ success: false, error: err.message })
-    );
+    .catch((err) => res.json({ success: false, error: err.message }));
 });
 
 // ----------------------------------------------------
@@ -1236,14 +1146,12 @@ app.post("/deposit/resend", (req, res) => {
 // ----------------------------------------------------
 app.post("/forms/submit", express.json(), (req, res) => {
   const { email, type, bookingID } = req.body || {};
-
   if (!email || !type) {
     return res.status(400).json({ error: "Missing email or form type" });
   }
 
   const formType = type.toLowerCase() === "short" ? "short" : "long";
 
-  // Caller CAN pass bookingID — preferred
   if (bookingID) {
     console.log(`📨 Form submit: booking ${bookingID} → ${formType} = DONE`);
     if (!formStatus[bookingID]) {
@@ -1259,7 +1167,6 @@ app.post("/forms/submit", express.json(), (req, res) => {
     return res.json({ ok: true });
   }
 
-  // If bookingID isn't provided → find it via stored status
   const keys = Object.keys(formStatus);
   let target = keys.find(
     (bid) => formStatus[bid] && formStatus[bid].email === email
@@ -1279,7 +1186,6 @@ app.post("/forms/submit", express.json(), (req, res) => {
 
 // ----------------------------------------------------
 // Customer finished the questionnaire (SHORT or LONG)
-// Triggered by Wix form submission
 // ----------------------------------------------------
 app.post("/forms/submitted", express.json(), async (req, res) => {
   try {
@@ -1294,14 +1200,12 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
       return res.status(400).json({ error: "formType must be 'short' or 'long'" });
     }
 
-    // Load previous status if exists, otherwise initialize
     const status = formStatus[bookingID] || {
-      requiredForm: formType, // fallback
+      requiredForm: formType,
       shortDone: false,
-      longDone: false
+      longDone: false,
     };
 
-    // Mark completion
     if (formType === "short") {
       status.shortDone = true;
       status.requiredForm = "short";
@@ -1313,21 +1217,19 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
     }
 
     status.updatedAt = new Date().toISOString();
-
-    // Save to memory + disk
     formStatus[bookingID] = status;
     saveFormStatus();
 
-    console.log(`🟢 Questionnaire submitted for booking #${bookingID} → ${formType.toUpperCase()} completed`);
+    console.log(
+      `🟢 Questionnaire submitted for booking #${bookingID} → ${formType.toUpperCase()} completed`
+    );
 
     return res.json({ success: true, bookingID, status });
-
   } catch (err) {
     console.error("❌ Error in /forms/submitted:", err);
     return res.status(500).json({ error: err.message });
   }
 });
-
 
 // ----------------------------------------------------
 // Manual scheduler trigger
@@ -1360,7 +1262,6 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
       `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}` +
       `&details=1`;
 
-    // use Switzerland timezone to match Planyo's server time
     let ts = Math.floor(
       new Date(
         new Date().toLocaleString("en-US", { timeZone: "Europe/Zurich" })
@@ -1472,101 +1373,93 @@ app.post("/damage/send-report", async (req, res) => {
 // Planyo list for HireCheck (confirmed / in-progress / upcoming)
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
-    const log = (m) => process.stdout.write(m + "\n");
+  const log = (m) => process.stdout.write(m + "\n");
+  try {
+    log("📡 /planyo/upcoming → fetching reservations…");
+
+    const now = new Date();
+    const sevenDaysLater = new Date(
+      now.getTime() + 7 * 24 * 60 * 60 * 1000
+    );
+
+    const pad = (n) => String(n).padStart(2, "0");
+    const fmt = (d) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+        d.getDate()
+      )} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(
+        d.getSeconds()
+      )}`;
+
+    const start_time = fmt(
+      new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    );
+    const end_time = fmt(sevenDaysLater);
+
+    const method = "list_reservations";
+    const ts = Math.floor(Date.now() / 1000);
+    const url =
+      `https://www.planyo.com/rest/?method=${method}` +
+      `&api_key=${process.env.PLANYO_API_KEY}` +
+      `&site_id=${process.env.PLANYO_SITE_ID}` +
+      `&start_time=${start_time}` +
+      `&end_time=${end_time}` +
+      `&include_unconfirmed=0` +
+      `&hash_timestamp=${ts}` +
+      `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
+
+    log("🔗 Planyo URL: " + url);
+    const resp = await fetch(url);
+    const text = await resp.text();
+
+    let json;
     try {
-        log("📡 /planyo/upcoming → fetching reservations…");
-
-        const now = new Date();
-        const sevenDaysLater = new Date(
-            now.getTime() + 7 * 24 * 60 * 60 * 1000
-        );
-
-        const pad = (n) => String(n).padStart(2, "0");
-        const fmt = (d) =>
-            `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
-                d.getDate()
-            )} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(
-                d.getSeconds()
-            )}`; // Changed T to space to match Planyo format "yyyy-MM-dd HH:mm:ss"
-
-        // include 1 day back to keep “in progress” visible
-        const start_time = fmt(
-            new Date(now.getTime() - 24 * 60 * 60 * 1000)
-        );
-        const end_time = fmt(sevenDaysLater);
-
-        const method = "list_reservations";
-        const ts = Math.floor(Date.now() / 1000);
-        const url =
-            `https://www.planyo.com/rest/?method=${method}` +
-            `&api_key=${process.env.PLANYO_API_KEY}` +
-            `&site_id=${process.env.PLANYO_SITE_ID}` +
-            `&start_time=${start_time}` +
-            `&end_time=${end_time}` +
-            `&include_unconfirmed=0` +
-            `&hash_timestamp=${ts}` +
-            `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
-
-        log("🔗 Planyo URL: " + url);
-        const resp = await fetch(url);
-        const text = await resp.text();
-
-        let json;
-        try {
-            json = JSON.parse(text);
-        } catch {
-            json = null;
-        }
-        if (!json?.data?.results?.length) {
-            log("⚠️ No reservations returned.");
-            return res.json([]);
-        }
-
-        log("📋 Raw statuses:");
-        json.data.results.forEach((r) => {
-            const st = String(r.status || r.reservation_status || "");
-            if (!["4", "5", "7"].includes(st))
-                log(`🚫 Skip #${r.reservation_id} — status ${st}`);
-        });
-
-        // Keep confirmed(4), in_progress(5), upcoming/future(7)
-        const kept = json.data.results.filter((r) => {
-            const st = String(r.status || r.reservation_status || "");
-            return st === "4" || st === "5" || st === "7";
-        });
-
-        log(`✅ ${kept.length} bookings kept`);
-        const bookings = kept.map((b) => ({
-            bookingID: String(b.reservation_id),
-            vehicleName: b.name || "—",
-            startDate: b.start_time || "",
-            endDate: b.end_time || "",
-            customerName: `${b.first_name || ""} ${
-                b.last_name || ""
-            }`.trim(),
-            email: b.email || "",
-            // Use mobile or general phone number, prioritizing mobile (like the detail route)
-            phoneNumber: b.mobile_number || b.phone || "", 
-            totalPrice: b.total_price || "",
-            amountPaid: b.amount_paid || "",
-            // Planyo list often combines address into 'address'
-            addressLine1: b.address || "", 
-            addressLine2: b.city || "",
-            postcode: b.zip || "",
-            // Custom fields like Date of Birth are NOT returned by list_reservations.
-            // Setting this to "" ensures the structure matches BookingResponse/BookingItem.
-            dateOfBirth: "", 
-            userNotes: b.user_notes || "",
-            // additionalProducts is NOT returned by list_reservations. Set to [] or undefined.
-            additionalProducts: [], 
-        }));
-
-        res.json(bookings);
-    } catch (err) {
-        console.error("❌ /planyo/upcoming failed:", err);
-        res.status(500).json({ error: err.message });
+      json = JSON.parse(text);
+    } catch {
+      json = null;
     }
+    if (!json?.data?.results?.length) {
+      log("⚠️ No reservations returned.");
+      return res.json([]);
+    }
+
+    log("📋 Raw statuses:");
+    json.data.results.forEach((r) => {
+      const st = String(r.status || r.reservation_status || "");
+      if (!["4", "5", "7"].includes(st))
+        log(`🚫 Skip #${r.reservation_id} — status ${st}`);
+    });
+
+    const kept = json.data.results.filter((r) => {
+      const st = String(r.status || r.reservation_status || "");
+      return st === "4" || st === "5" || st === "7";
+    });
+
+    log(`✅ ${kept.length} bookings kept`);
+    const bookings = kept.map((b) => ({
+      bookingID: String(b.reservation_id),
+      vehicleName: b.name || "—",
+      startDate: b.start_time || "",
+      endDate: b.end_time || "",
+      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      email: b.email || "",
+      phoneNumber: b.mobile_number || b.phone || "",
+      totalPrice: b.total_price || "",
+      amountPaid: b.amount_paid || "",
+      addressLine1: b.address || "",
+      addressLine2: b.city || "",
+      postcode: b.zip || "",
+      dateOfBirth: "",
+      userNotes: b.user_notes || "",
+      additionalProducts: [],
+    }));
+
+    res.json(bookings);
+  } catch (err) {
+    console.error("❌ /planyo/upcoming failed:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
+
 // ----------------------------------------------------
 // Planyo single booking (full details for QR scan / HireCheck)
 // ----------------------------------------------------
@@ -1589,14 +1482,17 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       const resp = await fetch(url);
       const t = await resp.text();
       let j;
-      try { j = JSON.parse(t); } catch { j = null; }
+      try {
+        j = JSON.parse(t);
+      } catch {
+        j = null;
+      }
       return { j, t };
     };
 
     let ts = Math.floor(Date.now() / 1000);
     let { j, t } = await call(ts);
 
-    // retry if timestamp error
     if (
       j?.response_code === 1 &&
       /Invalid timestamp/i.test(j.response_message || t)
@@ -1664,7 +1560,6 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
         return res.status(200).send("Already processed");
       }
 
-      // 🔍 Fetch booking summary (start time, name, email)
       const bk = await fetchPlanyoBooking(bookingID);
 
       const customerEmail =
@@ -1674,7 +1569,6 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
       }`.trim();
       const currentStartStr = bk.start || data.start_time || data.from || null;
 
-      // 🧠 Decide LONG vs SHORT based on history
       if (customerEmail && currentStartStr) {
         try {
           const formType = await decideFormTypeForBooking(
@@ -1683,7 +1577,6 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
             bookingID
           );
 
-          // Persist required form type for this booking
           if (!formStatus[bookingID]) {
             formStatus[bookingID] = {
               requiredForm: formType,
@@ -1695,7 +1588,6 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
           }
           saveFormStatus();
 
-          // Send correct questionnaire email (SHORT or LONG)
           await sendQuestionnaireEmail({
             bookingID,
             customerName,
@@ -1703,7 +1595,10 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
             formType,
           });
         } catch (e) {
-          console.error("❌ Error deciding form type or sending questionnaire:", e);
+          console.error(
+            "❌ Error deciding form type or sending questionnaire:",
+            e
+          );
         }
       } else {
         console.warn(
@@ -1711,7 +1606,6 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
         );
       }
 
-      // 💳 Deposit link (existing behaviour, with duplicate guard)
       await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1799,7 +1693,6 @@ async function runDepositScheduler(mode) {
     for (const item of list.json.data.results) {
       const bookingID = String(item.reservation_id);
 
-      // status 7 (confirmed future) is the only one we want the night before
       const details = await planyoCall("get_reservation_data", {
         reservation_id: bookingID,
       });
@@ -1809,7 +1702,6 @@ async function runDepositScheduler(mode) {
         continue;
       }
 
-      // rely on /deposit/send-link duplicate guard
       await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1832,3 +1724,6 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () =>
   console.log(`✅ Server running on port ${PORT}`)
 );
+
+
+
