@@ -1495,7 +1495,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
   }
 });
 
-// ----------------------------------------------------
+/// ----------------------------------------------------
 // Planyo single booking (full details for QR scan / HireCheck)
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
@@ -1551,6 +1551,8 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         quantity: Number(p.quantity || 1),
       }));
 
+    const questionnaire = formStatus[bookingID] || null;
+
     const booking = {
       bookingID,
       vehicleName: b.name || "—",
@@ -1570,8 +1572,13 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         b.regular_products || b.group_products || []
       ),
 
-      // ⭐️ NEW → Include Questionnaire + DVLA status for HireCheck
-      formStatus: formStatus[bookingID] || null
+      // ⭐ NEW → include whole form status block
+      formStatus: questionnaire,
+
+      // ⭐ NEW → flatten DVLA status so iOS app can read it as booking.dvlaStatus
+      dvlaStatus: questionnaire?.dvlaStatus || null,
+      dvlaExpiry: questionnaire?.dvlaExpiry || null,
+      dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
     };
 
     res.json(booking);
