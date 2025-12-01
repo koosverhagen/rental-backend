@@ -1496,6 +1496,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
 });
 
 /// ----------------------------------------------------
+/// ----------------------------------------------------
 // Planyo single booking (full details for QR scan / HireCheck)
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
@@ -1517,21 +1518,14 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       const resp = await fetch(url);
       const t = await resp.text();
       let j;
-      try {
-        j = JSON.parse(t);
-      } catch {
-        j = null;
-      }
+      try { j = JSON.parse(t); } catch { j = null; }
       return { j, t };
     };
 
     let ts = Math.floor(Date.now() / 1000);
     let { j, t } = await call(ts);
 
-    if (
-      j?.response_code === 1 &&
-      /Invalid timestamp/i.test(j.response_message || t)
-    ) {
+    if (j?.response_code === 1 && /Invalid timestamp/i.test(j.response_message || t)) {
       const m = (j.response_message || "").match(/Current timestamp is\s+(\d+)/i);
       if (m?.[1]) {
         ts = Number(m[1]);
@@ -1539,11 +1533,11 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       }
     }
 
-    if (!j?.data)
+    if (!j?.data) {
       return res.status(404).json({ error: "No booking found", raw: t });
+    }
 
     const b = j.data;
-
     const mapProducts = (arr = []) =>
       arr.map((p) => ({
         id: String(p.id || ""),
@@ -1551,6 +1545,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         quantity: Number(p.quantity || 1),
       }));
 
+    // 🟢 Fetch questionnaire and DVLA state
     const questionnaire = formStatus[bookingID] || null;
 
     const booking = {
@@ -1572,16 +1567,17 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         b.regular_products || b.group_products || []
       ),
 
-      // ⭐ NEW → include whole form status block
+      // ⭐ full questionnaire object: requiredForm / shortDone / longDone / dvlaStatus / dvlaExpiry / dvlaNameMatch
       formStatus: questionnaire,
 
-      // ⭐ NEW → flatten DVLA status so iOS app can read it as booking.dvlaStatus
-      dvlaStatus: questionnaire?.dvlaStatus || null,
-      dvlaExpiry: questionnaire?.dvlaExpiry || null,
+      // ⭐ flattened DVLA fields for direct Swift decoding
+      dvlaStatus: questionnaire?.dvlaStatus ?? null,
+      dvlaExpiry: questionnaire?.dvlaExpiry ?? null,
       dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
     };
 
     res.json(booking);
+
   } catch (err) {
     console.error("❌ Get booking details failed:", err);
     res.status(500).json({ error: err.message });
