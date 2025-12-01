@@ -908,7 +908,6 @@ app.get("/forms/status/:bookingID", (req, res) => {
   return res.json(status);
 });
 
-//// PART 4 OF 4 — START
 
 // ----------------------------------------------------
 // Deposit confirmation email sent after successful hold
@@ -1570,6 +1569,9 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       additionalProducts: mapProducts(
         b.regular_products || b.group_products || []
       ),
+
+      // ⭐️ NEW → Include Questionnaire + DVLA status for HireCheck
+      formStatus: formStatus[bookingID] || null
     };
 
     res.json(booking);
