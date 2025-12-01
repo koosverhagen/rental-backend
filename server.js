@@ -1215,9 +1215,12 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
     // Save DVLA fields
     status.licenceNumber = licenceNumber;
     status.dvlaCode = dvlaCode;
-    status.dvlaStatus = "pending"; // will be updated once DVLA result comes in
-    status.updatedAt = new Date().toISOString();
+   // Preserve DVLA result if already checked previously
+if (!status.dvlaStatus) {
+  status.dvlaStatus = "pending";
+}
 
+status.updatedAt = new Date().toISOString();
     formStatus[bookingID] = status;
     saveFormStatus();
 
@@ -1567,13 +1570,14 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         b.regular_products || b.group_products || []
       ),
 
-      // ⭐ full questionnaire object: requiredForm / shortDone / longDone / dvlaStatus / dvlaExpiry / dvlaNameMatch
-      formStatus: questionnaire,
+      // 👉 full questionnaire object (short/long + DVLA fields)
+formStatus: questionnaire,
 
-      // ⭐ flattened DVLA fields for direct Swift decoding
-      dvlaStatus: questionnaire?.dvlaStatus ?? null,
-      dvlaExpiry: questionnaire?.dvlaExpiry ?? null,
-      dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
+// 👉 Flatten DVLA to top level for easy SwiftUI display
+dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
+dvlaExpiry: questionnaire?.dvlaExpiry ?? "",
+dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
+
     };
 
     res.json(booking);
