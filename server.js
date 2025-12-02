@@ -1499,7 +1499,6 @@ app.get("/planyo/upcoming", async (_req, res) => {
 });
 
 /// ----------------------------------------------------
-/// ----------------------------------------------------
 // Planyo single booking (full details for QR scan / HireCheck)
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
@@ -1548,38 +1547,43 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         quantity: Number(p.quantity || 1),
       }));
 
-    // 🟢 Fetch questionnaire and DVLA state
-    const questionnaire = formStatus[bookingID] || null;
+      // 🟢 Fetch questionnaire and DVLA state
+  const questionnaire = formStatus[bookingID] || null;
 
-    const booking = {
-  bookingID,
-  vehicleName: b.name || "—",
-  startDate: b.start_time || "",
-  endDate: b.end_time || "",
-  customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-  email: b.email || "",
-  phoneNumber: b.mobile_number || b.phone_number || "",
-  totalPrice: b.total_price || "",
-  amountPaid: b.amount_paid || "",
-  addressLine1: b.address || "",
-  addressLine2: b.city || "",
-  postcode: b.zip || "",
-  dateOfBirth: b.properties?.Date_of_Birth || "",
-  userNotes: b.user_notes || "",
-  additionalProducts: mapProducts(
-    b.regular_products || b.group_products || []
-  ),
+  const booking = {
+    bookingID,
+    vehicleName: b.name || "—",
+    startDate: b.start_time || "",
+    endDate: b.end_time || "",
+    customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+    email: b.email || "",
+    phoneNumber: b.mobile_number || b.phone_number || "",
+    totalPrice: b.total_price || "",
+    amountPaid: b.amount_paid || "",
+    addressLine1: b.address || "",
+    addressLine2: b.city || "",
+    postcode: b.zip || "",
+    dateOfBirth: b.properties?.Date_of_Birth || "",
+    userNotes: b.user_notes || "",
+    additionalProducts: mapProducts(b.regular_products || b.group_products || []),
 
-  // ⭐ full questionnaire object (short/long + DVLA)
-  formStatus: questionnaire,
+    // 🟢 Full formStatus INCLUDING DVLA — needed for Swift UI
+    formStatus: questionnaire && {
+      requiredForm: questionnaire.requiredForm ?? null,
+      shortDone: questionnaire.shortDone ?? false,
+      longDone: questionnaire.longDone ?? false,
+      dvlaStatus: questionnaire.dvlaStatus ?? "pending",
+      dvlaExpiry: questionnaire.dvlaExpiry ?? "",
+      dvlaNameMatch: questionnaire.dvlaNameMatch ?? null
+    },
 
-  // ⭐ flattened DVLA for easy Swift decoding
-  dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
-  dvlaExpiry: questionnaire?.dvlaExpiry ?? "",
-  dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
-};
+    // 🟡 Flattened DVLA (legacy / optional)
+    dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
+    dvlaExpiry: questionnaire?.dvlaExpiry ?? "",
+    dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
+  };
 
-    res.json(booking);
+  res.json(booking);
 
   } catch (err) {
     console.error("❌ Get booking details failed:", err);
