@@ -1212,13 +1212,15 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
     if (formType === "short") status.shortDone = true;
     if (formType === "long") status.longDone = true;
 
-    // Save DVLA fields
-    status.licenceNumber = licenceNumber;
-    status.dvlaCode = dvlaCode;
-   // Preserve DVLA result if already checked previously
+    // Save DVLA fields (always required in form)
+status.licenceNumber = licenceNumber;
+status.dvlaCode = dvlaCode;
+
+// If DVLA has never been checked before → pending
 if (!status.dvlaStatus) {
   status.dvlaStatus = "pending";
 }
+
 
 status.updatedAt = new Date().toISOString();
     formStatus[bookingID] = status;
@@ -1279,6 +1281,60 @@ app.post("/dvla/check", express.json(), async (req, res) => {
 
   } catch (err) {
     console.error("❌ DVLA check error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// DVLA manual verify (no official DVLA API)
+// Called by HireCheck after staff has checked the licence online
+// ----------------------------------------------------
+app.post("/dvla/manual-verify", express.json(), async (req, res) => {
+  try {
+    const bookingID = String(req.body.bookingID || "").trim();
+    const licenceNumber = (req.body.licenceNumber || "").trim();
+    const dvlaCode = (req.body.dvlaCode || "").trim();
+    const dvlaExpiry = (req.body.dvlaExpiry || "").trim() || null; // optional
+
+    if (!bookingID) {
+      return res.status(400).json({ error: "Missing bookingID" });
+    }
+    if (!licenceNumber || !dvlaCode) {
+      return res
+        .status(400)
+        .json({ error: "Missing licenceNumber or dvlaCode" });
+    }
+
+    const existing = formStatus[bookingID] || {
+      requiredForm: null,
+      shortDone: false,
+      longDone: false,
+    };
+
+    // Save fields from the questionnaire
+    existing.licenceNumber = licenceNumber;
+    existing.dvlaCode = dvlaCode;
+
+    // 🟢 Mark as manually verified
+    existing.dvlaStatus = "valid";       // used by app for green badge
+    existing.dvlaNameMatch = true;       // we assume staff checked visually
+    existing.dvlaExpiry = dvlaExpiry;    // optional free-text like "12/12/2028"
+    existing.updatedAt = new Date().toISOString();
+
+    formStatus[bookingID] = existing;
+    saveFormStatus();
+
+    console.log(
+      `🟢 DVLA MANUAL VERIFY #${bookingID}: licence=${licenceNumber}, code=${dvlaCode}, expiry=${dvlaExpiry || "—"}`
+    );
+
+    return res.json({
+      success: true,
+      bookingID,
+      status: existing,
+    });
+  } catch (err) {
+    console.error("❌ /dvla/manual-verify error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
