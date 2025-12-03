@@ -1394,17 +1394,15 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
     if (json?.response_code === 0 && json.data) {
       const r = json.data;
       return res.json({
-        bookingID,
-        customer: `${r.first_name} ${r.last_name}`,
-        resource: r.name,
-        start: r.start_time,
-        end: r.end_time,
-        total: parseFloat(r.total_price || 0).toFixed(2),
-        paid: parseFloat(r.amount_paid || 0).toFixed(2),
-        balance: parseFloat(
-          (r.total_price || 0) - (r.amount_paid || 0)
-        ).toFixed(2),
-      });
+  bookingID,
+  customer: `${r.first_name} ${r.last_name}`,
+  resource: r.name,
+  start: formatDateLondon(r.start_time),
+  end: formatDateLondon(r.end_time),
+  total: parseFloat(r.total_price || 0).toFixed(2),
+  paid: parseFloat(r.amount_paid || 0).toFixed(2),
+  balance: parseFloat((r.total_price || 0) - (r.amount_paid || 0)).toFixed(2),
+});
     }
 
     console.error("❌ Invalid Planyo response:", json);
