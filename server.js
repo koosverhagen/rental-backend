@@ -1515,9 +1515,6 @@ app.post("/damage/send-report", async (req, res) => {
   }
 });
 
-/// ----------------------------------------------------
-// Planyo list for HireCheck (confirmed / in-progress / upcoming)
-// ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
   const log = (m) => process.stdout.write(m + "\n");
 
@@ -1525,20 +1522,17 @@ app.get("/planyo/upcoming", async (_req, res) => {
     log("📡 /planyo/upcoming → fetching reservations…");
 
     const now = new Date();
-    const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-
     const pad = (n) => String(n).padStart(2, "0");
     const fmt = (d) =>
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-      `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-
-    const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-    const end_time = fmt(thirtyDaysLater);
+      `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    
+    const start_time = fmt(new Date(now.getTime() - 24*60*60*1000));
+    const end_time = fmt(new Date(now.getTime() + 30*24*60*60*1000));
 
     const method = "list_reservations";
-    const ts = Math.floor(Date.now() / 1000);
+    let ts = Math.floor(Date.now()/1000);
 
-    const url =
+    const buildUrl = (ts) =>
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
       `&site_id=${process.env.PLANYO_SITE_ID}` +
@@ -1548,57 +1542,51 @@ app.get("/planyo/upcoming", async (_req, res) => {
       `&hash_timestamp=${ts}` +
       `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
 
-    log("🔗 Planyo URL: " + url);
-
-    const resp = await fetch(url);
-    const text = await resp.text();
+    // --- FIRST CALL ---
+    let resp = await fetch(buildUrl(ts));
+    let text = await resp.text();
 
     let json;
     try { json = JSON.parse(text); } catch { json = null; }
 
-    if (!json?.data?.results?.length) {
-      log("⚠️ No reservations returned.");
-      return res.json([]);
+    // --- TIMESTAMP FIX ---
+    if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
+      const m = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
+      if (m?.[1]) {
+        ts = Number(m[1]);
+        resp = await fetch(buildUrl(ts));
+        text = await resp.text();
+        try { json = JSON.parse(text); } catch { json = null; }
+      }
     }
 
-    const kept = json.data.results.filter((r) => {
-      const st = String(r.status || r.reservation_status || "");
-      return ["4", "5", "7"].includes(st);
-    });
+    if (!json?.data?.results?.length) return res.json([]);
 
-    log(`✅ ${kept.length} bookings kept`);
+    const kept = json.data.results.filter((r) =>
+      ["4", "5", "7"].includes(String(r.status || r.reservation_status))
+    );
 
-    // ISO-safe conversion
     const toIso = (raw) => {
       const d = new Date(raw);
-      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+      return isNaN(d) ? new Date().toISOString() : d.toISOString();
     };
 
     const bookings = kept.map((b) => ({
       bookingID: String(b.reservation_id),
-
       vehicleName: b.name || "—",
-
-      // ISO8601 ONLY
       startDate: toIso(b.start_time),
       endDate: toIso(b.end_time),
-
-      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      customerName: `${b.first_name||""} ${b.last_name||""}`.trim(),
       email: b.email || "",
       phoneNumber: b.mobile_number || b.phone || "",
-
       totalPrice: parseFloat(b.total_price || 0),
       amountPaid: parseFloat(b.amount_paid || 0),
-
       addressLine1: b.address || "",
       addressLine2: b.city || "",
       postcode: b.zip || "",
       dateOfBirth: "",
-
       userNotes: b.user_notes || "",
       additionalProducts: [],
-
-      // SAFE for SwiftUI decoding
       formStatus: {
         requiredForm: null,
         shortDone: false,
@@ -1612,7 +1600,6 @@ app.get("/planyo/upcoming", async (_req, res) => {
     }));
 
     res.json(bookings);
-
   } catch (err) {
     console.error("❌ /planyo/upcoming failed:", err);
     res.status(500).json({ error: err.message });
@@ -1620,119 +1607,83 @@ app.get("/planyo/upcoming", async (_req, res) => {
 });
 
 
-/// ----------------------------------------------------
-// Planyo single booking (full details for HireCheck QR scan)
-// ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
     const bookingID = req.params.bookingID;
     const method = "get_reservation_data";
+    let ts = Math.floor(Date.now()/1000);
 
-    const call = async (ts) => {
-      const url =
-        `https://www.planyo.com/rest/?method=${method}` +
-        `&api_key=${process.env.PLANYO_API_KEY}` +
-        `&site_id=${process.env.PLANYO_SITE_ID}` +
-        `&reservation_id=${bookingID}` +
-        `&include_form_items=1` +
-        `&include_additional_products=1` +
-        `&hash_timestamp=${ts}` +
-        `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
+    const buildUrl = (ts) =>
+      `https://www.planyo.com/rest/?method=${method}` +
+      `&api_key=${process.env.PLANYO_API_KEY}` +
+      `&site_id=${process.env.PLANYO_SITE_ID}` +
+      `&reservation_id=${bookingID}` +
+      `&include_form_items=1` +
+      `&include_additional_products=1` +
+      `&hash_timestamp=${ts}` +
+      `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
 
-      const resp = await fetch(url);
-      const t = await resp.text();
-      let j;
-      try { j = JSON.parse(t); } catch { j = null; }
-      return { j, t };
-    };
+    // FIRST CALL
+    let resp = await fetch(buildUrl(ts));
+    let text = await resp.text();
 
-    let ts = Math.floor(Date.now() / 1000);
+    let json;
+    try { json = JSON.parse(text); } catch { json = null; }
 
-    let { j, t } = await call(ts);
-
-    // Fix timestamp mismatch
-    if (j?.response_code === 1 && /Invalid timestamp/i.test(j.response_message || t)) {
-      const m = (j.response_message || "").match(/Current timestamp is\s+(\d+)/i);
+    // FIX TIMESTAMP
+    if (json?.response_code === 1 && /Invalid timestamp/i.test(json.response_message || text)) {
+      const m = (json.response_message || "").match(/Current timestamp is\s+(\d+)/i);
       if (m?.[1]) {
         ts = Number(m[1]);
-        ({ j, t } = await call(ts));
+        resp = await fetch(buildUrl(ts));
+        text = await resp.text();
+        try { json = JSON.parse(text); } catch { json = null; }
       }
     }
 
-    if (!j?.data) {
-      return res.status(404).json({ error: "No booking found", raw: t });
-    }
+    if (!json?.data) return res.status(404).json({ error: "No booking found" });
 
-    const b = j.data;
-
-    const safeIso = (raw) => {
+    const b = json.data;
+    const toIso = (raw) => {
       const d = new Date(raw);
-      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
-    };
-
-    const mapProducts = (list) =>
-      (list || []).map((p) => ({
-        id: String(p.id || ""),
-        name: p.name || "",
-        quantity: Number(p.quantity || 1)
-      }));
-
-    const questionnaire = formStatus[bookingID] || null;
-
-    const safeFormStatus = questionnaire ? {
-      requiredForm: questionnaire.requiredForm ?? null,
-      shortDone: questionnaire.shortDone ?? false,
-      longDone: questionnaire.longDone ?? false,
-      licenceNumber: questionnaire.licenceNumber || "",
-      dvlaCode: questionnaire.dvlaCode || "",
-      dvlaStatus: questionnaire.dvlaStatus || "pending",
-      dvlaExpiry: questionnaire.dvlaExpiry || "",
-      dvlaNameMatch: questionnaire.dvlaNameMatch ?? false
-    } : {
-      requiredForm: null,
-      shortDone: false,
-      longDone: false,
-      licenceNumber: "",
-      dvlaCode: "",
-      dvlaStatus: "pending",
-      dvlaExpiry: "",
-      dvlaNameMatch: false
+      return isNaN(d) ? new Date().toISOString() : d.toISOString();
     };
 
     const booking = {
       bookingID,
       vehicleName: b.name || "—",
-
-      startDate: safeIso(b.start_time),
-      endDate: safeIso(b.end_time),
-
-      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      startDate: toIso(b.start_time),
+      endDate: toIso(b.end_time),
+      customerName: `${b.first_name||""} ${b.last_name||""}`.trim(),
       email: b.email || "",
       phoneNumber: b.mobile_number || b.phone_number || "",
-
       totalPrice: parseFloat(b.total_price || 0),
       amountPaid: parseFloat(b.amount_paid || 0),
-
       addressLine1: b.address || "",
       addressLine2: b.city || "",
       postcode: b.zip || "",
-
       dateOfBirth: b.properties?.Date_of_Birth || "",
       userNotes: b.user_notes || "",
-
-      additionalProducts: mapProducts(
-        b.regular_products ||
-        b.group_products ||
-        []
-      ),
-
-      formStatus: safeFormStatus
+      additionalProducts: (b.regular_products||[]).map((p)=>({
+        id: String(p.id||""),
+        name: p.name||"",
+        quantity: Number(p.quantity||1)
+      })),
+      formStatus: formStatus[bookingID] || {
+        requiredForm: null,
+        shortDone: false,
+        longDone: false,
+        licenceNumber: "",
+        dvlaCode: "",
+        dvlaStatus: "pending",
+        dvlaExpiry: "",
+        dvlaNameMatch: false
+      }
     };
 
     res.json(booking);
-
   } catch (err) {
-    console.error("❌ Get booking details failed:", err);
+    console.error("❌ /planyo/booking failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
