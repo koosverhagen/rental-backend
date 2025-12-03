@@ -1524,9 +1524,9 @@ app.get("/planyo/upcoming", async (_req, res) => {
     log("📡 /planyo/upcoming → fetching reservations…");
 
     const now = new Date();
-    const sevenDaysLater = new Date(
-      now.getTime() + 7 * 24 * 60 * 60 * 1000
-    );
+    const thirtyDaysLater = new Date(
+  now.getTime() + 30 * 24 * 60 * 60 * 1000
+);
 
     const pad = (n) => String(n).padStart(2, "0");
     const fmt = (d) =>
