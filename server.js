@@ -1524,22 +1524,19 @@ app.get("/planyo/upcoming", async (_req, res) => {
     log("📡 /planyo/upcoming → fetching reservations…");
 
     const now = new Date();
+
+    // 🔧 30 DAY WINDOW
     const thirtyDaysLater = new Date(
-  now.getTime() + 30 * 24 * 60 * 60 * 1000
-);
+      now.getTime() + 30 * 24 * 60 * 60 * 1000
+    );
 
     const pad = (n) => String(n).padStart(2, "0");
     const fmt = (d) =>
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
-        d.getDate()
-      )} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(
-        d.getSeconds()
-      )}`;
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+      `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
-    const start_time = fmt(
-      new Date(now.getTime() - 24 * 60 * 60 * 1000)
-    );
-   const end_time = fmt(thirtyDaysLater);
+    const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+    const end_time = fmt(thirtyDaysLater);
 
     const method = "list_reservations";
     const ts = Math.floor(Date.now() / 1000);
@@ -1558,11 +1555,8 @@ app.get("/planyo/upcoming", async (_req, res) => {
     const text = await resp.text();
 
     let json;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      json = null;
-    }
+    try { json = JSON.parse(text); } catch { json = null; }
+
     if (!json?.data?.results?.length) {
       log("⚠️ No reservations returned.");
       return res.json([]);
@@ -1575,12 +1569,15 @@ app.get("/planyo/upcoming", async (_req, res) => {
         log(`🚫 Skip #${r.reservation_id} — status ${st}`);
     });
 
+    // Only confirmed / in-progress bookings
     const kept = json.data.results.filter((r) => {
       const st = String(r.status || r.reservation_status || "");
       return st === "4" || st === "5" || st === "7";
     });
 
     log(`✅ ${kept.length} bookings kept`);
+
+    // SAFE OUTPUT FOR SWIFT
     const bookings = kept.map((b) => ({
       bookingID: String(b.reservation_id),
       vehicleName: b.name || "—",
@@ -1589,24 +1586,44 @@ app.get("/planyo/upcoming", async (_req, res) => {
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
       phoneNumber: b.mobile_number || b.phone || "",
+
+      // 🔥 numeric and decode-safe
       totalPrice: parseFloat(b.total_price || 0),
       amountPaid: parseFloat(b.amount_paid || 0),
+
+      // 🔥 address safe
       addressLine1: b.address || "",
       addressLine2: b.city || "",
       postcode: b.zip || "",
       dateOfBirth: "",
+
       userNotes: b.user_notes || "",
+
+      // 🔥 SWIFT SAFE ARRAY
       additionalProducts: [],
+
+      // 🔥 Always include minimal formStatus so decode NEVER breaks
+      formStatus: {
+        requiredForm: null,
+        shortDone: false,
+        longDone: false,
+        licenceNumber: "",
+        dvlaCode: "",
+        dvlaStatus: "pending",
+        dvlaExpiry: "",
+        dvlaNameMatch: false
+      }
     }));
 
     res.json(bookings);
+
   } catch (err) {
     console.error("❌ /planyo/upcoming failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-/// ----------------------------------------------------
+// ----------------------------------------------------
 // Planyo single booking (full details for QR scan / HireCheck)
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
@@ -1635,6 +1652,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     let ts = Math.floor(Date.now() / 1000);
     let { j, t } = await call(ts);
 
+    // Timestamp correction
     if (j?.response_code === 1 && /Invalid timestamp/i.test(j.response_message || t)) {
       const m = (j.response_message || "").match(/Current timestamp is\s+(\d+)/i);
       if (m?.[1]) {
@@ -1648,50 +1666,69 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     }
 
     const b = j.data;
+
+    // Additional products → Swift-safe format
     const mapProducts = (arr = []) =>
-      arr.map((p) => ({
+      (arr || []).map((p) => ({
         id: String(p.id || ""),
         name: p.name || "",
         quantity: Number(p.quantity || 1),
       }));
 
-      // 🟢 Fetch questionnaire and DVLA state
-  const questionnaire = formStatus[bookingID] || null;
+    // Questionnaire data stored from forms
+    const questionnaire = formStatus[bookingID] || null;
 
-  const booking = {
-    bookingID,
-    vehicleName: b.name || "—",
-    startDate: b.start_time || "",
-    endDate: b.end_time || "",
-    customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-    email: b.email || "",
-    phoneNumber: b.mobile_number || b.phone_number || "",
-    totalPrice: parseFloat(b.total_price || 0),
-    amountPaid: parseFloat(b.amount_paid || 0),
-    addressLine1: b.address || "",
-    addressLine2: b.city || "",
-    postcode: b.zip || "",
-    dateOfBirth: b.properties?.Date_of_Birth || "",
-    userNotes: b.user_notes || "",
-    additionalProducts: mapProducts(b.regular_products || b.group_products || []),
-
-    // 🟢 Full formStatus INCLUDING DVLA — needed for Swift UI
-    formStatus: questionnaire && {
+    // 🔥 ALWAYS RETURN DECODE-SAFE FORMSTATUS
+    const safeFormStatus = questionnaire ? {
       requiredForm: questionnaire.requiredForm ?? null,
       shortDone: questionnaire.shortDone ?? false,
       longDone: questionnaire.longDone ?? false,
-      dvlaStatus: questionnaire.dvlaStatus ?? "pending",
-      dvlaExpiry: questionnaire.dvlaExpiry ?? "",
-      dvlaNameMatch: questionnaire.dvlaNameMatch ?? null
-    },
 
-    // 🟡 Flattened DVLA (legacy / optional)
-    dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
-    dvlaExpiry: questionnaire?.dvlaExpiry ?? "",
-    dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
-  };
+      licenceNumber: questionnaire.licenceNumber || "",
+      dvlaCode: questionnaire.dvlaCode || "",
 
-  res.json(booking);
+      dvlaStatus: questionnaire.dvlaStatus || "pending",
+      dvlaExpiry: questionnaire.dvlaExpiry || "",
+      dvlaNameMatch: questionnaire.dvlaNameMatch ?? false
+    } : {
+      requiredForm: null,
+      shortDone: false,
+      longDone: false,
+      licenceNumber: "",
+      dvlaCode: "",
+      dvlaStatus: "pending",
+      dvlaExpiry: "",
+      dvlaNameMatch: false
+    };
+
+    const booking = {
+      bookingID,
+      vehicleName: b.name || "—",
+      startDate: b.start_time || "",
+      endDate: b.end_time || "",
+      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      email: b.email || "",
+      phoneNumber: b.mobile_number || b.phone_number || "",
+
+      // numeric
+      totalPrice: parseFloat(b.total_price || 0),
+      amountPaid: parseFloat(b.amount_paid || 0),
+
+      addressLine1: b.address || "",
+      addressLine2: b.city || "",
+      postcode: b.zip || "",
+
+      dateOfBirth: b.properties?.Date_of_Birth || "",
+      userNotes: b.user_notes || "",
+
+      additionalProducts: mapProducts(
+        b.regular_products || b.group_products || []
+      ),
+
+      formStatus: safeFormStatus
+    };
+
+    res.json(booking);
 
   } catch (err) {
     console.error("❌ Get booking details failed:", err);
