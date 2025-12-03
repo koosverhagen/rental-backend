@@ -1561,21 +1561,27 @@ app.get("/planyo/upcoming", async (_req, res) => {
       return res.json([]);
     }
 
-    // Keep only statuses 4, 5, 7
     const kept = json.data.results.filter((r) => {
       const st = String(r.status || r.reservation_status || "");
-      return st === "4" || st === "5" || st === "7";
+      return ["4", "5", "7"].includes(st);
     });
 
     log(`✅ ${kept.length} bookings kept`);
 
+    // ISO-safe conversion
+    const toIso = (raw) => {
+      const d = new Date(raw);
+      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+    };
+
     const bookings = kept.map((b) => ({
       bookingID: String(b.reservation_id),
+
       vehicleName: b.name || "—",
 
-      // 🔥 iOS-compatible dates (ISO8601)
-      startDate: new Date(b.start_time).toISOString(),
-      endDate: new Date(b.end_time).toISOString(),
+      // ISO8601 ONLY
+      startDate: toIso(b.start_time),
+      endDate: toIso(b.end_time),
 
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
@@ -1592,7 +1598,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
       userNotes: b.user_notes || "",
       additionalProducts: [],
 
-      // 🔥 Must include ALL keys or Swift decoder crashes
+      // SAFE for SwiftUI decoding
       formStatus: {
         requiredForm: null,
         shortDone: false,
@@ -1613,8 +1619,9 @@ app.get("/planyo/upcoming", async (_req, res) => {
   }
 });
 
-// ----------------------------------------------------
-// Planyo single booking (full details for QR scan / HireCheck)
+
+/// ----------------------------------------------------
+// Planyo single booking (full details for HireCheck QR scan)
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
@@ -1640,9 +1647,10 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     };
 
     let ts = Math.floor(Date.now() / 1000);
+
     let { j, t } = await call(ts);
 
-    // Timestamp correction
+    // Fix timestamp mismatch
     if (j?.response_code === 1 && /Invalid timestamp/i.test(j.response_message || t)) {
       const m = (j.response_message || "").match(/Current timestamp is\s+(\d+)/i);
       if (m?.[1]) {
@@ -1657,8 +1665,13 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
 
     const b = j.data;
 
-    const mapProducts = (arr = []) =>
-      (arr || []).map((p) => ({
+    const safeIso = (raw) => {
+      const d = new Date(raw);
+      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+    };
+
+    const mapProducts = (list) =>
+      (list || []).map((p) => ({
         id: String(p.id || ""),
         name: p.name || "",
         quantity: Number(p.quantity || 1)
@@ -1690,9 +1703,8 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       bookingID,
       vehicleName: b.name || "—",
 
-      // 🔥 iOS-compatible ISO dates
-      startDate: new Date(b.start_time).toISOString(),
-      endDate: new Date(b.end_time).toISOString(),
+      startDate: safeIso(b.start_time),
+      endDate: safeIso(b.end_time),
 
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
@@ -1708,7 +1720,11 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       dateOfBirth: b.properties?.Date_of_Birth || "",
       userNotes: b.user_notes || "",
 
-      additionalProducts: mapProducts(b.regular_products || b.group_products || []),
+      additionalProducts: mapProducts(
+        b.regular_products ||
+        b.group_products ||
+        []
+      ),
 
       formStatus: safeFormStatus
     };
