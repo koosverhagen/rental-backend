@@ -1539,7 +1539,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
     const start_time = fmt(
       new Date(now.getTime() - 24 * 60 * 60 * 1000)
     );
-    const end_time = fmt(sevenDaysLater);
+   const end_time = fmt(thirtyDaysLater);
 
     const method = "list_reservations";
     const ts = Math.floor(Date.now() / 1000);
