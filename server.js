@@ -1515,20 +1515,17 @@ app.post("/damage/send-report", async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
+/// ----------------------------------------------------
 // Planyo list for HireCheck (confirmed / in-progress / upcoming)
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
   const log = (m) => process.stdout.write(m + "\n");
+
   try {
     log("📡 /planyo/upcoming → fetching reservations…");
 
     const now = new Date();
-
-    // 🔧 30 DAY WINDOW
-    const thirtyDaysLater = new Date(
-      now.getTime() + 30 * 24 * 60 * 60 * 1000
-    );
+    const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     const pad = (n) => String(n).padStart(2, "0");
     const fmt = (d) =>
@@ -1540,6 +1537,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
 
     const method = "list_reservations";
     const ts = Math.floor(Date.now() / 1000);
+
     const url =
       `https://www.planyo.com/rest/?method=${method}` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
@@ -1551,6 +1549,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
       `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
 
     log("🔗 Planyo URL: " + url);
+
     const resp = await fetch(url);
     const text = await resp.text();
 
@@ -1562,14 +1561,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
       return res.json([]);
     }
 
-    log("📋 Raw statuses:");
-    json.data.results.forEach((r) => {
-      const st = String(r.status || r.reservation_status || "");
-      if (!["4", "5", "7"].includes(st))
-        log(`🚫 Skip #${r.reservation_id} — status ${st}`);
-    });
-
-    // Only confirmed / in-progress bookings
+    // Keep only statuses 4, 5, 7
     const kept = json.data.results.filter((r) => {
       const st = String(r.status || r.reservation_status || "");
       return st === "4" || st === "5" || st === "7";
@@ -1577,32 +1569,30 @@ app.get("/planyo/upcoming", async (_req, res) => {
 
     log(`✅ ${kept.length} bookings kept`);
 
-    // SAFE OUTPUT FOR SWIFT
     const bookings = kept.map((b) => ({
       bookingID: String(b.reservation_id),
       vehicleName: b.name || "—",
-      startDate: b.start_time || "",
-      endDate: b.end_time || "",
+
+      // 🔥 iOS-compatible dates (ISO8601)
+      startDate: new Date(b.start_time).toISOString(),
+      endDate: new Date(b.end_time).toISOString(),
+
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
       phoneNumber: b.mobile_number || b.phone || "",
 
-      // 🔥 numeric and decode-safe
       totalPrice: parseFloat(b.total_price || 0),
       amountPaid: parseFloat(b.amount_paid || 0),
 
-      // 🔥 address safe
       addressLine1: b.address || "",
       addressLine2: b.city || "",
       postcode: b.zip || "",
       dateOfBirth: "",
 
       userNotes: b.user_notes || "",
-
-      // 🔥 SWIFT SAFE ARRAY
       additionalProducts: [],
 
-      // 🔥 Always include minimal formStatus so decode NEVER breaks
+      // 🔥 Must include ALL keys or Swift decoder crashes
       formStatus: {
         requiredForm: null,
         shortDone: false,
@@ -1667,26 +1657,21 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
 
     const b = j.data;
 
-    // Additional products → Swift-safe format
     const mapProducts = (arr = []) =>
       (arr || []).map((p) => ({
         id: String(p.id || ""),
         name: p.name || "",
-        quantity: Number(p.quantity || 1),
+        quantity: Number(p.quantity || 1)
       }));
 
-    // Questionnaire data stored from forms
     const questionnaire = formStatus[bookingID] || null;
 
-    // 🔥 ALWAYS RETURN DECODE-SAFE FORMSTATUS
     const safeFormStatus = questionnaire ? {
       requiredForm: questionnaire.requiredForm ?? null,
       shortDone: questionnaire.shortDone ?? false,
       longDone: questionnaire.longDone ?? false,
-
       licenceNumber: questionnaire.licenceNumber || "",
       dvlaCode: questionnaire.dvlaCode || "",
-
       dvlaStatus: questionnaire.dvlaStatus || "pending",
       dvlaExpiry: questionnaire.dvlaExpiry || "",
       dvlaNameMatch: questionnaire.dvlaNameMatch ?? false
@@ -1704,13 +1689,15 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     const booking = {
       bookingID,
       vehicleName: b.name || "—",
-      startDate: b.start_time || "",
-      endDate: b.end_time || "",
+
+      // 🔥 iOS-compatible ISO dates
+      startDate: new Date(b.start_time).toISOString(),
+      endDate: new Date(b.end_time).toISOString(),
+
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
       phoneNumber: b.mobile_number || b.phone_number || "",
 
-      // numeric
       totalPrice: parseFloat(b.total_price || 0),
       amountPaid: parseFloat(b.amount_paid || 0),
 
@@ -1721,9 +1708,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       dateOfBirth: b.properties?.Date_of_Birth || "",
       userNotes: b.user_notes || "",
 
-      additionalProducts: mapProducts(
-        b.regular_products || b.group_products || []
-      ),
+      additionalProducts: mapProducts(b.regular_products || b.group_products || []),
 
       formStatus: safeFormStatus
     };
