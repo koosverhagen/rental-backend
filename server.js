@@ -503,31 +503,72 @@ async function sendQuestionnaireEmail({ bookingID, customerName, email, formType
     ? `${baseShort}?bookingID=${encodeURIComponent(bookingID)}`
     : `${baseLong}?bookingID=${encodeURIComponent(bookingID)}`;
 
-  const subject = `Equine Transport UK – Please complete ${formName} for booking #${bookingID}`;
+  // fetch full booking to display details
+  const bk = await fetchPlanyoBooking(bookingID);
 
   const html = `
-  <div style="font-family: Arial, sans-serif; font-size: 16px; color: #333; line-height: 1.6; max-width: 720px; margin: auto;">
-    <div style="text-align: center; margin-bottom: 18px;">
+  <div style="font-family:Arial,Helvetica,sans-serif; font-size:16px; color:#333; line-height:1.6; max-width:720px; margin:auto;">
+
+    <!-- Logo -->
+    <div style="text-align:center; margin-bottom:20px;">
       <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715"
-           alt="Equine Transport UK" style="max-width: 160px; height: auto;" />
+           alt="Equine Transport UK"
+           style="max-width:200px; height:auto;" />
     </div>
+
+    <!-- Title -->
+    <h2 style="text-align:center; color:#0070f3; margin-bottom:10px;">
+      Millins Hire Questionnaire – ${formName} Required
+    </h2>
+
     <p>Dear ${customerName || "hirer"},</p>
+
     <p>
       Based on your booking history, you are required to complete the
-      <strong>Millins Hire Questionnaire – ${formName}</strong>.
+      <strong>${formName}</strong> before your hire.
     </p>
-    <div style="text-align: center; margin: 30px 0;">
+
+    <!-- Booking details box -->
+    <div style="background:#f8f9ff; border:1px solid #d6e7ff; border-radius:8px; padding:14px 18px; margin:22px 0;">
+      <h3 style="margin:0 0 10px; color:#124a8a;">Booking Details</h3>
+      <ul style="padding-left:18px; margin:0;">
+        <li><strong>Booking reference:</strong> #${bookingID}</li>
+        <li><strong>Lorry:</strong> ${bk.resource || "N/A"}</li>
+        <li><strong>From:</strong> ${formatDateLondon(bk.start)}</li>
+        <li><strong>To:</strong> ${formatDateLondon(bk.end)}</li>
+        <li><strong>Customer:</strong> ${bk.firstName || ""} ${bk.lastName || ""}</li>
+        <li><strong>Email:</strong> ${bk.email || "N/A"}</li>
+      </ul>
+    </div>
+
+    <!-- Button -->
+    <div style="text-align:center; margin:32px 0;">
       <a href="${formUrl}"
-         style="background: #0099ff; color:#fff; padding:14px 32px; border-radius:6px; font-size:18px; font-weight:bold; text-decoration:none;">
+         style="background:#0070f3; color:#fff; padding:14px 32px; border-radius:6px;
+                font-size:18px; font-weight:bold; text-decoration:none; display:inline-block;">
         Complete the ${formName}
       </a>
     </div>
-    <p>If the button does not work, click the link:</p>
-    <p><a href="${formUrl}" style="color:#0099ff; font-weight:bold;">${formUrl}</a></p>
+
+    <p>If the button does not work, click this link:</p>
+    <p style="word-break:break-all;">
+      <a href="${formUrl}" style="color:#0070f3;">${formUrl}</a>
+    </p>
+
     <br>
     <p>With kind regards,<br><strong>Koos & Avril</strong><br>Equine Transport UK</p>
+
+    <hr style="margin:30px 0;" />
+
+    <p style="font-size:12px; color:#777; text-align:center;">
+      Equine Transport UK<br/>
+      Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL, East Sussex, GB<br/>
+      📞 +44 7584578654 | ✉️ <a href="mailto:info@equinetransportuk.com">info@equinetransportuk.com</a>
+    </p>
   </div>
   `;
+
+  const subject = `Equine Transport UK – Please complete ${formName} for booking #${bookingID}`;
 
   await sendgrid.send({
     to: email,
@@ -543,8 +584,6 @@ async function sendQuestionnaireEmail({ bookingID, customerName, email, formType
     html,
   });
 }
-
-//// PART 3 OF 4 — START
 
 // ------------------------------------------------------
 // FORCE RESEND QUESTIONNAIRE (from iOS HireCheck app)
