@@ -1515,6 +1515,10 @@ app.post("/damage/send-report", async (req, res) => {
   }
 });
 
+// ----------------------------------------------------
+// Planyo list for HireCheck (confirmed / in-progress / upcoming)
+// Returns 30 days, raw Planyo date strings, correct money logic
+// ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
   const log = (m) => process.stdout.write(m + "\n");
 
@@ -1529,6 +1533,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
       `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
       `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
+    // start 1 day back to include today pickups
     const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
     const end_time = fmt(thirtyDaysLater);
 
@@ -1557,6 +1562,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
       return res.json([]);
     }
 
+    // Only keep Confirmed (4), In Progress (5), Completed (7)
     const kept = json.data.results.filter((r) => {
       const st = String(r.status || r.reservation_status || "");
       return st === "4" || st === "5" || st === "7";
@@ -1564,39 +1570,49 @@ app.get("/planyo/upcoming", async (_req, res) => {
 
     log(`✅ ${kept.length} bookings kept`);
 
-    const bookings = kept.map((b) => ({
-      bookingID: String(b.reservation_id),
-      vehicleName: b.name || "—",
+    const bookings = kept.map((b) => {
+      const total = parseFloat(b.total_price || 0) || 0;
+      const paid = parseFloat(b.amount_paid || 0) || 0;
 
-      startDate: b.start_time,
-      endDate: b.end_time,
+      return {
+        bookingID: String(b.reservation_id),
+        vehicleName: b.name || "—",
 
-      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-      email: b.email || "",
-      phoneNumber: b.mobile_number || b.phone || "",
+        // RAW Planyo format — no conversions
+        startDate: b.start_time,
+        endDate: b.end_time,
 
-      // FIX: Numbers parsed correctly
-      totalPrice: parseFloat(b.total_price || 0),
-      amountPaid: parseFloat(b.amount_paid || 0),
+        customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+        email: b.email || "",
+        phoneNumber: b.mobile_number || b.phone_number || "",
 
-      addressLine1: b.address || "",
-      addressLine2: b.city || "",
-      postcode: b.zip || "",
-      dateOfBirth: "",
-      userNotes: b.user_notes || "",
-      additionalProducts: [],
+        totalPrice: total,
+        amountPaid: paid,
 
-      formStatus: {
-        requiredForm: null,
-        shortDone: false,
-        longDone: false,
-        licenceNumber: "",
-        dvlaCode: "",
-        dvlaStatus: "pending",
-        dvlaExpiry: "",
-        dvlaNameMatch: false
-      }
-    }));
+        // outstanding calculation for app
+        outstanding: Math.max(total - paid, 0),
+
+        addressLine1: b.address || "",
+        addressLine2: b.city || "",
+        postcode: b.zip || "",
+        dateOfBirth: "",
+
+        userNotes: b.user_notes || "",
+        additionalProducts: [],
+
+        // DVLA fields included for decoding safety
+        formStatus: {
+          requiredForm: null,
+          shortDone: false,
+          longDone: false,
+          licenceNumber: "",
+          dvlaCode: "",
+          dvlaStatus: "pending", // default
+          dvlaExpiry: "",
+          dvlaNameMatch: false
+        }
+      };
+    });
 
     res.json(bookings);
 
@@ -1605,6 +1621,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 
 app.get("/planyo/booking/:bookingID", async (req, res) => {
