@@ -1269,6 +1269,88 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
 });
 
 // ----------------------------------------------------
+// Customer finished questionnaire (SHORT or LONG) + DVLA fields
+// ----------------------------------------------------
+app.post("/forms/submitted", express.json(), async (req, res) => {
+  try {
+    const bookingID = String(req.body.bookingID || "").trim();
+    const formType = String(req.body.formType || "").toLowerCase();
+    const licenceNumber = req.body.licenceNumber || null;
+    const dvlaCode = req.body.dvlaCode || null;
+
+    if (!bookingID || !formType) {
+      return res.status(400).json({ error: "Missing bookingID or formType" });
+    }
+
+    if (!["short", "long"].includes(formType)) {
+      return res.status(400).json({ error: "formType must be 'short' or 'long'" });
+    }
+
+    // Initialise if not existing
+    const status = formStatus[bookingID] || {
+      requiredForm: formType,
+      shortDone: false,
+      longDone: false,
+    };
+
+    // Mark completion
+    if (formType === "short") status.shortDone = true;
+    if (formType === "long") status.longDone = true;
+
+    // Save DVLA fields
+    status.licenceNumber = licenceNumber;
+    status.dvlaCode = dvlaCode;
+    status.dvlaStatus = "pending"; // will be updated once DVLA result comes in
+    status.updatedAt = new Date().toISOString();
+
+    formStatus[bookingID] = status;
+    saveFormStatus();
+
+    console.log(`🟢 Questionnaire submitted for booking #${bookingID} (${formType.toUpperCase()})`);
+    console.log(`     DVLA fields: licence=${licenceNumber || "—"} | code=${dvlaCode || "—"}`);
+
+    return res.json({ success: true, bookingID, status });
+
+  } catch (err) {
+    console.error("❌ Error in /forms/submitted:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// DVLA check (HireCheck app triggers this)
+// ----------------------------------------------------
+app.post("/dvla/check", express.json(), async (req, res) => {
+  try {
+    const { bookingID } = req.body;
+    const status = formStatus[bookingID];
+    if (!status || !status.licenceNumber || !status.dvlaCode)
+      return res.status(400).json({ error: "Missing DVLA data for this booking" });
+
+    console.log(`🔍 Running DVLA check for booking #${bookingID}`);
+
+    // Fake DVLA result for now — always valid
+    // (Later we replace with actual DVLA API call)
+    const dvlaResult = {
+      valid: true,
+      nameMatch: true,
+      expiry: "12/12/2028",
+    };
+
+    status.dvlaStatus = dvlaResult;
+    formStatus[bookingID] = status;
+    saveFormStatus();
+
+    console.log(`🟢 DVLA check complete for #${bookingID}: VALID`);
+    return res.json({ success: true, bookingID, dvla: dvlaResult });
+
+  } catch (err) {
+    console.error("❌ DVLA check error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
 // Manual scheduler trigger
 // ----------------------------------------------------
 app.get("/trigger-daily-deposits", async (_req, res) => {
