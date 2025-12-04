@@ -1300,9 +1300,12 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
     // Save DVLA fields
     status.licenceNumber = licenceNumber;
     status.dvlaCode = dvlaCode;
-    status.dvlaStatus = "pending"; // will be updated once DVLA result comes in
-    status.updatedAt = new Date().toISOString();
+   // Preserve DVLA result if already checked previously
+if (!status.dvlaStatus) {
+  status.dvlaStatus = "pending";
+}
 
+status.updatedAt = new Date().toISOString();
     formStatus[bookingID] = status;
     saveFormStatus();
 
@@ -1349,7 +1352,6 @@ app.post("/dvla/check", express.json(), async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
-
 // ----------------------------------------------------
 // Manual scheduler trigger
 // ----------------------------------------------------
@@ -1633,27 +1635,39 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         quantity: Number(p.quantity || 1),
       }));
 
+    // 🟢 Fetch questionnaire and DVLA state
+    const questionnaire = formStatus[bookingID] || null;
+
     const booking = {
-      bookingID,
-      vehicleName: b.name || "—",
-      startDate: b.start_time || "",
-      endDate: b.end_time || "",
-      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-      email: b.email || "",
-      phoneNumber: b.mobile_number || b.phone_number || "",
-      totalPrice: b.total_price || "",
-      amountPaid: b.amount_paid || "",
-      addressLine1: b.address || "",
-      addressLine2: b.city || "",
-      postcode: b.zip || "",
-      dateOfBirth: b.properties?.Date_of_Birth || "",
-      userNotes: b.user_notes || "",
-      additionalProducts: mapProducts(
-        b.regular_products || b.group_products || []
-      ),
-    };
+  bookingID,
+  vehicleName: b.name || "—",
+  startDate: b.start_time || "",
+  endDate: b.end_time || "",
+  customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+  email: b.email || "",
+  phoneNumber: b.mobile_number || b.phone_number || "",
+  totalPrice: b.total_price || "",
+  amountPaid: b.amount_paid || "",
+  addressLine1: b.address || "",
+  addressLine2: b.city || "",
+  postcode: b.zip || "",
+  dateOfBirth: b.properties?.Date_of_Birth || "",
+  userNotes: b.user_notes || "",
+  additionalProducts: mapProducts(
+    b.regular_products || b.group_products || []
+  ),
+
+  // ⭐ full questionnaire object (short/long + DVLA)
+  formStatus: questionnaire,
+
+  // ⭐ flattened DVLA for easy Swift decoding
+  dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
+  dvlaExpiry: questionnaire?.dvlaExpiry ?? "",
+  dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
+};
 
     res.json(booking);
+
   } catch (err) {
     console.error("❌ Get booking details failed:", err);
     res.status(500).json({ error: err.message });
