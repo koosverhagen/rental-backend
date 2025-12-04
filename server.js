@@ -1,5 +1,3 @@
-//// PART 1 OF 4 — START
-
 // ----------------------------------------------------
 // Imports & Setup
 // ----------------------------------------------------
@@ -503,72 +501,31 @@ async function sendQuestionnaireEmail({ bookingID, customerName, email, formType
     ? `${baseShort}?bookingID=${encodeURIComponent(bookingID)}`
     : `${baseLong}?bookingID=${encodeURIComponent(bookingID)}`;
 
-  // fetch full booking to display details
-  const bk = await fetchPlanyoBooking(bookingID);
+  const subject = `Equine Transport UK – Please complete ${formName} for booking #${bookingID}`;
 
   const html = `
-  <div style="font-family:Arial,Helvetica,sans-serif; font-size:16px; color:#333; line-height:1.6; max-width:720px; margin:auto;">
-
-    <!-- Logo -->
-    <div style="text-align:center; margin-bottom:20px;">
+  <div style="font-family: Arial, sans-serif; font-size: 16px; color: #333; line-height: 1.6; max-width: 720px; margin: auto;">
+    <div style="text-align: center; margin-bottom: 18px;">
       <img src="https://planyo-ch.s3.eu-central-2.amazonaws.com/site_logo_68785.png?v=90715"
-           alt="Equine Transport UK"
-           style="max-width:200px; height:auto;" />
+           alt="Equine Transport UK" style="max-width: 160px; height: auto;" />
     </div>
-
-    <!-- Title -->
-    <h2 style="text-align:center; color:#0070f3; margin-bottom:10px;">
-      Millins Hire Questionnaire – ${formName} Required
-    </h2>
-
     <p>Dear ${customerName || "hirer"},</p>
-
     <p>
       Based on your booking history, you are required to complete the
-      <strong>${formName}</strong> before your hire.
+      <strong>Millins Hire Questionnaire – ${formName}</strong>.
     </p>
-
-    <!-- Booking details box -->
-    <div style="background:#f8f9ff; border:1px solid #d6e7ff; border-radius:8px; padding:14px 18px; margin:22px 0;">
-      <h3 style="margin:0 0 10px; color:#124a8a;">Booking Details</h3>
-      <ul style="padding-left:18px; margin:0;">
-        <li><strong>Booking reference:</strong> #${bookingID}</li>
-        <li><strong>Lorry:</strong> ${bk.resource || "N/A"}</li>
-        <li><strong>From:</strong> ${formatDateLondon(bk.start)}</li>
-        <li><strong>To:</strong> ${formatDateLondon(bk.end)}</li>
-        <li><strong>Customer:</strong> ${bk.firstName || ""} ${bk.lastName || ""}</li>
-        <li><strong>Email:</strong> ${bk.email || "N/A"}</li>
-      </ul>
-    </div>
-
-    <!-- Button -->
-    <div style="text-align:center; margin:32px 0;">
+    <div style="text-align: center; margin: 30px 0;">
       <a href="${formUrl}"
-         style="background:#0070f3; color:#fff; padding:14px 32px; border-radius:6px;
-                font-size:18px; font-weight:bold; text-decoration:none; display:inline-block;">
+         style="background: #0099ff; color:#fff; padding:14px 32px; border-radius:6px; font-size:18px; font-weight:bold; text-decoration:none;">
         Complete the ${formName}
       </a>
     </div>
-
-    <p>If the button does not work, click this link:</p>
-    <p style="word-break:break-all;">
-      <a href="${formUrl}" style="color:#0070f3;">${formUrl}</a>
-    </p>
-
+    <p>If the button does not work, click the link:</p>
+    <p><a href="${formUrl}" style="color:#0099ff; font-weight:bold;">${formUrl}</a></p>
     <br>
     <p>With kind regards,<br><strong>Koos & Avril</strong><br>Equine Transport UK</p>
-
-    <hr style="margin:30px 0;" />
-
-    <p style="font-size:12px; color:#777; text-align:center;">
-      Equine Transport UK<br/>
-      Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL, East Sussex, GB<br/>
-      📞 +44 7584578654 | ✉️ <a href="mailto:info@equinetransportuk.com">info@equinetransportuk.com</a>
-    </p>
   </div>
   `;
-
-  const subject = `Equine Transport UK – Please complete ${formName} for booking #${bookingID}`;
 
   await sendgrid.send({
     to: email,
@@ -584,6 +541,8 @@ async function sendQuestionnaireEmail({ bookingID, customerName, email, formType
     html,
   });
 }
+
+//// PART 3 OF 4 — START
 
 // ------------------------------------------------------
 // FORCE RESEND QUESTIONNAIRE (from iOS HireCheck app)
@@ -947,6 +906,7 @@ app.get("/forms/status/:bookingID", (req, res) => {
   return res.json(status);
 });
 
+//// PART 4 OF 4 — START
 
 // ----------------------------------------------------
 // Deposit confirmation email sent after successful hold
@@ -1223,14 +1183,12 @@ app.post("/forms/submit", express.json(), (req, res) => {
 });
 
 // ----------------------------------------------------
-// Customer finished questionnaire (SHORT or LONG) + DVLA fields
+// Customer finished the questionnaire (SHORT or LONG)
 // ----------------------------------------------------
 app.post("/forms/submitted", express.json(), async (req, res) => {
   try {
     const bookingID = String(req.body.bookingID || "").trim();
     const formType = String(req.body.formType || "").toLowerCase();
-    const licenceNumber = req.body.licenceNumber || null;
-    const dvlaCode = req.body.dvlaCode || null;
 
     if (!bookingID || !formType) {
       return res.status(400).json({ error: "Missing bookingID or formType" });
@@ -1240,144 +1198,36 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
       return res.status(400).json({ error: "formType must be 'short' or 'long'" });
     }
 
-    // Initialise if not existing
     const status = formStatus[bookingID] || {
       requiredForm: formType,
       shortDone: false,
       longDone: false,
     };
 
-    // Mark completion
-    if (formType === "short") status.shortDone = true;
-    if (formType === "long") status.longDone = true;
-
-    // Save DVLA fields (always required in form)
-status.licenceNumber = licenceNumber;
-status.dvlaCode = dvlaCode;
-
-// If DVLA has never been checked before → pending
-if (!status.dvlaStatus) {
-  status.dvlaStatus = "pending";
-}
-
-
-status.updatedAt = new Date().toISOString();
-    formStatus[bookingID] = status;
-    saveFormStatus();
-
-    console.log(`🟢 Questionnaire submitted for booking #${bookingID} (${formType.toUpperCase()})`);
-    console.log(`     DVLA fields: licence=${licenceNumber || "—"} | code=${dvlaCode || "—"}`);
-
-    return res.json({ success: true, bookingID, status });
-
-  } catch (err) {
-    console.error("❌ Error in /forms/submitted:", err);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// ----------------------------------------------------
-// DVLA check (HireCheck app triggers this)
-// ----------------------------------------------------
-app.post("/dvla/check", express.json(), async (req, res) => {
-  try {
-    const { bookingID } = req.body;
-    const status = formStatus[bookingID];
-
-    if (!status || !status.licenceNumber || !status.dvlaCode) {
-      return res.status(400).json({ error: "Missing DVLA data for this booking" });
+    if (formType === "short") {
+      status.shortDone = true;
+      status.requiredForm = "short";
     }
 
-    console.log(`🔍 Running DVLA check for booking #${bookingID}`);
-
-    // Fake DVLA result for now (replace later with true API call)
-    const dvlaResult = {
-      valid: true,
-      nameMatch: true,
-      expiry: "12/12/2028",
-    };
-
-    // 🟢 Store DVLA fields in the expected flat format
-    status.dvlaStatus = dvlaResult.valid ? "valid" : "invalid";
-    status.dvlaNameMatch = dvlaResult.nameMatch;
-    status.dvlaExpiry = dvlaResult.expiry;
+    if (formType === "long") {
+      status.longDone = true;
+      status.requiredForm = "long";
+    }
 
     status.updatedAt = new Date().toISOString();
     formStatus[bookingID] = status;
     saveFormStatus();
 
-    console.log(`🟢 DVLA check complete for #${bookingID}: ${status.dvlaStatus.toUpperCase()}`);
-
-    return res.json({
-      success: true,
-      bookingID,
-      dvla: {
-        status: status.dvlaStatus,
-        nameMatch: status.dvlaNameMatch,
-        expiry: status.dvlaExpiry
-      }
-    });
-
-  } catch (err) {
-    console.error("❌ DVLA check error:", err);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// ----------------------------------------------------
-// DVLA manual verify (no official DVLA API)
-// Called by HireCheck after staff has checked the licence online
-// ----------------------------------------------------
-app.post("/dvla/manual-verify", express.json(), async (req, res) => {
-  try {
-    const bookingID = String(req.body.bookingID || "").trim();
-    const licenceNumber = (req.body.licenceNumber || "").trim();
-    const dvlaCode = (req.body.dvlaCode || "").trim();
-    const dvlaExpiry = (req.body.dvlaExpiry || "").trim() || null; // optional
-
-    if (!bookingID) {
-      return res.status(400).json({ error: "Missing bookingID" });
-    }
-    if (!licenceNumber || !dvlaCode) {
-      return res
-        .status(400)
-        .json({ error: "Missing licenceNumber or dvlaCode" });
-    }
-
-    const existing = formStatus[bookingID] || {
-      requiredForm: null,
-      shortDone: false,
-      longDone: false,
-    };
-
-    // Save fields from the questionnaire
-    existing.licenceNumber = licenceNumber;
-    existing.dvlaCode = dvlaCode;
-
-    // 🟢 Mark as manually verified
-    existing.dvlaStatus = "valid";       // used by app for green badge
-    existing.dvlaNameMatch = true;       // we assume staff checked visually
-    existing.dvlaExpiry = dvlaExpiry;    // optional free-text like "12/12/2028"
-    existing.updatedAt = new Date().toISOString();
-
-    formStatus[bookingID] = existing;
-    saveFormStatus();
-
     console.log(
-      `🟢 DVLA MANUAL VERIFY #${bookingID}: licence=${licenceNumber}, code=${dvlaCode}, expiry=${dvlaExpiry || "—"}`
+      `🟢 Questionnaire submitted for booking #${bookingID} → ${formType.toUpperCase()} completed`
     );
 
-    return res.json({
-      success: true,
-      bookingID,
-      status: existing,
-    });
+    return res.json({ success: true, bookingID, status });
   } catch (err) {
-    console.error("❌ /dvla/manual-verify error:", err);
+    console.error("❌ Error in /forms/submitted:", err);
     return res.status(500).json({ error: err.message });
   }
 });
-
 
 // ----------------------------------------------------
 // Manual scheduler trigger
@@ -1433,15 +1283,17 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
     if (json?.response_code === 0 && json.data) {
       const r = json.data;
       return res.json({
-  bookingID,
-  customer: `${r.first_name} ${r.last_name}`,
-  resource: r.name,
-  start: formatDateLondon(r.start_time),
-  end: formatDateLondon(r.end_time),
-  total: parseFloat(r.total_price || 0).toFixed(2),
-  paid: parseFloat(r.amount_paid || 0).toFixed(2),
-  balance: parseFloat((r.total_price || 0) - (r.amount_paid || 0)).toFixed(2),
-});
+        bookingID,
+        customer: `${r.first_name} ${r.last_name}`,
+        resource: r.name,
+        start: r.start_time,
+        end: r.end_time,
+        total: parseFloat(r.total_price || 0).toFixed(2),
+        paid: parseFloat(r.amount_paid || 0).toFixed(2),
+        balance: parseFloat(
+          (r.total_price || 0) - (r.amount_paid || 0)
+        ).toFixed(2),
+      });
     }
 
     console.error("❌ Invalid Planyo response:", json);
@@ -1517,25 +1369,29 @@ app.post("/damage/send-report", async (req, res) => {
 
 // ----------------------------------------------------
 // Planyo list for HireCheck (confirmed / in-progress / upcoming)
-// Returns 30 days, raw Planyo date strings, correct money logic
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
   const log = (m) => process.stdout.write(m + "\n");
-
   try {
     log("📡 /planyo/upcoming → fetching reservations…");
 
     const now = new Date();
-    const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const sevenDaysLater = new Date(
+      now.getTime() + 7 * 24 * 60 * 60 * 1000
+    );
 
     const pad = (n) => String(n).padStart(2, "0");
     const fmt = (d) =>
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-      `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+        d.getDate()
+      )} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(
+        d.getSeconds()
+      )}`;
 
-    // start 1 day back to include today pickups
-    const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-    const end_time = fmt(thirtyDaysLater);
+    const start_time = fmt(
+      new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    );
+    const end_time = fmt(sevenDaysLater);
 
     const method = "list_reservations";
     const ts = Math.floor(Date.now() / 1000);
@@ -1550,142 +1406,115 @@ app.get("/planyo/upcoming", async (_req, res) => {
       `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
 
     log("🔗 Planyo URL: " + url);
-
     const resp = await fetch(url);
     const text = await resp.text();
 
     let json;
-    try { json = JSON.parse(text); } catch { json = null; }
-
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
     if (!json?.data?.results?.length) {
       log("⚠️ No reservations returned.");
       return res.json([]);
     }
 
-    // Only keep Confirmed (4), In Progress (5), Completed (7)
+    log("📋 Raw statuses:");
+    json.data.results.forEach((r) => {
+      const st = String(r.status || r.reservation_status || "");
+      if (!["4", "5", "7"].includes(st))
+        log(`🚫 Skip #${r.reservation_id} — status ${st}`);
+    });
+
     const kept = json.data.results.filter((r) => {
       const st = String(r.status || r.reservation_status || "");
       return st === "4" || st === "5" || st === "7";
     });
 
     log(`✅ ${kept.length} bookings kept`);
-
-    const bookings = kept.map((b) => {
-      const total = parseFloat(b.total_price || 0) || 0;
-      const paid = parseFloat(b.amount_paid || 0) || 0;
-
-      return {
-        bookingID: String(b.reservation_id),
-        vehicleName: b.name || "—",
-
-        // RAW Planyo format — no conversions
-        startDate: b.start_time,
-        endDate: b.end_time,
-
-        customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-        email: b.email || "",
-        phoneNumber: b.mobile_number || b.phone_number || "",
-
-        totalPrice: total,
-        amountPaid: paid,
-
-        // outstanding calculation for app
-        outstanding: Math.max(total - paid, 0),
-
-        addressLine1: b.address || "",
-        addressLine2: b.city || "",
-        postcode: b.zip || "",
-        dateOfBirth: "",
-
-        userNotes: b.user_notes || "",
-        additionalProducts: [],
-
-        // DVLA fields included for decoding safety
-        formStatus: {
-          requiredForm: null,
-          shortDone: false,
-          longDone: false,
-          licenceNumber: "",
-          dvlaCode: "",
-          dvlaStatus: "pending", // default
-          dvlaExpiry: "",
-          dvlaNameMatch: false
-        }
-      };
-    });
+    const bookings = kept.map((b) => ({
+      bookingID: String(b.reservation_id),
+      vehicleName: b.name || "—",
+      startDate: b.start_time || "",
+      endDate: b.end_time || "",
+      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      email: b.email || "",
+      phoneNumber: b.mobile_number || b.phone || "",
+      totalPrice: b.total_price || "",
+      amountPaid: b.amount_paid || "",
+      addressLine1: b.address || "",
+      addressLine2: b.city || "",
+      postcode: b.zip || "",
+      dateOfBirth: "",
+      userNotes: b.user_notes || "",
+      additionalProducts: [],
+    }));
 
     res.json(bookings);
-
   } catch (err) {
     console.error("❌ /planyo/upcoming failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-
-
+// ----------------------------------------------------
+// Planyo single booking (full details for QR scan / HireCheck)
+// ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
     const bookingID = req.params.bookingID;
     const method = "get_reservation_data";
 
-    let ts = Math.floor(
-      new Date(
-        new Date().toLocaleString("en-US", { timeZone: "Europe/Zurich" })
-      ).getTime() / 1000
-    );
-
     const call = async (ts) => {
-      const hash = md5(process.env.PLANYO_HASH_KEY + ts + method);
       const url =
         `https://www.planyo.com/rest/?method=${method}` +
         `&api_key=${process.env.PLANYO_API_KEY}` +
         `&site_id=${process.env.PLANYO_SITE_ID}` +
         `&reservation_id=${bookingID}` +
-        `&include_form_items=1&include_additional_products=1` +
+        `&include_form_items=1` +
+        `&include_additional_products=1` +
         `&hash_timestamp=${ts}` +
-        `&hash_key=${hash}`;
+        `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
 
       const resp = await fetch(url);
-      const text = await resp.text();
-
-      let json;
+      const t = await resp.text();
+      let j;
       try {
-        json = JSON.parse(text);
+        j = JSON.parse(t);
       } catch {
-        json = null;
+        j = null;
       }
-
-      return { json, text };
+      return { j, t };
     };
 
-    let { json, text } = await call(ts);
+    let ts = Math.floor(Date.now() / 1000);
+    let { j, t } = await call(ts);
 
     if (
-      json?.response_code === 1 &&
-      /Invalid timestamp/i.test(json.response_message || text)
+      j?.response_code === 1 &&
+      /Invalid timestamp/i.test(j.response_message || t)
     ) {
-      const m = json.response_message.match(/Current timestamp is (\d+)/);
+      const m = (j.response_message || "").match(/Current timestamp is\s+(\d+)/i);
       if (m?.[1]) {
         ts = Number(m[1]);
-        ({ json, text } = await call(ts));
+        ({ j, t } = await call(ts));
       }
     }
 
-    if (!json?.data) {
-      return res.status(404).json({ error: "No booking found", raw: text });
-    }
+    if (!j?.data)
+      return res.status(404).json({ error: "No booking found", raw: t });
 
-    const b = json.data;
+    const b = j.data;
 
-    const mapProducts = (list) =>
-      (list || []).map((p) => ({
+    const mapProducts = (arr = []) =>
+      arr.map((p) => ({
         id: String(p.id || ""),
         name: p.name || "",
         quantity: Number(p.quantity || 1),
       }));
 
-    res.json({
+    const booking = {
       bookingID,
       vehicleName: b.name || "—",
       startDate: b.start_time || "",
@@ -1703,9 +1532,11 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       additionalProducts: mapProducts(
         b.regular_products || b.group_products || []
       ),
-    });
+    };
+
+    res.json(booking);
   } catch (err) {
-    console.error("❌ /planyo/booking failed:", err);
+    console.error("❌ Get booking details failed:", err);
     res.status(500).json({ error: err.message });
   }
 });
