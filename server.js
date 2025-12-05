@@ -1681,16 +1681,23 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     b.regular_products || b.group_products || []
   ),
 
-  // ⭐ full questionnaire object (short/long + DVLA)
-  formStatus: questionnaire,
+   // 🟢 Full formStatus INCLUDING DVLA — needed for Swift UI
+    formStatus: questionnaire && {
+      requiredForm: questionnaire.requiredForm ?? null,
+      shortDone: questionnaire.shortDone ?? false,
+      longDone: questionnaire.longDone ?? false,
+      dvlaStatus: questionnaire.dvlaStatus ?? "pending",
+      dvlaExpiry: questionnaire.dvlaExpiry ?? "",
+      dvlaNameMatch: questionnaire.dvlaNameMatch ?? null
+    },
 
-  // ⭐ flattened DVLA for easy Swift decoding
-  dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
-  dvlaExpiry: questionnaire?.dvlaExpiry ?? "",
-  dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
-};
+    // 🟡 Flattened DVLA (legacy / optional)
+    dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
+    dvlaExpiry: questionnaire?.dvlaExpiry ?? "",
+    dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
+  };
 
-    res.json(booking);
+  res.json(booking);
 
   } catch (err) {
     console.error("❌ Get booking details failed:", err);
