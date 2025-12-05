@@ -1660,9 +1660,9 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       }));
 
     // 🟢 Fetch questionnaire and DVLA state
-    const questionnaire = formStatus[bookingID] || null;
+const questionnaire = formStatus[bookingID] || null;
 
-    const booking = {
+const booking = {
   bookingID,
   vehicleName: b.name || "—",
   startDate: b.start_time || "",
@@ -1681,22 +1681,20 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     b.regular_products || b.group_products || []
   ),
 
-   // 🟢 Full formStatus INCLUDING DVLA — needed for Swift UI
-    formStatus: questionnaire,
-      requiredForm: questionnaire.requiredForm ?? null,
-      shortDone: questionnaire.shortDone ?? false,
-      longDone: questionnaire.longDone ?? false,
-      dvlaStatus: questionnaire.dvlaStatus ?? "pending",
-      dvlaExpiry: questionnaire.dvlaExpiry ?? "",
-      dvlaNameMatch: questionnaire.dvlaNameMatch ?? null
-   
+  // 🟢 Full formStatus INCLUDING DVLA — needed for Swift UI
+  formStatus: questionnaire,
+  requiredForm: questionnaire?.requiredForm ?? null,
+  shortDone: questionnaire?.shortDone ?? false,
+  longDone: questionnaire?.longDone ?? false,
+  dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
+  dvlaExpiry: questionnaire?.dvlaExpiry ?? "",
+  dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null, // <-- COMMA ADDED HERE
 
-    // 🟡 Flattened DVLA (legacy / optional)
-    dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
-    dvlaExpiry: questionnaire?.dvlaExpiry ?? "",
-    dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
-  };
-
+  // 🟡 Flattened DVLA (legacy / optional)
+  dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
+  dvlaExpiry: questionnaire?.dvlaExpiry ?? "",
+  dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
+};
   res.json(booking);
 
   } catch (err) {
