@@ -1682,14 +1682,14 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
   ),
 
    // 🟢 Full formStatus INCLUDING DVLA — needed for Swift UI
-    formStatus: questionnaire && {
+    formStatus: questionnaire,
       requiredForm: questionnaire.requiredForm ?? null,
       shortDone: questionnaire.shortDone ?? false,
       longDone: questionnaire.longDone ?? false,
       dvlaStatus: questionnaire.dvlaStatus ?? "pending",
       dvlaExpiry: questionnaire.dvlaExpiry ?? "",
       dvlaNameMatch: questionnaire.dvlaNameMatch ?? null
-    },
+   
 
     // 🟡 Flattened DVLA (legacy / optional)
     dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
