@@ -1575,11 +1575,11 @@ app.get("/planyo/upcoming", async (_req, res) => {
     });
 
     log(`✅ ${kept.length} bookings kept`);
-   const bookings = kept.map((b) => {
+const bookings = kept.map((b) => {
   const id = String(b.reservation_id);
   const q = formStatus[id] || {};
 
-  // Extract last 8 digits of licence for GOV.UK check
+  // Extract last 8 of licence if exists
   const licence8 = q.licenceNumber ? q.licenceNumber.slice(-8) : "";
 
   return {
@@ -1599,13 +1599,14 @@ app.get("/planyo/upcoming", async (_req, res) => {
     userNotes: b.user_notes || "",
     additionalProducts: [],
 
-    // 🟢 DVLA Return fields (for list UI)
+    // DVLA State — used by HireCheck UI
     dvlaStatus: q.dvlaStatus || "pending",
     dvlaExpiry: q.dvlaExpiry || "",
     dvlaLast8: licence8,
     dvlaCode: q.dvlaCode || ""
   };
 });
+
 
     res.json(bookings);
   } catch (err) {
