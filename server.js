@@ -1287,33 +1287,27 @@ app.post("/dvla/check", express.json(), async (req, res) => {
       return res.status(400).json({ error: "Missing DVLA data for this booking" });
     }
 
-    console.log(`🔍 Running DVLA check for booking #${bookingID}`);
+    // Extract last 8 (legal)
+    const last8 = status.licenceNumber.slice(-8);
 
-    // Fake DVLA result for now (replace later with true API call)
-    const dvlaResult = {
-      valid: true,
-      nameMatch: true,
-      expiry: "12/12/2028",
-    };
-
-    // 🟢 Store DVLA fields in the expected flat format
-    status.dvlaStatus = dvlaResult.valid ? "valid" : "invalid";
-    status.dvlaNameMatch = dvlaResult.nameMatch;
-    status.dvlaExpiry = dvlaResult.expiry;
-
+    // Mark as checked — manual approval still required
+    status.dvlaStatus = "checked";
+    status.dvlaLast8 = last8;
     status.updatedAt = new Date().toISOString();
+
     formStatus[bookingID] = status;
     saveFormStatus();
 
-    console.log(`🟢 DVLA check complete for #${bookingID}: ${status.dvlaStatus.toUpperCase()}`);
+    console.log(`🟢 DVLA CHECK STORED for #${bookingID}: last8=${last8}, code=${status.dvlaCode}`);
 
     return res.json({
       success: true,
       bookingID,
       dvla: {
+        checked: true,
         status: status.dvlaStatus,
-        nameMatch: status.dvlaNameMatch,
-        expiry: status.dvlaExpiry
+        last8,
+        code: status.dvlaCode
       }
     });
 
