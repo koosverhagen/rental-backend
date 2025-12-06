@@ -1298,7 +1298,9 @@ app.post("/dvla/check", express.json(), async (req, res) => {
     formStatus[bookingID] = status;
     saveFormStatus();
 
-    console.log(`🟢 DVLA CHECK STORED for #${bookingID}: last8=${last8}, code=${status.dvlaCode}`);
+    console.log(
+      `🟢 DVLA CHECK STORED for #${bookingID}: last8=${last8}, code=${status.dvlaCode}`
+    );
 
     return res.json({
       success: true,
@@ -1307,7 +1309,8 @@ app.post("/dvla/check", express.json(), async (req, res) => {
         checked: true,
         status: status.dvlaStatus,
         last8,
-        code: status.dvlaCode
+        code: status.dvlaCode,
+        url: "https://www.gov.uk/view-driving-licence"
       }
     });
 
