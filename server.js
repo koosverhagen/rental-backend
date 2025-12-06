@@ -1317,58 +1317,41 @@ app.post("/dvla/check", express.json(), async (req, res) => {
 });
 
 // ----------------------------------------------------
-// DVLA manual verify (no official DVLA API)
-// Called by HireCheck after staff has checked the licence online
+// DVLA manual approve (no reject)
 // ----------------------------------------------------
 app.post("/dvla/manual-verify", express.json(), async (req, res) => {
   try {
     const bookingID = String(req.body.bookingID || "").trim();
-    const licenceNumber = (req.body.licenceNumber || "").trim();
-    const dvlaCode = (req.body.dvlaCode || "").trim();
-    const dvlaExpiry = (req.body.dvlaExpiry || "").trim() || null; // optional
+    const dvlaExpiry = (req.body.dvlaExpiry || "").trim() || null;
 
     if (!bookingID) {
       return res.status(400).json({ error: "Missing bookingID" });
     }
-    if (!licenceNumber || !dvlaCode) {
-      return res
-        .status(400)
-        .json({ error: "Missing licenceNumber or dvlaCode" });
-    }
 
-    const existing = formStatus[bookingID] || {
-      requiredForm: null,
-      shortDone: false,
-      longDone: false,
-    };
+    const existing = formStatus[bookingID] || {};
 
-    // Save fields from the questionnaire
-    existing.licenceNumber = licenceNumber;
-    existing.dvlaCode = dvlaCode;
-
-    // 🟢 Mark as manually verified
-    existing.dvlaStatus = "valid";       // used by app for green badge
-    existing.dvlaNameMatch = true;       // we assume staff checked visually
-    existing.dvlaExpiry = dvlaExpiry;    // optional free-text like "12/12/2028"
+    // Mark as fully approved
+    existing.dvlaStatus = "valid";  
+    existing.dvlaExpiry = dvlaExpiry;  
     existing.updatedAt = new Date().toISOString();
 
     formStatus[bookingID] = existing;
     saveFormStatus();
 
-    console.log(
-      `🟢 DVLA MANUAL VERIFY #${bookingID}: licence=${licenceNumber}, code=${dvlaCode}, expiry=${dvlaExpiry || "—"}`
-    );
+    console.log(`🟢 DVLA APPROVED #${bookingID} — expiry=${dvlaExpiry || "none"}`);
 
     return res.json({
       success: true,
       bookingID,
-      status: existing,
+      dvlaStatus: existing.dvlaStatus,
+      dvlaExpiry: existing.dvlaExpiry
     });
   } catch (err) {
     console.error("❌ /dvla/manual-verify error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
+
 // ----------------------------------------------------
 // Manual scheduler trigger
 // ----------------------------------------------------
