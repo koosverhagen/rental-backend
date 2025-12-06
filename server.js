@@ -1276,7 +1276,7 @@ status.updatedAt = new Date().toISOString();
 });
 
 // ----------------------------------------------------
-// DVLA check (HireCheck app triggers this)
+// DVLA check (HireCheck app triggers this — manual only)
 // ----------------------------------------------------
 app.post("/dvla/check", express.json(), async (req, res) => {
   try {
@@ -1287,26 +1287,22 @@ app.post("/dvla/check", express.json(), async (req, res) => {
       return res.status(400).json({ error: "Missing DVLA data for this booking" });
     }
 
-    // Extract last 8 (legal)
+    // Extract last 8 (legal requirement)
     const last8 = status.licenceNumber.slice(-8);
 
-    // Mark as checked — manual approval still required
-    status.dvlaStatus = "checked";
+    status.dvlaStatus = "checked";   // NOT approved yet
     status.dvlaLast8 = last8;
     status.updatedAt = new Date().toISOString();
 
     formStatus[bookingID] = status;
     saveFormStatus();
 
-    console.log(
-      `🟢 DVLA CHECK STORED for #${bookingID}: last8=${last8}, code=${status.dvlaCode}`
-    );
+    console.log(`🟦 DVLA CHECK STORED #${bookingID} → last8=${last8}, code=${status.dvlaCode}`);
 
     return res.json({
       success: true,
       bookingID,
       dvla: {
-        checked: true,
         status: status.dvlaStatus,
         last8,
         code: status.dvlaCode,
