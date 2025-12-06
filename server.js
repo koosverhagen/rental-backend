@@ -1578,23 +1578,37 @@ app.get("/planyo/upcoming", async (_req, res) => {
     });
 
     log(`✅ ${kept.length} bookings kept`);
-    const bookings = kept.map((b) => ({
-      bookingID: String(b.reservation_id),
-      vehicleName: b.name || "—",
-      startDate: b.start_time || "",
-      endDate: b.end_time || "",
-      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-      email: b.email || "",
-      phoneNumber: b.mobile_number || b.phone || "",
-      totalPrice: b.total_price || "",
-      amountPaid: b.amount_paid || "",
-      addressLine1: b.address || "",
-      addressLine2: b.city || "",
-      postcode: b.zip || "",
-      dateOfBirth: "",
-      userNotes: b.user_notes || "",
-      additionalProducts: [],
-    }));
+   const bookings = kept.map((b) => {
+  const id = String(b.reservation_id);
+  const q = formStatus[id] || {};
+
+  // Extract last 8 digits of licence for GOV.UK check
+  const licence8 = q.licenceNumber ? q.licenceNumber.slice(-8) : "";
+
+  return {
+    bookingID: id,
+    vehicleName: b.name || "—",
+    startDate: b.start_time || "",
+    endDate: b.end_time || "",
+    customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+    email: b.email || "",
+    phoneNumber: b.mobile_number || b.phone || "",
+    totalPrice: b.total_price || "",
+    amountPaid: b.amount_paid || "",
+    addressLine1: b.address || "",
+    addressLine2: b.city || "",
+    postcode: b.zip || "",
+    dateOfBirth: "",
+    userNotes: b.user_notes || "",
+    additionalProducts: [],
+
+    // 🟢 DVLA Return fields (for list UI)
+    dvlaStatus: q.dvlaStatus || "pending",
+    dvlaExpiry: q.dvlaExpiry || "",
+    dvlaLast8: licence8,
+    dvlaCode: q.dvlaCode || ""
+  };
+});
 
     res.json(bookings);
   } catch (err) {
