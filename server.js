@@ -1775,36 +1775,38 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
 
     const booking = {
-      bookingID,
-      vehicleName: b.name || "—",
-      startDate: b.start_time || "",
-      endDate: b.end_time || "",
-      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-      email: b.email || "",
-      phoneNumber: b.mobile_number || b.phone_number || "",
-      totalPrice: b.total_price || "",
-      amountPaid: b.amount_paid || "",
-      addressLine1: b.address || "",
-      addressLine2: b.city || "",
-      postcode: b.zip || "",
-      dateOfBirth: b.properties?.Date_of_Birth || "",
-      userNotes: b.user_notes || "",
-      additionalProducts: mapProducts(b.regular_products || b.group_products || []),
+  bookingID,
+  vehicleName: b.name || "—",
+  startDate: b.start_time || "",
+  endDate: b.end_time || "",
+  customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+  email: b.email || "",
+  phoneNumber: b.mobile_number || b.phone_number || "",
+  totalPrice: b.total_price || "",
+  amountPaid: b.amount_paid || "",
+  addressLine1: b.address || "",
+  addressLine2: b.city || "",
+  postcode: b.zip || "",
+  dateOfBirth: b.properties?.Date_of_Birth || "",
+  userNotes: b.user_notes || "",
+  additionalProducts: mapProducts(b.regular_products || b.group_products || []),
 
-      // 🟢 Raw stored form state
-      formStatus: questionnaire,
-      requiredForm: questionnaire?.requiredForm ?? null,
-      shortDone: questionnaire?.shortDone ?? false,
-      longDone: questionnaire?.longDone ?? false,
+  // Full formStatus
+  formStatus: questionnaire,
 
-      // 🟢 FLATTENED DVLA fields
-      licenceNumber,
-      dvlaCode,
-      dvlaLast8,
-      dvlaStatus: questionnaire?.dvlaStatus || "pending",
-      dvlaExpiry: questionnaire?.dvlaExpiry || "",
-      dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
-    };
+  // Flattened for HireCheck
+  requiredForm: questionnaire?.requiredForm ?? null,
+  shortDone: questionnaire?.shortDone ?? false,
+  longDone: questionnaire?.longDone ?? false,
+
+  dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
+  dvlaExpiry: questionnaire?.dvlaExpiry ?? "",
+  dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null,
+
+  // 🟢 NEW
+  licenceNumber: questionnaire?.licenceNumber ?? "",
+  dvlaCode: questionnaire?.dvlaCode ?? ""
+};
 
     res.json(booking);
 
