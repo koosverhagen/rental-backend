@@ -1240,35 +1240,50 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
       return res.status(400).json({ error: "formType must be 'short' or 'long'" });
     }
 
-    // Initialise if not existing
+    // 🔹 Initialise status if not exist
     const status = formStatus[bookingID] || {
       requiredForm: formType,
       shortDone: false,
-      longDone: false,
+      longDone: false
     };
 
-    // Mark completion
+    // 🔹 Record completion of SHORT/LONG
     if (formType === "short") status.shortDone = true;
     if (formType === "long") status.longDone = true;
 
-    // Save DVLA fields (always required in form)
-status.licenceNumber = licenceNumber;
-status.dvlaCode = dvlaCode;
+    // 🔹 Store DVLA fields + detect changes
+    let dvlaChanged = false;
 
-// If DVLA has never been checked before → pending
-if (!status.dvlaStatus) {
-  status.dvlaStatus = "pending";
-}
+    if (licenceNumber && status.licenceNumber !== licenceNumber) {
+      status.licenceNumber = licenceNumber;
+      status.dvlaLast8 = licenceNumber.slice(-8);  // flatten + usable
+      dvlaChanged = true;
+    }
 
+    if (dvlaCode && status.dvlaCode !== dvlaCode) {
+      status.dvlaCode = dvlaCode;
+      dvlaChanged = true;
+    }
 
-status.updatedAt = new Date().toISOString();
+    // 🔹 If DVLA changed — reset status back to pending
+    if (dvlaChanged) {
+      status.dvlaStatus = "pending";
+      status.dvlaExpiry = "";     // remove old expiry if new code/number entered
+      status.dvlaNameMatch = null;
+    }
+
+    status.updatedAt = new Date().toISOString();
     formStatus[bookingID] = status;
     saveFormStatus();
 
-    console.log(`🟢 Questionnaire submitted for booking #${bookingID} (${formType.toUpperCase()})`);
-    console.log(`     DVLA fields: licence=${licenceNumber || "—"} | code=${dvlaCode || "—"}`);
+    console.log(`🟢 Form submitted #${bookingID} (${formType.toUpperCase()})`);
+    console.log(`     DVLA: last8=${status.dvlaLast8 || "—"} | code=${status.dvlaCode || "—"} | status=${status.dvlaStatus}`);
 
-    return res.json({ success: true, bookingID, status });
+    return res.json({
+      success: true,
+      bookingID,
+      status
+    });
 
   } catch (err) {
     console.error("❌ Error in /forms/submitted:", err);
