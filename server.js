@@ -1439,6 +1439,104 @@ app.get("/booking-thankyou-proxy", (req, res) => {
   </head><body>Redirecting…</body></html>`);
 });
 
+// ==================================================================
+// DVLA — STORE licence + code (from Wix booking form)
+// ==================================================================
+app.post("/forms/dvla/save", express.json(), (req, res) => {
+  const { bookingID, licenceNumber, dvlaCode } = req.body;
+
+  if (!bookingID) return res.status(400).json({ success: false, message: "Missing bookingID" });
+
+  const status = formStatus[bookingID] || {
+    requiredForm: "long",
+    shortDone: false,
+    longDone: false,
+  };
+
+  // Detect change and reset DVLA status
+  if (licenceNumber && status.licenceNumber !== licenceNumber) {
+    status.licenceNumber = licenceNumber;
+    status.dvlaStatus = "pending";
+    status.dvlaLast8 = licenceNumber.slice(-8);
+  }
+
+  if (dvlaCode && status.dvlaCode !== dvlaCode) {
+    status.dvlaCode = dvlaCode;
+    status.dvlaStatus = "pending";
+  }
+
+  status.updatedAt = new Date().toISOString();
+  formStatus[bookingID] = status;
+  saveFormStatus();
+
+  return res.json({ success: true, updated: status });
+});
+
+
+// ==================================================================
+// DVLA — MARK CHECKED (no external API)
+// ==================================================================
+app.post("/forms/dvla/checked", express.json(), (req, res) => {
+  const { bookingID } = req.body;
+  if (!bookingID) return res.status(400).json({ success: false, message: "Missing bookingID" });
+
+  const status = formStatus[bookingID];
+  if (!status) return res.status(404).json({ success: false, message: "Booking not found" });
+
+  const last8 = status.licenceNumber ? status.licenceNumber.slice(-8) : "";
+
+  status.dvlaStatus = "checked";
+  status.dvlaLast8 = last8;
+  status.updatedAt = new Date().toISOString();
+
+  formStatus[bookingID] = status;
+  saveFormStatus();
+
+  return res.json({ success: true, updated: status });
+});
+
+
+// ==================================================================
+// DVLA — MANUAL APPROVE (VALID)
+// ==================================================================
+app.post("/forms/dvla/override-valid", express.json(), (req, res) => {
+  const { bookingID, expiry } = req.body;
+  if (!bookingID) return res.status(400).json({ success: false, message: "Missing bookingID" });
+
+  const status = formStatus[bookingID];
+  if (!status) return res.status(404).json({ success: false, message: "Booking not found" });
+
+  status.dvlaStatus = "valid";
+  if (expiry) status.dvlaExpiry = expiry;
+  status.updatedAt = new Date().toISOString();
+
+  formStatus[bookingID] = status;
+  saveFormStatus();
+
+  return res.json({ success: true, updated: status });
+});
+
+
+// ==================================================================
+// DVLA — MANUAL REJECT (INVALID)
+// ==================================================================
+app.post("/forms/dvla/override-invalid", express.json(), (req, res) => {
+  const { bookingID } = req.body;
+  if (!bookingID) return res.status(400).json({ success: false, message: "Missing bookingID" });
+
+  const status = formStatus[bookingID];
+  if (!status) return res.status(404).json({ success: false, message: "Booking not found" });
+
+  status.dvlaStatus = "invalid";
+  status.updatedAt = new Date().toISOString();
+
+  formStatus[bookingID] = status;
+  saveFormStatus();
+
+  return res.json({ success: true, updated: status });
+});
+
+
 // ----------------------------------------------------
 // Damage report email (PDF from HireCheck app)
 // ----------------------------------------------------
