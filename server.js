@@ -1608,9 +1608,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
         d.getSeconds()
       )}`;
 
-    const start_time = fmt(
-      new Date(now.getTime() - 24 * 60 * 60 * 1000)
-    );
+    const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
     const end_time = fmt(thirtyDaysLater);
 
     const method = "list_reservations";
@@ -1653,40 +1651,49 @@ app.get("/planyo/upcoming", async (_req, res) => {
     });
 
     log(`✅ ${kept.length} bookings kept`);
-const bookings = kept.map((b) => {
-  const id = String(b.reservation_id);
-  const q = formStatus[id] || {};
 
-  // Extract last 8 of licence if exists
-  const licence8 = q.licenceNumber ? q.licenceNumber.slice(-8) : "";
+    const bookings = kept.map((b) => {
+      const id = String(b.reservation_id);
+      const q = formStatus[id] || {};
 
-  return {
-    bookingID: id,
-    vehicleName: b.name || "—",
-    startDate: b.start_time || "",
-    endDate: b.end_time || "",
-    customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-    email: b.email || "",
-    phoneNumber: b.mobile_number || b.phone || "",
-    totalPrice: b.total_price || "",
-    amountPaid: b.amount_paid || "",
-    addressLine1: b.address || "",
-    addressLine2: b.city || "",
-    postcode: b.zip || "",
-    dateOfBirth: "",
-    userNotes: b.user_notes || "",
-    additionalProducts: [],
+      const licenceNumber = q.licenceNumber || "";
+      const dvlaCode = q.dvlaCode || "";
+      const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
 
-    // DVLA State — used by HireCheck UI
-    dvlaStatus: q.dvlaStatus || "pending",
-    dvlaExpiry: q.dvlaExpiry || "",
-    dvlaLast8: licence8,
-    dvlaCode: q.dvlaCode || ""
-  };
-});
+      return {
+        bookingID: id,
+        vehicleName: b.name || "—",
+        startDate: b.start_time || "",
+        endDate: b.end_time || "",
+        customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+        email: b.email || "",
+        phoneNumber: b.mobile_number || b.phone || "",
+        totalPrice: b.total_price || "",
+        amountPaid: b.amount_paid || "",
+        addressLine1: b.address || "",
+        addressLine2: b.city || "",
+        postcode: b.zip || "",
+        dateOfBirth: "",
+        userNotes: b.user_notes || "",
+        additionalProducts: [],
 
+        // 🔥 Flattened DVLA
+        licenceNumber,
+        dvlaCode,
+        dvlaLast8,
+        dvlaStatus: q.dvlaStatus || "pending",
+        dvlaExpiry: q.dvlaExpiry || "",
+        dvlaNameMatch: q.dvlaNameMatch ?? null,
+
+        // 📌 Convenience — same as Scan booking
+        requiredForm: q.requiredForm ?? null,
+        shortDone: q.shortDone ?? false,
+        longDone: q.longDone ?? false
+      };
+    });
 
     res.json(bookings);
+
   } catch (err) {
     console.error("❌ /planyo/upcoming failed:", err);
     res.status(500).json({ error: err.message });
