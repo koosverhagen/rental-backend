@@ -1715,11 +1715,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       const resp = await fetch(url);
       const t = await resp.text();
       let j;
-      try {
-        j = JSON.parse(t);
-      } catch {
-        j = null;
-      }
+      try { j = JSON.parse(t); } catch { j = null; }
       return { j, t };
     };
 
@@ -1749,8 +1745,12 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         quantity: Number(p.quantity || 1),
       }));
 
-    // 🟢 Fetch current saved questionnaire + DVLA
+    // 🟢 Fetch saved questionnaire + DVLA state
     const questionnaire = formStatus[bookingID] || null;
+
+    const licenceNumber = questionnaire?.licenceNumber || "";
+    const dvlaCode = questionnaire?.dvlaCode || "";
+    const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
 
     const booking = {
       bookingID,
@@ -1769,15 +1769,18 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       userNotes: b.user_notes || "",
       additionalProducts: mapProducts(b.regular_products || b.group_products || []),
 
-      // 🟢 Full dynamic form state including DVLA fields
+      // 🟢 Raw stored form state
       formStatus: questionnaire,
-
-      // 🟢 Keep convenience fields for HireCheck logic
       requiredForm: questionnaire?.requiredForm ?? null,
       shortDone: questionnaire?.shortDone ?? false,
       longDone: questionnaire?.longDone ?? false,
-      dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
-      dvlaExpiry: questionnaire?.dvlaExpiry ?? "",
+
+      // 🟢 FLATTENED DVLA fields
+      licenceNumber,
+      dvlaCode,
+      dvlaLast8,
+      dvlaStatus: questionnaire?.dvlaStatus || "pending",
+      dvlaExpiry: questionnaire?.dvlaExpiry || "",
       dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null
     };
 
