@@ -947,8 +947,7 @@ app.get("/forms/status/:bookingID", (req, res) => {
     // DVLA fields returned safely
     dvlaLast8: saved.dvlaLast8 ?? null,
     dvlaCode: saved.dvlaCode ?? null,
-    dvlaStatus: saved.dvlaStatus ?? "pending",
-    dvlaExpiry: saved.dvlaExpiry ?? null
+    dvlaStatus: saved.dvlaStatus ?? "pending"
   };
 
   return res.json(response);
@@ -1237,7 +1236,7 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
     const formType = String(req.body.formType || "").toLowerCase();
     const licenceNumber = req.body.licenceNumber?.trim() || null;
     const dvlaCode = req.body.dvlaCode?.trim() || null;
-    const dvlaExpiry = req.body.dvlaExpiry?.trim() || null; // ⬅ future use
+    
 
     if (!bookingID || !formType) {
       return res.status(400).json({ error: "Missing bookingID or formType" });
@@ -1273,18 +1272,10 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
       dvlaChanged = true;
     }
 
-    // (Optional future expiry saved when provided)
-    if (dvlaExpiry && dvlaExpiry !== status.dvlaExpiry) {
-      status.dvlaExpiry = dvlaExpiry;
-      dvlaChanged = true;
-    }
-
     // Reset DVLA result if number or code changed
     if (dvlaChanged) {
       status.dvlaStatus = "pending";
-      status.dvlaNameMatch = null;
-      // Keep expiry only if manually set by admin
-      if (!dvlaExpiry) status.dvlaExpiry = null;
+      status.dvlaNameMatch = null;    
     }
 
     // Final save
@@ -1294,8 +1285,8 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
 
     console.log(`🟢 Form submitted #${bookingID} (${formType.toUpperCase()})`);
     console.log(
-      `     DVLA: last8=${status.dvlaLast8 || "—"} | code=${status.dvlaCode || "—"} | status=${status.dvlaStatus} | expiry=${status.dvlaExpiry || "—"}`
-    );
+  `     DVLA: last8=${status.dvlaLast8 || "—"} | code=${status.dvlaCode || "—"} | status=${status.dvlaStatus || "—"}`
+);
 
     return res.json({ success: true, bookingID, status });
 
@@ -1352,7 +1343,7 @@ app.post("/dvla/check", express.json(), async (req, res) => {
 app.post("/dvla/manual-verify", express.json(), async (req, res) => {
   try {
     const bookingID = String(req.body.bookingID || "").trim();
-    const dvlaExpiry = (req.body.dvlaExpiry || "").trim() || null;
+   
 
     if (!bookingID) {
       return res.status(400).json({ error: "Missing bookingID" });
@@ -1361,20 +1352,18 @@ app.post("/dvla/manual-verify", express.json(), async (req, res) => {
     const existing = formStatus[bookingID] || {};
 
     // Mark as fully approved
-    existing.dvlaStatus = "valid";  
-    existing.dvlaExpiry = dvlaExpiry;  
+    existing.dvlaStatus = "valid";    
     existing.updatedAt = new Date().toISOString();
 
     formStatus[bookingID] = existing;
     saveFormStatus();
 
-    console.log(`🟢 DVLA APPROVED #${bookingID} — expiry=${dvlaExpiry || "none"}`);
+   
 
     return res.json({
       success: true,
       bookingID,
       dvlaStatus: existing.dvlaStatus,
-      dvlaExpiry: existing.dvlaExpiry
     });
   } catch (err) {
     console.error("❌ /dvla/manual-verify error:", err);
@@ -1537,7 +1526,6 @@ app.post("/forms/dvla/override-valid", express.json(), (req, res) => {
   if (!status) return res.status(404).json({ success: false, message: "Booking not found" });
 
   status.dvlaStatus = "valid";
-  if (expiry) status.dvlaExpiry = expiry;
   status.updatedAt = new Date().toISOString();
 
   formStatus[bookingID] = status;
@@ -1711,7 +1699,6 @@ app.get("/planyo/upcoming", async (_req, res) => {
         dvlaCode,
         dvlaLast8,
         dvlaStatus: q.dvlaStatus || "pending",
-        dvlaExpiry: q.dvlaExpiry || "",
         dvlaNameMatch: q.dvlaNameMatch ?? null,
 
         // 📌 Convenience — same as Scan booking
@@ -1814,7 +1801,6 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
   longDone: questionnaire?.longDone ?? false,
 
   dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
-  dvlaExpiry: questionnaire?.dvlaExpiry ?? "",
   dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null,
 
   // 🟢 NEW
