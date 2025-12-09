@@ -1721,7 +1721,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
 // ----------------------------------------------------
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
-    const bookingID = req.params.bookingID;
+    const bookingID = String(req.params.bookingID);
     const method = "get_reservation_data";
 
     const call = async (ts) => {
@@ -1742,6 +1742,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       return { j, t };
     };
 
+    // ---- Handle timestamp drift ----
     let ts = Math.floor(Date.now() / 1000);
     let { j, t } = await call(ts);
 
@@ -1756,8 +1757,9 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       }
     }
 
-    if (!j?.data)
+    if (!j?.data) {
       return res.status(404).json({ error: "No booking found", raw: t });
+    }
 
     const b = j.data;
 
@@ -1768,45 +1770,63 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         quantity: Number(p.quantity || 1),
       }));
 
-    // 🟢 Fetch saved questionnaire + DVLA state
-    const questionnaire = formStatus[bookingID] || null;
+    // ----------------------------------------------------
+    // Load DVLA + Form Status (from JSON file)
+    // ----------------------------------------------------
+    const questionnaire = formStatus[bookingID] || {
+      requiredForm: null,
+      shortDone: false,
+      longDone: false,
+      licenceNumber: null,
+      dvlaCode: null,
+      dvlaStatus: "pending",
+      dvlaNameMatch: null,
+      dvlaExpiry: null
+    };
 
-    const licenceNumber = questionnaire?.licenceNumber || "";
-    const dvlaCode = questionnaire?.dvlaCode || "";
-    const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
+    const licenceNumber = questionnaire.licenceNumber || "";
+    const dvlaCode = questionnaire.dvlaCode || "";
+    const dvlaLast8 = licenceNumber ? licenceNumber.toString().slice(-8) : "";
 
+    // ----------------------------------------------------
+    // Final response to HireCheck App
+    // ----------------------------------------------------
     const booking = {
-  bookingID,
-  vehicleName: b.name || "—",
-  startDate: b.start_time || "",
-  endDate: b.end_time || "",
-  customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-  email: b.email || "",
-  phoneNumber: b.mobile_number || b.phone_number || "",
-  totalPrice: b.total_price || "",
-  amountPaid: b.amount_paid || "",
-  addressLine1: b.address || "",
-  addressLine2: b.city || "",
-  postcode: b.zip || "",
-  dateOfBirth: b.properties?.Date_of_Birth || "",
-  userNotes: b.user_notes || "",
-  additionalProducts: mapProducts(b.regular_products || b.group_products || []),
+      bookingID,
+      vehicleName: b.name || "—",
+      startDate: b.start_time || "",
+      endDate: b.end_time || "",
+      customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+      email: b.email || "",
+      phoneNumber: b.mobile_number || b.phone_number || "",
+      totalPrice: b.total_price || "",
+      amountPaid: b.amount_paid || "",
+      addressLine1: b.address || "",
+      addressLine2: b.city || "",
+      postcode: b.zip || "",
+      dateOfBirth: b.properties?.Date_of_Birth || "",
+      userNotes: b.user_notes || "",
+      additionalProducts: mapProducts(b.regular_products || b.group_products || []),
 
-  // Full formStatus
-  formStatus: questionnaire,
+      // Full form status back to iOS
+      formStatus: {
+        requiredForm: questionnaire.requiredForm,
+        shortDone: questionnaire.shortDone,
+        longDone: questionnaire.longDone,
+        licenceNumber: questionnaire.licenceNumber,
+        dvlaCode: questionnaire.dvlaCode,
+        dvlaStatus: questionnaire.dvlaStatus,
+        dvlaNameMatch: questionnaire.dvlaNameMatch,
+        dvlaExpiry: questionnaire.dvlaExpiry,
+        dvlaLast8
+      },
 
-  // Flattened for HireCheck
-  requiredForm: questionnaire?.requiredForm ?? null,
-  shortDone: questionnaire?.shortDone ?? false,
-  longDone: questionnaire?.longDone ?? false,
-
-  dvlaStatus: questionnaire?.dvlaStatus ?? "pending",
-  dvlaNameMatch: questionnaire?.dvlaNameMatch ?? null,
-
-  // 🟢 NEW
-  licenceNumber: questionnaire?.licenceNumber ?? "",
-  dvlaCode: questionnaire?.dvlaCode ?? ""
-};
+      // Flattened DVLA for quick display
+      licenceNumber,
+      dvlaCode,
+      dvlaLast8,
+      dvlaStatus: questionnaire.dvlaStatus ?? "pending"
+    };
 
     res.json(booking);
 
@@ -1815,7 +1835,6 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // ----------------------------------------------------
 // Planyo Webhook (reservation_confirmed) → questionnaire + deposit link
 // ----------------------------------------------------
