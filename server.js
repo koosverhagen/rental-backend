@@ -932,21 +932,27 @@ app.get("/deposit/status/:bookingID", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// Form status for HireCheck (LONG/SHORT + completion)
+// Form status for HireCheck (LONG/SHORT + DVLA fields)
 // ----------------------------------------------------
 app.get("/forms/status/:bookingID", (req, res) => {
   const bookingID = String(req.params.bookingID);
 
-  const status = formStatus[bookingID] || {
-    requiredForm: null,
-    shortDone: false,
-    longDone: false,
+  const saved = formStatus[bookingID] || {};
+
+  const response = {
+    requiredForm: saved.requiredForm ?? null,
+    shortDone: saved.shortDone ?? false,
+    longDone: saved.longDone ?? false,
+
+    // DVLA fields returned safely
+    dvlaLast8: saved.dvlaLast8 ?? null,
+    dvlaCode: saved.dvlaCode ?? null,
+    dvlaStatus: saved.dvlaStatus ?? "pending",
+    dvlaExpiry: saved.dvlaExpiry ?? null
   };
 
-  return res.json(status);
+  return res.json(response);
 });
-
-//// PART 4 OF 4 — START
 
 // ----------------------------------------------------
 // Deposit confirmation email sent after successful hold
@@ -1222,15 +1228,16 @@ app.post("/forms/submit", express.json(), (req, res) => {
   res.json({ ok: true });
 });
 
-// ----------------------------------------------------
+//// ----------------------------------------------------
 // Customer finished questionnaire (SHORT or LONG) + DVLA fields
 // ----------------------------------------------------
 app.post("/forms/submitted", express.json(), async (req, res) => {
   try {
     const bookingID = String(req.body.bookingID || "").trim();
     const formType = String(req.body.formType || "").toLowerCase();
-    const licenceNumber = req.body.licenceNumber || null;
-    const dvlaCode = req.body.dvlaCode || null;
+    const licenceNumber = req.body.licenceNumber?.trim() || null;
+    const dvlaCode = req.body.dvlaCode?.trim() || null;
+    const dvlaExpiry = req.body.dvlaExpiry?.trim() || null; // ⬅ future use
 
     if (!bookingID || !formType) {
       return res.status(400).json({ error: "Missing bookingID or formType" });
@@ -1240,50 +1247,57 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
       return res.status(400).json({ error: "formType must be 'short' or 'long'" });
     }
 
-    // 🔹 Initialise status if not exist
+    // 🔹 Initialize if not exist
     const status = formStatus[bookingID] || {
       requiredForm: formType,
       shortDone: false,
-      longDone: false
+      longDone: false,
+      dvlaStatus: "pending"
     };
 
-    // 🔹 Record completion of SHORT/LONG
+    // 🔹 Record completion
     if (formType === "short") status.shortDone = true;
     if (formType === "long") status.longDone = true;
 
-    // 🔹 Store DVLA fields + detect changes
+    // --- DVLA STORE + DETECT CHANGE ---
     let dvlaChanged = false;
 
-    if (licenceNumber && status.licenceNumber !== licenceNumber) {
+    if (licenceNumber && licenceNumber !== status.licenceNumber) {
       status.licenceNumber = licenceNumber;
-      status.dvlaLast8 = licenceNumber.slice(-8);  // flatten + usable
+      status.dvlaLast8 = licenceNumber.slice(-8);
       dvlaChanged = true;
     }
 
-    if (dvlaCode && status.dvlaCode !== dvlaCode) {
+    if (dvlaCode && dvlaCode !== status.dvlaCode) {
       status.dvlaCode = dvlaCode;
       dvlaChanged = true;
     }
 
-    // 🔹 If DVLA changed — reset status back to pending
-    if (dvlaChanged) {
-      status.dvlaStatus = "pending";
-      status.dvlaExpiry = "";     // remove old expiry if new code/number entered
-      status.dvlaNameMatch = null;
+    // (Optional future expiry saved when provided)
+    if (dvlaExpiry && dvlaExpiry !== status.dvlaExpiry) {
+      status.dvlaExpiry = dvlaExpiry;
+      dvlaChanged = true;
     }
 
+    // Reset DVLA result if number or code changed
+    if (dvlaChanged) {
+      status.dvlaStatus = "pending";
+      status.dvlaNameMatch = null;
+      // Keep expiry only if manually set by admin
+      if (!dvlaExpiry) status.dvlaExpiry = null;
+    }
+
+    // Final save
     status.updatedAt = new Date().toISOString();
     formStatus[bookingID] = status;
     saveFormStatus();
 
     console.log(`🟢 Form submitted #${bookingID} (${formType.toUpperCase()})`);
-    console.log(`     DVLA: last8=${status.dvlaLast8 || "—"} | code=${status.dvlaCode || "—"} | status=${status.dvlaStatus}`);
+    console.log(
+      `     DVLA: last8=${status.dvlaLast8 || "—"} | code=${status.dvlaCode || "—"} | status=${status.dvlaStatus} | expiry=${status.dvlaExpiry || "—"}`
+    );
 
-    return res.json({
-      success: true,
-      bookingID,
-      status
-    });
+    return res.json({ success: true, bookingID, status });
 
   } catch (err) {
     console.error("❌ Error in /forms/submitted:", err);
