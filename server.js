@@ -13,35 +13,6 @@ const path = require("path");
 require("dotenv").config();
 
 const app = express();
-app.use(cors());
-
-// ----------------------------------------------------
-// Questionnaire Form Status Storage
-// ----------------------------------------------------
-const FORMS_STATUS_FILE = path.join(__dirname, "forms_status.json");
-let formStatuses = {};
-
-try {
-  if (fs.existsSync(FORMS_STATUS_FILE)) {
-    const raw = fs.readFileSync(FORMS_STATUS_FILE, "utf8");
-    formStatuses = JSON.parse(raw || "{}");
-  }
-} catch (err) {
-  console.error("❌ Failed to load forms_status.json:", err);
-  formStatuses = {};
-}
-
-function saveFormStatuses() {
-  try {
-    fs.writeFileSync(
-      FORMS_STATUS_FILE,
-      JSON.stringify(formStatuses, null, 2),
-      "utf8"
-    );
-  } catch (err) {
-    console.error("❌ Failed to save forms_status.json:", err);
-  }
-}
 
 // ----------------------------------------------------
 // Redirect /pay/:bookingID to Wix deposit page
@@ -200,12 +171,6 @@ app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
-// ----------------------------------------------------
-// Helpers
-// ----------------------------------------------------
-function md5(str) {
-  return crypto.createHash("md5").update(str).digest("hex");
-}
 
 // ----------------------------------------------------
 // ✨ UPDATED emailTemplate — now formats start/end DD/MM/YY
@@ -444,6 +409,14 @@ function formatPlanyoDateTime(d) {
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
+
+// ----------------------------------------------------
+// Helpers
+// ----------------------------------------------------
+function md5(str) {
+  return crypto.createHash("md5").update(str).digest("hex");
+}
+
 
 // ----------------------------------------------------
 // Decide whether SHORT or LONG questionnaire is required
