@@ -12,6 +12,12 @@ const fs = require("fs");
 const path = require("path");
 require("dotenv").config();
 
+// ----------------------------------------------------
+// Canonical public API base URL (HTTPS only)
+// ----------------------------------------------------
+const PUBLIC_API_BASE = "https://api.equinetransportuk.com";
+
+
 const app = express();
 
 // ----------------------------------------------------
@@ -569,7 +575,7 @@ app.post("/forms/manual-resend", express.json(), async (req, res) => {
 
     console.log(`📨 Force resend triggered for booking #${bookingID}`);
 
-    const bookingUrl = `${process.env.SERVER_URL}/planyo/booking/${bookingID}`;
+    const bookingUrl = `${PUBLIC_API_BASE}/planyo/booking/${bookingID}`;
     const bookingData = await fetch(bookingUrl).then((r) => r.json());
 
     const {
@@ -729,8 +735,8 @@ document.getElementById("payment-form").addEventListener("submit", async (e) => 
   if (error) { resultDiv.textContent = "❌ " + error.message; }
   else if (paymentIntent && paymentIntent.status === "requires_capture") {
     resultDiv.textContent = "✅ Hold Successful. Redirecting…";
-    fetch("${process.env.SERVER_URL}/update-metadata",{method:"POST",headers:{ "Content-Type":"application/json"},body:JSON.stringify({payment_intent_id: paymentIntent.id, metadata: { fullName }})}).catch(()=>{});
-    fetch("${process.env.SERVER_URL}/email/deposit-confirmation",{method:"POST",headers:{ "Content-Type":"application/json"},body:JSON.stringify({ bookingID:"${bookingID}", amount:${amount} })}).catch(()=>{});
+    fetch("${PUBLIC_API_BASE}/update-metadata",{method:"POST",headers:{ "Content-Type":"application/json"},body:JSON.stringify({payment_intent_id: paymentIntent.id, metadata: { fullName }})}).catch(()=>{});
+    fetch("${PUBLIC_API_BASE}/email/deposit-confirmation",{method:"POST",headers:{ "Content-Type":"application/json"},body:JSON.stringify({ bookingID:"${bookingID}", amount:${amount} })}).catch(()=>{});
     setTimeout(()=>{ window.location.href = "https://www.equinetransportuk.com/thank-you?bookingID=${bookingID}&amount=${amount}"; }, 2000);
   } else { resultDiv.textContent = "ℹ️ Status: " + paymentIntent.status; }
 });
@@ -1147,7 +1153,7 @@ app.post("/deposit/send-link", async (req, res) => {
 // ----------------------------------------------------
 app.post("/deposit/resend", (req, res) => {
   const { bookingID, amount = 20000 } = req.body;
-  return fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+  return fetch(`${PUBLIC_API_BASE}/deposit/send-link`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ bookingID, amount, force: true }),
@@ -1424,7 +1430,7 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
 // proxy HTML wrapper so Wix can embed thank-you page nicely
 app.get("/booking-thankyou-proxy", (req, res) => {
   const query = req.url.split("?")[1] || "";
-  const url = `https://rental-backend-0kz1.onrender.com/thankyou-embed.html?${query}`;
+  const url = `${PUBLIC_API_BASE}/thankyou-embed.html?${query}`;
   res.send(`<!DOCTYPE html><html lang="en"><head>
   <meta http-equiv="refresh" content="0; url=${url}">
   <script>window.location.replace("${url}");</script>
@@ -1871,7 +1877,7 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
         );
       }
 
-      await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+      await fetch(`${PUBLIC_API_BASE}/deposit/send-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bookingID, amount: 20000 }),
@@ -1967,7 +1973,7 @@ async function runDepositScheduler(mode) {
         continue;
       }
 
-      await fetch(`${process.env.SERVER_URL}/deposit/send-link`, {
+      await fetch(`${PUBLIC_API_BASE}/deposit/send-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bookingID, amount: 20000 }),
