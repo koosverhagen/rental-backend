@@ -1589,7 +1589,7 @@ app.post("/damage/send-report", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// Planyo list for HireCheck (safe, no over-filtering)
+// Planyo list for HireCheck (API-key-only, no hash)
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
   try {
@@ -1604,38 +1604,27 @@ app.get("/planyo/upcoming", async (_req, res) => {
     const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
     const end_time = fmt(new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000));
 
-    const ts = Math.floor(Date.now() / 1000);
-
     const query = new URLSearchParams({
       method: "list_reservations",
       api_key: process.env.PLANYO_API_KEY,
       site_id: process.env.PLANYO_SITE_ID,
       start_time,
       end_time,
-      detail_level: "1",
-      hash_timestamp: String(ts),
+      detail_level: "1"
     });
 
     const url = `https://www.planyo.com/rest/?${query.toString()}`;
     console.log("🔗", url);
 
     const resp = await fetch(url);
-    const text = await resp.text();
+    const json = await resp.json();
 
-    let json;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      console.error("❌ Non-JSON response:", text);
+    if (json?.response_code !== 0 || !json?.data?.results) {
+      console.warn("⚠️ Planyo error:", json);
       return res.json([]);
     }
 
-    if (!json?.data?.results) {
-      console.warn("⚠️ No results:", json);
-      return res.json([]);
-    }
-
-    console.log(`✅ Planyo returned ${json.data.results.length} rows`);
+    console.log(`✅ Planyo returned ${json.data.results.length} bookings`);
 
     const bookings = json.data.results.map((b) => {
       const id = String(b.reservation_id);
@@ -1669,7 +1658,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
       };
     });
 
-    return res.json(bookings);
+    res.json(bookings);
 
   } catch (err) {
     console.error("❌ /planyo/upcoming failed:", err);
