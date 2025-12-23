@@ -214,16 +214,11 @@ function emailTemplate({ title, color, bodyTop, bookingID, booking }) {
 // ----------------------------------------------------
 async function fetchPlanyoBooking(bookingID) {
   try {
-    const method = "get_reservation_data";
-    const ts = Math.floor(Date.now() / 1000);
-    const hashKey = md5(process.env.PLANYO_HASH_KEY + ts + method);
-
     const url =
-      `https://www.planyo.com/rest/?method=${method}` +
+      `https://www.planyo.com/rest/?method=get_reservation_data` +
       `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&reservation_id=${bookingID}` +
-      `&hash_timestamp=${ts}` +
-      `&hash_key=${hashKey}`;
+      `&site_id=${process.env.PLANYO_SITE_ID}` +
+      `&reservation_id=${bookingID}`;
 
     const resp = await fetch(url);
     const data = await resp.json();
@@ -238,9 +233,16 @@ async function fetchPlanyoBooking(bookingID) {
         email: data.data.email || null,
       };
     }
+
+    console.warn(
+      "⚠️ Planyo returned non-success response:",
+      data?.response_message || data
+    );
+
   } catch (err) {
     console.error("⚠️ Planyo fetch error:", err);
   }
+
   return {
     resource: "N/A",
     start: "N/A",
@@ -337,62 +339,51 @@ function alreadySentRecently(bookingID) {
 }
 
 // ----------------------------------------------------
-// Generic Planyo call with timestamp self-heal
+// Generic Planyo REST call (NO hash / NO timestamp)
 // ----------------------------------------------------
 async function planyoCall(method, params = {}) {
-  const buildUrl = (timestamp) => {
-    const hashKey = md5(process.env.PLANYO_HASH_KEY + timestamp + method);
+  try {
     const query = new URLSearchParams({
       method,
       api_key: process.env.PLANYO_API_KEY,
       site_id: process.env.PLANYO_SITE_ID,
-      hash_timestamp: String(timestamp),
-      hash_key: hashKey,
       ...Object.fromEntries(
         Object.entries(params).map(([k, v]) => [k, String(v)])
       ),
     });
-    return `https://www.planyo.com/rest/?${query.toString()}`;
-  };
 
-  async function fetchOnce(ts) {
-    const url = buildUrl(ts);
+    const url = `https://www.planyo.com/rest/?${query.toString()}`;
+
     const resp = await fetch(url);
     const text = await resp.text();
+
     let json;
     try {
       json = JSON.parse(text);
     } catch {
-      json = null;
+      console.error("❌ Planyo returned non-JSON:", text.slice(0, 300));
+      return {
+        url,
+        json: { response_code: 1, response_message: "Non-JSON response" },
+      };
     }
-    return { url, json, text };
-  }
 
-  let ts = Math.floor(Date.now() / 1000);
-  let { url, json, text } = await fetchOnce(ts);
-
-  if (
-    json?.response_code === 1 &&
-    /Invalid timestamp/i.test(json.response_message || text)
-  ) {
-    const m = (json.response_message || "").match(
-      /Current timestamp is\s+(\d+)/i
-    );
-    if (m?.[1]) {
-      ts = parseInt(m[1], 10);
-      ({ url, json, text } = await fetchOnce(ts));
+    if (json?.response_code !== 0) {
+      console.warn(
+        "⚠️ Planyo error:",
+        json?.response_message || json
+      );
     }
-  }
 
-  if (!json) {
-    console.error("❌ Planyo non-JSON response:", (text || "").slice(0, 300));
+    return { url, json };
+
+  } catch (err) {
+    console.error("❌ Planyo REST call failed:", err);
     return {
-      url,
-      json: { response_code: 1, response_message: "Non-JSON response" },
+      url: null,
+      json: { response_code: 1, response_message: err.message },
     };
   }
-
-  return { url, json };
 }
 
 // ----------------------------------------------------
@@ -1370,62 +1361,60 @@ app.get("/trigger-daily-deposits", async (_req, res) => {
 app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const { bookingID } = req.params;
-    const method = "get_reservation_data";
 
-    const buildUrl = (ts) =>
-      `https://www.planyo.com/rest/?method=${method}` +
-      `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&site_id=${process.env.PLANYO_SITE_ID}` +
-      `&reservation_id=${bookingID}` +
-      `&hash_timestamp=${ts}` +
-      `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}` +
-      `&details=1`;
+    // ✅ Modern Planyo REST — API key only
+    const query = new URLSearchParams({
+      method: "get_reservation_data",
+      api_key: process.env.PLANYO_API_KEY,
+      site_id: process.env.PLANYO_SITE_ID,
+      reservation_id: bookingID,
+      details: "1",
+    });
 
-    let ts = Math.floor(
-      new Date(
-        new Date().toLocaleString("en-US", { timeZone: "Europe/Zurich" })
-      ).getTime() / 1000
-    );
-    let resp = await fetch(buildUrl(ts));
-    let json = await resp.json();
+    const url = `https://www.planyo.com/rest/?${query.toString()}`;
+    console.log("🔗 Planyo payments URL:", url);
 
-    if (
-      json?.response_code === 1 &&
-      /Invalid timestamp/i.test(json.response_message)
-    ) {
-      const m = json.response_message.match(/Current timestamp is (\d+)/);
-      if (m?.[1]) {
-        ts = parseInt(m[1], 10);
-        resp = await fetch(buildUrl(ts));
-        json = await resp.json();
-      }
+    const resp = await fetch(url);
+    const text = await resp.text();
+
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      console.error("❌ Non-JSON Planyo response:", text.slice(0, 300));
+      return res.status(500).json({ error: "Invalid Planyo response" });
     }
 
-    if (json?.response_code === 0 && json.data) {
-      const r = json.data;
-      return res.json({
-        bookingID,
-        customer: `${r.first_name} ${r.last_name}`,
-        resource: r.name,
-        start: r.start_time,
-        end: r.end_time,
-        total: parseFloat(r.total_price || 0).toFixed(2),
-        paid: parseFloat(r.amount_paid || 0).toFixed(2),
-        balance: parseFloat(
-          (r.total_price || 0) - (r.amount_paid || 0)
-        ).toFixed(2),
+    if (json?.response_code !== 0 || !json.data) {
+      console.error("❌ Planyo error:", json);
+      return res.status(500).json({
+        error: "Planyo error",
+        raw: json,
       });
     }
 
-    console.error("❌ Invalid Planyo response:", json);
-    return res
-      .status(500)
-      .json({ error: "Invalid Planyo response", raw: json });
+    const r = json.data;
+
+    const total = parseFloat(r.total_price || 0);
+    const paid = parseFloat(r.amount_paid || 0);
+    const balance = Math.max(total - paid, 0);
+
+    return res.json({
+      bookingID,
+      customer: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
+      resource: r.name || "—",
+      start: r.start_time || "",
+      end: r.end_time || "",
+      total: total.toFixed(2),
+      paid: paid.toFixed(2),
+      balance: balance.toFixed(2),
+    });
   } catch (err) {
-    console.error("Booking fetch error:", err);
+    console.error("❌ Booking payment fetch error:", err);
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // proxy HTML wrapper so Wix can embed thank-you page nicely
 app.get("/booking-thankyou-proxy", (req, res) => {
@@ -1590,6 +1579,7 @@ app.post("/damage/send-report", async (req, res) => {
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
   const log = (m) => process.stdout.write(m + "\n");
+
   try {
     log("📡 /planyo/upcoming → fetching reservations…");
 
@@ -1598,28 +1588,26 @@ app.get("/planyo/upcoming", async (_req, res) => {
 
     const pad = (n) => String(n).padStart(2, "0");
     const fmt = (d) =>
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
-        d.getDate()
-      )} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(
-        d.getSeconds()
-      )}`;
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+      `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
     const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
     const end_time = fmt(thirtyDaysLater);
 
-    const method = "list_reservations";
-    const ts = Math.floor(Date.now() / 1000);
-    const url =
-      `https://www.planyo.com/rest/?method=${method}` +
-      `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&site_id=${process.env.PLANYO_SITE_ID}` +
-      `&start_time=${start_time}` +
-      `&end_time=${end_time}` +
-      `&include_unconfirmed=0` +
-      `&hash_timestamp=${ts}` +
-      `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
+    // ✅ REST API (NO hash / NO timestamp)
+    const query = new URLSearchParams({
+      method: "list_reservations",
+      api_key: process.env.PLANYO_API_KEY,
+      site_id: process.env.PLANYO_SITE_ID,
+      start_time,
+      end_time,
+      include_unconfirmed: "0",
+      detail_level: "1"
+    });
 
+    const url = `https://www.planyo.com/rest/?${query.toString()}`;
     log("🔗 Planyo URL: " + url);
+
     const resp = await fetch(url);
     const text = await resp.text();
 
@@ -1627,20 +1615,18 @@ app.get("/planyo/upcoming", async (_req, res) => {
     try {
       json = JSON.parse(text);
     } catch {
-      json = null;
+      console.error("❌ Non-JSON Planyo response:", text.slice(0, 300));
+      return res.json([]);
     }
+
     if (!json?.data?.results?.length) {
       log("⚠️ No reservations returned.");
       return res.json([]);
     }
 
-    log("📋 Raw statuses:");
-    json.data.results.forEach((r) => {
-      const st = String(r.status || r.reservation_status || "");
-      if (!["4", "5", "7"].includes(st))
-        log(`🚫 Skip #${r.reservation_id} — status ${st}`);
-    });
-
+    // ------------------------------------------------
+    // Keep only confirmed / active bookings
+    // ------------------------------------------------
     const kept = json.data.results.filter((r) => {
       const st = String(r.status || r.reservation_status || "");
       return st === "4" || st === "5" || st === "7";
@@ -1653,7 +1639,6 @@ app.get("/planyo/upcoming", async (_req, res) => {
       const q = formStatus[id] || {};
 
       const licenceNumber = q.licenceNumber || "";
-      const dvlaCode = q.dvlaCode || "";
       const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
 
       return {
@@ -1673,14 +1658,14 @@ app.get("/planyo/upcoming", async (_req, res) => {
         userNotes: b.user_notes || "",
         additionalProducts: [],
 
-        // 🔥 Flattened DVLA
+        // DVLA (flattened)
         licenceNumber,
-        dvlaCode,
+        dvlaCode: q.dvlaCode || "",
         dvlaLast8,
         dvlaStatus: q.dvlaStatus || "pending",
         dvlaNameMatch: q.dvlaNameMatch ?? null,
 
-        // 📌 Convenience — same as Scan booking
+        // Form status
         requiredForm: q.requiredForm ?? null,
         shortDone: q.shortDone ?? false,
         longDone: q.longDone ?? false
@@ -1701,47 +1686,43 @@ app.get("/planyo/upcoming", async (_req, res) => {
 app.get("/planyo/booking/:bookingID", async (req, res) => {
   try {
     const bookingID = String(req.params.bookingID);
-    const method = "get_reservation_data";
 
-    const call = async (ts) => {
-      const url =
-        `https://www.planyo.com/rest/?method=${method}` +
-        `&api_key=${process.env.PLANYO_API_KEY}` +
-        `&site_id=${process.env.PLANYO_SITE_ID}` +
-        `&reservation_id=${bookingID}` +
-        `&include_form_items=1` +
-        `&include_additional_products=1` +
-        `&hash_timestamp=${ts}` +
-        `&hash_key=${md5(process.env.PLANYO_HASH_KEY + ts + method)}`;
+    // ✅ REST API — NO hash / NO timestamp
+    const query = new URLSearchParams({
+      method: "get_reservation_data",
+      api_key: process.env.PLANYO_API_KEY,
+      site_id: process.env.PLANYO_SITE_ID,
+      reservation_id: bookingID,
+      include_form_items: "1",
+      include_additional_products: "1",
+    });
 
-      const resp = await fetch(url);
-      const t = await resp.text();
-      let j;
-      try { j = JSON.parse(t); } catch { j = null; }
-      return { j, t };
-    };
+    const url = `https://www.planyo.com/rest/?${query.toString()}`;
+    console.log("🔗 Planyo booking URL:", url);
 
-    // ---- Handle timestamp drift ----
-    let ts = Math.floor(Date.now() / 1000);
-    let { j, t } = await call(ts);
+    const resp = await fetch(url);
+    const text = await resp.text();
 
-    if (
-      j?.response_code === 1 &&
-      /Invalid timestamp/i.test(j.response_message || t)
-    ) {
-      const m = (j.response_message || "").match(/Current timestamp is\s+(\d+)/i);
-      if (m?.[1]) {
-        ts = Number(m[1]);
-        ({ j, t } = await call(ts));
-      }
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      console.error("❌ Non-JSON Planyo response:", text.slice(0, 300));
+      return res.status(500).json({ error: "Invalid Planyo response" });
     }
 
-    if (!j?.data) {
-      return res.status(404).json({ error: "No booking found", raw: t });
+    if (!json?.data) {
+      return res.status(404).json({
+        error: "No booking found",
+        raw: json,
+      });
     }
 
-    const b = j.data;
+    const b = json.data;
 
+    // ----------------------------------------------------
+    // Map additional products
+    // ----------------------------------------------------
     const mapProducts = (arr = []) =>
       arr.map((p) => ({
         id: String(p.id || ""),
@@ -1750,7 +1731,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       }));
 
     // ----------------------------------------------------
-    // Load DVLA + Form Status (from JSON file)
+    // Load DVLA + Form Status (local JSON)
     // ----------------------------------------------------
     const questionnaire = formStatus[bookingID] || {
       requiredForm: null,
@@ -1760,15 +1741,15 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       dvlaCode: null,
       dvlaStatus: "pending",
       dvlaNameMatch: null,
-      dvlaExpiry: null
+      dvlaExpiry: null,
     };
 
     const licenceNumber = questionnaire.licenceNumber || "";
     const dvlaCode = questionnaire.dvlaCode || "";
-    const dvlaLast8 = licenceNumber ? licenceNumber.toString().slice(-8) : "";
+    const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
 
     // ----------------------------------------------------
-    // Final response to HireCheck App
+    // Final response to HireCheck app
     // ----------------------------------------------------
     const booking = {
       bookingID,
@@ -1777,7 +1758,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       endDate: b.end_time || "",
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
-      phoneNumber: b.mobile_number || b.phone_number || "",
+      phoneNumber: b.mobile_number || b.phone || "",
       totalPrice: b.total_price || "",
       amountPaid: b.amount_paid || "",
       addressLine1: b.address || "",
@@ -1785,9 +1766,11 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       postcode: b.zip || "",
       dateOfBirth: b.properties?.Date_of_Birth || "",
       userNotes: b.user_notes || "",
-      additionalProducts: mapProducts(b.regular_products || b.group_products || []),
+      additionalProducts: mapProducts(
+        b.regular_products || b.group_products || []
+      ),
 
-      // Full form status back to iOS
+      // Full form status (for DamageFormScreen / PDF)
       formStatus: {
         requiredForm: questionnaire.requiredForm,
         shortDone: questionnaire.shortDone,
@@ -1797,18 +1780,17 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
         dvlaStatus: questionnaire.dvlaStatus,
         dvlaNameMatch: questionnaire.dvlaNameMatch,
         dvlaExpiry: questionnaire.dvlaExpiry,
-        dvlaLast8
+        dvlaLast8,
       },
 
-      // Flattened DVLA for quick display
+      // Flattened DVLA (for lists)
       licenceNumber,
       dvlaCode,
       dvlaLast8,
-      dvlaStatus: questionnaire.dvlaStatus ?? "pending"
+      dvlaStatus: questionnaire.dvlaStatus ?? "pending",
     };
 
     res.json(booking);
-
   } catch (err) {
     console.error("❌ Get booking details failed:", err);
     res.status(500).json({ error: err.message });
