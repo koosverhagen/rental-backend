@@ -209,48 +209,62 @@ function emailTemplate({ title, color, bodyTop, bookingID, booking }) {
 
 //// PART 2 OF 4 — START
 
-// ----------------------------------------------------
-// Fetch basic booking summary from Planyo (for emails, descriptions)
+//// ----------------------------------------------------
+// Fetch basic booking summary from Planyo
+// (API key + site_id + hash_timestamp ONLY)
 // ----------------------------------------------------
 async function fetchPlanyoBooking(bookingID) {
   try {
-    const url =
-      `https://www.planyo.com/rest/?method=get_reservation_data` +
-      `&api_key=${process.env.PLANYO_API_KEY}` +
-      `&site_id=${process.env.PLANYO_SITE_ID}` +
-      `&reservation_id=${bookingID}`;
+    const ts = Math.floor(Date.now() / 1000);
+
+    const query = new URLSearchParams({
+      method: "get_reservation_data",
+      api_key: process.env.PLANYO_API_KEY,
+      site_id: process.env.PLANYO_SITE_ID,
+      reservation_id: bookingID,
+      hash_timestamp: String(ts),
+    });
+
+    const url = `https://www.planyo.com/rest/?${query.toString()}`;
+    console.log("🔗 Planyo booking URL:", url);
 
     const resp = await fetch(url);
-    const data = await resp.json();
+    const text = await resp.text();
 
-    if (data?.response_code === 0 && data.data) {
-      return {
-        resource: data.data.name || "N/A",
-        start: data.data.start_time || "N/A",
-        end: data.data.end_time || "N/A",
-        firstName: data.data.first_name || "",
-        lastName: data.data.last_name || "",
-        email: data.data.email || null,
-      };
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new Error("Non-JSON Planyo response");
     }
 
-    console.warn(
-      "⚠️ Planyo returned non-success response:",
-      data?.response_message || data
-    );
+    if (json?.response_code !== 0 || !json.data) {
+      console.error("❌ Planyo error:", json);
+      throw new Error(json.response_message || "Planyo error");
+    }
+
+    const d = json.data;
+
+    return {
+      resource: d.name || "N/A",
+      start: d.start_time || "N/A",
+      end: d.end_time || "N/A",
+      firstName: d.first_name || "",
+      lastName: d.last_name || "",
+      email: d.email || null,
+    };
 
   } catch (err) {
-    console.error("⚠️ Planyo fetch error:", err);
+    console.error("⚠️ fetchPlanyoBooking failed:", err.message);
+    return {
+      resource: "N/A",
+      start: "N/A",
+      end: "N/A",
+      firstName: "",
+      lastName: "",
+      email: null,
+    };
   }
-
-  return {
-    resource: "N/A",
-    start: "N/A",
-    end: "N/A",
-    firstName: "",
-    lastName: "",
-    email: null,
-  };
 }
 
 // ----------------------------------------------------
