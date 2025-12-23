@@ -1589,38 +1589,35 @@ app.post("/damage/send-report", async (req, res) => {
 });
 
 // ----------------------------------------------------
-// Planyo list for HireCheck (confirmed / in-progress / upcoming)
+// Planyo list for HireCheck (safe, no over-filtering)
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
-  const log = (m) => process.stdout.write(m + "\n");
-
   try {
-    log("📡 /planyo/upcoming → fetching reservations…");
+    console.log("📡 /planyo/upcoming");
 
     const now = new Date();
-    const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-
     const pad = (n) => String(n).padStart(2, "0");
     const fmt = (d) =>
       `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
       `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
     const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-    const end_time = fmt(thirtyDaysLater);
+    const end_time = fmt(new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000));
 
-    // ✅ REST API (NO hash / NO timestamp)
+    const ts = Math.floor(Date.now() / 1000);
+
     const query = new URLSearchParams({
       method: "list_reservations",
       api_key: process.env.PLANYO_API_KEY,
       site_id: process.env.PLANYO_SITE_ID,
       start_time,
       end_time,
-      include_unconfirmed: "0",
-      detail_level: "1"
+      detail_level: "1",
+      hash_timestamp: String(ts),
     });
 
     const url = `https://www.planyo.com/rest/?${query.toString()}`;
-    log("🔗 Planyo URL: " + url);
+    console.log("🔗", url);
 
     const resp = await fetch(url);
     const text = await resp.text();
@@ -1629,31 +1626,20 @@ app.get("/planyo/upcoming", async (_req, res) => {
     try {
       json = JSON.parse(text);
     } catch {
-      console.error("❌ Non-JSON Planyo response:", text.slice(0, 300));
+      console.error("❌ Non-JSON response:", text);
       return res.json([]);
     }
 
-    if (!json?.data?.results?.length) {
-      log("⚠️ No reservations returned.");
+    if (!json?.data?.results) {
+      console.warn("⚠️ No results:", json);
       return res.json([]);
     }
 
-    // ------------------------------------------------
-    // Keep only confirmed / active bookings
-    // ------------------------------------------------
-    const kept = json.data.results.filter((r) => {
-      const st = String(r.status || r.reservation_status || "");
-      return st === "4" || st === "5" || st === "7";
-    });
+    console.log(`✅ Planyo returned ${json.data.results.length} rows`);
 
-    log(`✅ ${kept.length} bookings kept`);
-
-    const bookings = kept.map((b) => {
+    const bookings = json.data.results.map((b) => {
       const id = String(b.reservation_id);
       const q = formStatus[id] || {};
-
-      const licenceNumber = q.licenceNumber || "";
-      const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
 
       return {
         bookingID: id,
@@ -1662,7 +1648,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
         endDate: b.end_time || "",
         customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
         email: b.email || "",
-        phoneNumber: b.mobile_number || b.phone || "",
+        phoneNumber: b.mobile_number || "",
         totalPrice: b.total_price || "",
         amountPaid: b.amount_paid || "",
         addressLine1: b.address || "",
@@ -1672,21 +1658,18 @@ app.get("/planyo/upcoming", async (_req, res) => {
         userNotes: b.user_notes || "",
         additionalProducts: [],
 
-        // DVLA (flattened)
-        licenceNumber,
+        licenceNumber: q.licenceNumber || "",
         dvlaCode: q.dvlaCode || "",
-        dvlaLast8,
+        dvlaLast8: q.dvlaLast8 || "",
         dvlaStatus: q.dvlaStatus || "pending",
-        dvlaNameMatch: q.dvlaNameMatch ?? null,
 
-        // Form status
         requiredForm: q.requiredForm ?? null,
         shortDone: q.shortDone ?? false,
         longDone: q.longDone ?? false
       };
     });
 
-    res.json(bookings);
+    return res.json(bookings);
 
   } catch (err) {
     console.error("❌ /planyo/upcoming failed:", err);
