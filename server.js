@@ -1583,7 +1583,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
     console.log("📡 /planyo/upcoming");
 
     const now = new Date();
-    const thirtyDaysLater = new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000);
+    const fortyFiveDaysLater = new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000);
 
     const pad = (n) => String(n).padStart(2, "0");
     const fmt = (d) =>
@@ -1591,7 +1591,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
       `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
     const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-    const end_time = fmt(thirtyDaysLater);
+    const end_time   = fmt(fortyFiveDaysLater);
 
     const result = await planyoCall("list_reservations", {
       start_time,
@@ -1600,54 +1600,75 @@ app.get("/planyo/upcoming", async (_req, res) => {
       detail_level: 1,
     });
 
-    // IMPORTANT: never crash → return []
+    // Always fail safely
     if (!result.ok) {
       console.warn("⚠️ Planyo list_reservations failed:", result.json);
-      console.warn("🔗 Planyo URL used:", result.url);
+      console.warn("🔗 URL:", result.url);
       return res.json([]);
     }
 
     const rows = result.json?.data?.results || [];
     console.log(`✅ Planyo returned ${rows.length} reservations`);
 
-    const bookings = rows.map((b) => {
-      const id = String(b.reservation_id);
-      const q = formStatus[id] || {};
+    // 🔑 Fetch authoritative payment totals PER booking
+    const bookings = await Promise.all(
+      rows.map(async (b) => {
+        const bookingID = String(b.reservation_id);
+        const q = formStatus[bookingID] || {};
 
-      const licenceNumber = q.licenceNumber || "";
-      const dvlaCode = q.dvlaCode || "";
-      const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
+        let totalPrice = "0.00";
+        let amountPaid = "0.00";
 
-      return {
-        bookingID: id,
-        vehicleName: b.name || "—",
-        startDate: b.start_time || "",
-        endDate: b.end_time || "",
-        customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-        email: b.email || "",
-        phoneNumber: b.mobile_number || b.phone || "",
-        totalPrice: b.total_price || "",
-        amountPaid: b.amount_paid || "",
-        addressLine1: b.address || "",
-        addressLine2: b.city || "",
-        postcode: b.zip || "",
-        dateOfBirth: "",
-        userNotes: b.user_notes || "",
-        additionalProducts: [],
+        try {
+          const pay = await fetch(
+            `${process.env.PUBLIC_API_BASE}/bookingpayments/list/${bookingID}`
+          ).then((r) => r.json());
 
-        licenceNumber,
-        dvlaCode,
-        dvlaLast8,
-        dvlaStatus: q.dvlaStatus || "pending",
-        dvlaNameMatch: q.dvlaNameMatch ?? null,
+          if (pay?.total) totalPrice = String(pay.total);
+          if (pay?.paid)  amountPaid = String(pay.paid);
+        } catch (e) {
+          console.warn(`⚠️ Payment lookup failed for ${bookingID}`);
+        }
 
-        requiredForm: q.requiredForm ?? null,
-        shortDone: q.shortDone ?? false,
-        longDone: q.longDone ?? false,
-      };
-    });
+        const licenceNumber = q.licenceNumber || "";
+        const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
+
+        return {
+          bookingID,
+          vehicleName: b.name || "—",
+          startDate: b.start_time || "",
+          endDate: b.end_time || "",
+          customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+          email: b.email || "",
+          phoneNumber: b.mobile_number || b.phone || "",
+
+          // ✅ NOW ALWAYS CORRECT
+          totalPrice,
+          amountPaid,
+
+          addressLine1: b.address || "",
+          addressLine2: b.city || "",
+          postcode: b.zip || "",
+          dateOfBirth: "",
+          userNotes: b.user_notes || "",
+          additionalProducts: [],
+
+          // DVLA / Forms
+          licenceNumber,
+          dvlaCode: q.dvlaCode || "",
+          dvlaLast8,
+          dvlaStatus: q.dvlaStatus || "pending",
+          dvlaNameMatch: q.dvlaNameMatch ?? null,
+
+          requiredForm: q.requiredForm ?? null,
+          shortDone: q.shortDone ?? false,
+          longDone: q.longDone ?? false,
+        };
+      })
+    );
 
     return res.json(bookings);
+
   } catch (err) {
     console.error("❌ /planyo/upcoming failed:", err);
     return res.status(500).json({ error: err.message });
