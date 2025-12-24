@@ -1669,7 +1669,9 @@ app.get("/planyo/upcoming", async (_req, res) => {
       return res.json([]);
     }
 
-    const rows = result.json?.data?.results || [];
+    const rows = (result.json?.data?.results || [])
+  .filter(b => String(b.status) === "7"); // ✅ confirmed only
+
     console.log(`✅ Planyo returned ${rows.length} reservations`);
 
     // -------------------------------
