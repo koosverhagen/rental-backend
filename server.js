@@ -1575,7 +1575,7 @@ app.post("/damage/send-report", async (req, res) => {
   }
 });
 
-// ----------------------------------------------------
+/// ----------------------------------------------------
 // Planyo list for HireCheck (confirmed / in-progress / upcoming)
 // ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
@@ -1610,62 +1610,68 @@ app.get("/planyo/upcoming", async (_req, res) => {
     const rows = result.json?.data?.results || [];
     console.log(`✅ Planyo returned ${rows.length} reservations`);
 
-    // 🔑 Fetch authoritative payment totals PER booking
-    const bookings = await Promise.all(
-      rows.map(async (b) => {
-        const bookingID = String(b.reservation_id);
-        const q = formStatus[bookingID] || {};
+    const bookings = [];
 
-        let totalPrice = "0.00";
-        let amountPaid = "0.00";
+    for (const b of rows) {
+      const bookingID = String(b.reservation_id);
+      const q = formStatus[bookingID] || {};
 
-        try {
-          const pay = await fetch(
-            `${process.env.PUBLIC_API_BASE}/bookingpayments/list/${bookingID}`
-          ).then((r) => r.json());
+      // ------------------------------------------------
+      // 🔑 AUTHORITATIVE PAYMENT TOTALS
+      // ------------------------------------------------
+      let totalPrice = "0.00";
+      let amountPaid = "0.00";
 
-          if (pay?.total) totalPrice = String(pay.total);
-          if (pay?.paid)  amountPaid = String(pay.paid);
-        } catch (e) {
-          console.warn(`⚠️ Payment lookup failed for ${bookingID}`);
+      try {
+        const payRes = await planyoCall("get_reservation_data", {
+          reservation_id: bookingID,
+          details: 1,
+        });
+
+        if (payRes.ok && payRes.json?.data) {
+          const d = payRes.json.data;
+          totalPrice = String(d.total_price || "0.00");
+          amountPaid = String(d.amount_paid || "0.00");
         }
+      } catch (e) {
+        console.warn(`⚠️ Payment lookup failed for booking ${bookingID}`);
+      }
 
-        const licenceNumber = q.licenceNumber || "";
-        const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
+      const licenceNumber = q.licenceNumber || "";
+      const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
 
-        return {
-          bookingID,
-          vehicleName: b.name || "—",
-          startDate: b.start_time || "",
-          endDate: b.end_time || "",
-          customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-          email: b.email || "",
-          phoneNumber: b.mobile_number || b.phone || "",
+      bookings.push({
+        bookingID,
+        vehicleName: b.name || "—",
+        startDate: b.start_time || "",
+        endDate: b.end_time || "",
+        customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
+        email: b.email || "",
+        phoneNumber: b.mobile_number || b.phone || "",
 
-          // ✅ NOW ALWAYS CORRECT
-          totalPrice,
-          amountPaid,
+        // ✅ CORRECT & TRUSTED
+        totalPrice,
+        amountPaid,
 
-          addressLine1: b.address || "",
-          addressLine2: b.city || "",
-          postcode: b.zip || "",
-          dateOfBirth: "",
-          userNotes: b.user_notes || "",
-          additionalProducts: [],
+        addressLine1: b.address || "",
+        addressLine2: b.city || "",
+        postcode: b.zip || "",
+        dateOfBirth: "",
+        userNotes: b.user_notes || "",
+        additionalProducts: [],
 
-          // DVLA / Forms
-          licenceNumber,
-          dvlaCode: q.dvlaCode || "",
-          dvlaLast8,
-          dvlaStatus: q.dvlaStatus || "pending",
-          dvlaNameMatch: q.dvlaNameMatch ?? null,
+        // DVLA / Forms
+        licenceNumber,
+        dvlaCode: q.dvlaCode || "",
+        dvlaLast8,
+        dvlaStatus: q.dvlaStatus || "pending",
+        dvlaNameMatch: q.dvlaNameMatch ?? null,
 
-          requiredForm: q.requiredForm ?? null,
-          shortDone: q.shortDone ?? false,
-          longDone: q.longDone ?? false,
-        };
-      })
-    );
+        requiredForm: q.requiredForm ?? null,
+        shortDone: q.shortDone ?? false,
+        longDone: q.longDone ?? false,
+      });
+    }
 
     return res.json(bookings);
 
@@ -1673,6 +1679,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
     console.error("❌ /planyo/upcoming failed:", err);
     return res.status(500).json({ error: err.message });
   }
+});
 });
 
 // ----------------------------------------------------
