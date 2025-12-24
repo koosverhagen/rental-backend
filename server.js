@@ -1680,7 +1680,6 @@ app.get("/planyo/upcoming", async (_req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
-});
 
 // ----------------------------------------------------
 // Planyo single booking (full details for QR scan / HireCheck)
