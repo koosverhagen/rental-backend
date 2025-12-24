@@ -1638,9 +1638,6 @@ app.post("/damage/send-report", async (req, res) => {
   }
 });
 
-/// ----------------------------------------------------
-// Planyo list for HireCheck (confirmed / in-progress / upcoming)
-// ----------------------------------------------------
 // ----------------------------------------------------
 // Planyo list for HireCheck (confirmed / in-progress / upcoming)
 // ----------------------------------------------------
@@ -1657,7 +1654,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
       `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
     const start_time = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-    const end_time   = fmt(fortyFiveDaysLater);
+    const end_time = fmt(fortyFiveDaysLater);
 
     const result = await planyoCall("list_reservations", {
       start_time,
@@ -1675,11 +1672,9 @@ app.get("/planyo/upcoming", async (_req, res) => {
     const rows = result.json?.data?.results || [];
     console.log(`✅ Planyo returned ${rows.length} reservations`);
 
-    const bookings = [];
-
-    // ------------------------------------------------
+    // -------------------------------
     // Helper: safe numeric parse
-    // ------------------------------------------------
+    // -------------------------------
     const toNum = (v) => {
       if (v === null || v === undefined) return NaN;
       if (typeof v === "number") return v;
@@ -1690,6 +1685,8 @@ app.get("/planyo/upcoming", async (_req, res) => {
       return NaN;
     };
 
+    const bookings = [];
+
     for (const b of rows) {
       const bookingID = String(b.reservation_id);
       const q = formStatus[bookingID] || {};
@@ -1698,63 +1695,63 @@ app.get("/planyo/upcoming", async (_req, res) => {
       let amountPaid = "0.00";
 
       try {
-       const payRes = await planyoCall("get_reservation_data", {
-  reservation_id: bookingID,
-  details: 1,
-});
+        const payRes = await planyoCall("get_reservation_data", {
+          reservation_id: bookingID,
+          details: 1,
+        });
 
-if (payRes.ok && payRes.json?.data) {
-  const d = payRes.json.data;
+        if (payRes.ok && payRes.json?.data) {
+          const d = payRes.json.data;
 
-  // 🔍 DEBUG — see EXACT raw payment fields from Planyo
-  console.log("PAY DEBUG", bookingID, {
-    total_price: d.total_price,
-    amount_paid: d.amount_paid,
-    amount_outstanding: d.amount_outstanding,
-    amount_outstanding_total: d.amount_outstanding_total,
-    amount_due: d.amount_due,
-    amount_to_pay: d.amount_to_pay,
-  });
+          // 🔍 DEBUG — raw Planyo payment fields
+          console.log("PAY DEBUG", bookingID, {
+            total_price: d.total_price,
+            amount_paid: d.amount_paid,
+            amount_outstanding: d.amount_outstanding,
+            amount_outstanding_total: d.amount_outstanding_total,
+            amount_due: d.amount_due,
+            amount_to_pay: d.amount_to_pay,
+          });
 
-  const total = toNum(d.total_price);
-  const paidRaw = toNum(d.amount_paid);
+          const total = toNum(d.total_price);
 
-  const outstandingCandidates = [
-    d.amount_outstanding,
-    d.amount_outstanding_total,
-    d.amount_due,
-    d.amount_remaining,
-  ]
-    .map(toNum)
-    .filter(Number.isFinite);
+          const outstandingCandidates = [
+            d.amount_outstanding,
+            d.amount_outstanding_total,
+            d.amount_due,
+            d.amount_remaining,
+          ]
+            .map(toNum)
+            .filter(Number.isFinite);
 
-  let paid = 0;
-  let balance = 0;
+          let outstanding = 0;
+          let paid = 0;
 
-  if (Number.isFinite(total) && outstandingCandidates.length > 0) {
-    balance = Math.max(outstandingCandidates[0], 0);
-    paid = Math.max(total - balance, 0);
-  } else if (Number.isFinite(total) && Number.isFinite(paidRaw)) {
-    paid = Math.max(paidRaw, 0);
-    balance = Math.max(total - paid, 0);
-  } else {
-    paid = 0;
-    balance = Number.isFinite(total) ? total : 0;
-  }
+          if (Number.isFinite(total) && outstandingCandidates.length > 0) {
+            outstanding = Math.max(outstandingCandidates[0], 0);
+            paid = Math.max(total - outstanding, 0);
+          } else {
+            const paidRaw = toNum(d.amount_paid);
+            paid = Number.isFinite(paidRaw) ? paidRaw : 0;
+            outstanding = Number.isFinite(total)
+              ? Math.max(total - paid, 0)
+              : 0;
+          }
 
-  totalPrice = Number.isFinite(total) ? total.toFixed(2) : "0.00";
-  amountPaid = paid.toFixed(2);
-}
+          totalPrice = Number.isFinite(total) ? total.toFixed(2) : "0.00";
+          amountPaid = paid.toFixed(2);
 
-
-          console.log("💳 Payment resolved (list)", bookingID, {
+          console.log("💳 Payment resolved", bookingID, {
             total,
             paid,
-            balance,
+            outstanding,
           });
         }
       } catch (e) {
-        console.warn(`⚠️ Payment lookup failed for booking ${bookingID}`);
+        console.warn(
+          `⚠️ Payment lookup failed for booking ${bookingID}`,
+          e.message
+        );
       }
 
       const licenceNumber = q.licenceNumber || "";
@@ -1769,7 +1766,7 @@ if (payRes.ok && payRes.json?.data) {
         email: b.email || "",
         phoneNumber: b.mobile_number || b.phone || "",
 
-        // ✅ NOW CORRECT
+        // 💰 CORRECT & TRUSTED
         totalPrice,
         amountPaid,
 
@@ -1794,13 +1791,11 @@ if (payRes.ok && payRes.json?.data) {
     }
 
     return res.json(bookings);
-
   } catch (err) {
     console.error("❌ /planyo/upcoming failed:", err);
     return res.status(500).json({ error: err.message });
   }
 });
-
 // ----------------------------------------------------
 // Planyo single booking (full details for QR scan / HireCheck)
 // ----------------------------------------------------
