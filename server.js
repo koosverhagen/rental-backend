@@ -1377,28 +1377,90 @@ app.get("/trigger-daily-deposits", async (_req, res) => {
 // ----------------------------------------------------
 // Booking payments (for Wix thank-you embed)
 // ----------------------------------------------------
+// ----------------------------------------------------
+// Booking payments (authoritative totals from Planyo)
+// ----------------------------------------------------
 app.get("/bookingpayments/list/:bookingID", async (req, res) => {
   try {
     const bookingID = String(req.params.bookingID);
 
     const result = await planyoCall("get_reservation_data", {
       reservation_id: bookingID,
-      details: 1
+      details: 1,
     });
 
     if (!result.ok || !result.json?.data) {
       console.error("❌ Planyo payment fetch failed:", result.json);
       return res.status(500).json({
         error: "Planyo error",
-        raw: result.json
+        raw: result.json,
       });
     }
 
     const r = result.json.data;
 
-    const total = Number(r.total_price || 0);
-    const paid = Number(r.amount_paid || 0);
-    const balance = Math.max(total - paid, 0);
+    // ------------------------------
+    // 🔑 Robust numeric parsing
+    // ------------------------------
+    const toNum = (v) => {
+      if (v === null || v === undefined) return NaN;
+      if (typeof v === "number") return v;
+      if (typeof v === "string") {
+        const n = parseFloat(v.replace(",", "."));
+        return Number.isFinite(n) ? n : NaN;
+      }
+      return NaN;
+    };
+
+    // ------------------------------
+    // 🔑 Extract payments safely
+    // ------------------------------
+    const total = toNum(r.total_price);
+
+    const paidRaw = toNum(r.amount_paid);
+
+    const outstandingCandidates = [
+      r.amount_outstanding,
+      r.amount_outstanding_total,
+      r.amount_due,
+      r.amount_to_pay,
+      r.amount_remaining,
+    ]
+      .map(toNum)
+      .filter(Number.isFinite);
+
+    let paid = 0;
+    let balance = 0;
+
+    // ✅ Preferred: outstanding exists → derive paid
+    if (Number.isFinite(total) && outstandingCandidates.length > 0) {
+      balance = Math.max(outstandingCandidates[0], 0);
+      paid = Math.max(total - balance, 0);
+    }
+    // ✅ Fallback: amount_paid exists → derive outstanding
+    else if (Number.isFinite(total) && Number.isFinite(paidRaw)) {
+      paid = Math.max(paidRaw, 0);
+      balance = Math.max(total - paid, 0);
+    }
+    // 🚨 Last fallback (should never really happen)
+    else {
+      paid = 0;
+      balance = Number.isFinite(total) ? total : 0;
+    }
+
+    // ------------------------------
+    // 🔍 One-line debug (safe)
+    // ------------------------------
+    console.log("💳 Payment resolved", bookingID, {
+      total,
+      paid,
+      balance,
+      raw: {
+        total_price: r.total_price,
+        amount_paid: r.amount_paid,
+        amount_outstanding: r.amount_outstanding,
+      },
+    });
 
     return res.json({
       bookingID,
@@ -1410,6 +1472,7 @@ app.get("/bookingpayments/list/:bookingID", async (req, res) => {
       paid: paid.toFixed(2),
       balance: balance.toFixed(2),
     });
+
   } catch (err) {
     console.error("❌ Booking payment fetch error:", err);
     res.status(500).json({ error: err.message });
@@ -1578,6 +1641,9 @@ app.post("/damage/send-report", async (req, res) => {
 /// ----------------------------------------------------
 // Planyo list for HireCheck (confirmed / in-progress / upcoming)
 // ----------------------------------------------------
+// ----------------------------------------------------
+// Planyo list for HireCheck (confirmed / in-progress / upcoming)
+// ----------------------------------------------------
 app.get("/planyo/upcoming", async (_req, res) => {
   try {
     console.log("📡 /planyo/upcoming");
@@ -1600,7 +1666,6 @@ app.get("/planyo/upcoming", async (_req, res) => {
       detail_level: 1,
     });
 
-    // Always fail safely
     if (!result.ok) {
       console.warn("⚠️ Planyo list_reservations failed:", result.json);
       console.warn("🔗 URL:", result.url);
@@ -1612,36 +1677,85 @@ app.get("/planyo/upcoming", async (_req, res) => {
 
     const bookings = [];
 
+    // ------------------------------------------------
+    // Helper: safe numeric parse
+    // ------------------------------------------------
+    const toNum = (v) => {
+      if (v === null || v === undefined) return NaN;
+      if (typeof v === "number") return v;
+      if (typeof v === "string") {
+        const n = parseFloat(v.replace(",", "."));
+        return Number.isFinite(n) ? n : NaN;
+      }
+      return NaN;
+    };
+
     for (const b of rows) {
       const bookingID = String(b.reservation_id);
       const q = formStatus[bookingID] || {};
 
-     // ------------------------------------------------
-// 🔑 AUTHORITATIVE PAYMENT TOTALS (Planyo-safe)
-// ------------------------------------------------
-let totalPrice = "0.00";
-let amountPaid = "0.00";
+      let totalPrice = "0.00";
+      let amountPaid = "0.00";
 
-try {
-  const payRes = await planyoCall("get_reservation_data", {
-    reservation_id: bookingID,
-    details: 1,
+      try {
+       const payRes = await planyoCall("get_reservation_data", {
+  reservation_id: bookingID,
+  details: 1,
+});
+
+if (payRes.ok && payRes.json?.data) {
+  const d = payRes.json.data;
+
+  // 🔍 DEBUG — see EXACT raw payment fields from Planyo
+  console.log("PAY DEBUG", bookingID, {
+    total_price: d.total_price,
+    amount_paid: d.amount_paid,
+    amount_outstanding: d.amount_outstanding,
+    amount_outstanding_total: d.amount_outstanding_total,
+    amount_due: d.amount_due,
+    amount_to_pay: d.amount_to_pay,
   });
 
-  if (payRes.ok && payRes.json?.data) {
-    const d = payRes.json.data;
+  const total = toNum(d.total_price);
+  const paidRaw = toNum(d.amount_paid);
 
-    const total = Number(d.total_price || 0);
-    const outstanding = Number(d.amount_outstanding || 0);
-    const paid = Math.max(total - outstanding, 0);
+  const outstandingCandidates = [
+    d.amount_outstanding,
+    d.amount_outstanding_total,
+    d.amount_due,
+    d.amount_remaining,
+  ]
+    .map(toNum)
+    .filter(Number.isFinite);
 
-    totalPrice = total.toFixed(2);
-    amountPaid = paid.toFixed(2);
+  let paid = 0;
+  let balance = 0;
+
+  if (Number.isFinite(total) && outstandingCandidates.length > 0) {
+    balance = Math.max(outstandingCandidates[0], 0);
+    paid = Math.max(total - balance, 0);
+  } else if (Number.isFinite(total) && Number.isFinite(paidRaw)) {
+    paid = Math.max(paidRaw, 0);
+    balance = Math.max(total - paid, 0);
+  } else {
+    paid = 0;
+    balance = Number.isFinite(total) ? total : 0;
   }
-} catch (e) {
-  console.warn(`⚠️ Payment lookup failed for booking ${bookingID}`);
+
+  totalPrice = Number.isFinite(total) ? total.toFixed(2) : "0.00";
+  amountPaid = paid.toFixed(2);
 }
 
+
+          console.log("💳 Payment resolved (list)", bookingID, {
+            total,
+            paid,
+            balance,
+          });
+        }
+      } catch (e) {
+        console.warn(`⚠️ Payment lookup failed for booking ${bookingID}`);
+      }
 
       const licenceNumber = q.licenceNumber || "";
       const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
@@ -1655,7 +1769,7 @@ try {
         email: b.email || "",
         phoneNumber: b.mobile_number || b.phone || "",
 
-        // ✅ CORRECT & TRUSTED
+        // ✅ NOW CORRECT
         totalPrice,
         amountPaid,
 
@@ -1765,6 +1879,7 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // ----------------------------------------------------
 // Planyo Webhook (reservation_confirmed) → questionnaire + deposit link
@@ -1935,6 +2050,8 @@ async function runDepositScheduler(mode) {
     console.error("❌ Deposit scheduler error:", err);
   }
 }
+
+
 
 // ----------------------------------------------------
 // Root + Server start
