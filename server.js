@@ -1616,26 +1616,32 @@ app.get("/planyo/upcoming", async (_req, res) => {
       const bookingID = String(b.reservation_id);
       const q = formStatus[bookingID] || {};
 
-      // ------------------------------------------------
-      // 🔑 AUTHORITATIVE PAYMENT TOTALS
-      // ------------------------------------------------
-      let totalPrice = "0.00";
-      let amountPaid = "0.00";
+     // ------------------------------------------------
+// 🔑 AUTHORITATIVE PAYMENT TOTALS (Planyo-safe)
+// ------------------------------------------------
+let totalPrice = "0.00";
+let amountPaid = "0.00";
 
-      try {
-        const payRes = await planyoCall("get_reservation_data", {
-          reservation_id: bookingID,
-          details: 1,
-        });
+try {
+  const payRes = await planyoCall("get_reservation_data", {
+    reservation_id: bookingID,
+    details: 1,
+  });
 
-        if (payRes.ok && payRes.json?.data) {
-          const d = payRes.json.data;
-          totalPrice = String(d.total_price || "0.00");
-          amountPaid = String(d.amount_paid || "0.00");
-        }
-      } catch (e) {
-        console.warn(`⚠️ Payment lookup failed for booking ${bookingID}`);
-      }
+  if (payRes.ok && payRes.json?.data) {
+    const d = payRes.json.data;
+
+    const total = Number(d.total_price || 0);
+    const outstanding = Number(d.amount_outstanding || 0);
+    const paid = Math.max(total - outstanding, 0);
+
+    totalPrice = total.toFixed(2);
+    amountPaid = paid.toFixed(2);
+  }
+} catch (e) {
+  console.warn(`⚠️ Payment lookup failed for booking ${bookingID}`);
+}
+
 
       const licenceNumber = q.licenceNumber || "";
       const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
