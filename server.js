@@ -1670,7 +1670,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
     }
 
     const rows = (result.json?.data?.results || [])
-  .filter(b => String(b.status) === "7"); // ✅ confirmed only
+      .filter(b => String(b.status) === "7"); // ✅ confirmed only
 
     console.log(`✅ Planyo returned ${rows.length} reservations`);
 
@@ -1695,6 +1695,7 @@ app.get("/planyo/upcoming", async (_req, res) => {
 
       let totalPrice = "0.00";
       let amountPaid = "0.00";
+      let outstandingAmount = "0.00";
 
       try {
         const payRes = await planyoCall("get_reservation_data", {
@@ -1704,16 +1705,6 @@ app.get("/planyo/upcoming", async (_req, res) => {
 
         if (payRes.ok && payRes.json?.data) {
           const d = payRes.json.data;
-
-          // 🔍 DEBUG — raw Planyo payment fields
-          console.log("PAY DEBUG", bookingID, {
-            total_price: d.total_price,
-            amount_paid: d.amount_paid,
-            amount_outstanding: d.amount_outstanding,
-            amount_outstanding_total: d.amount_outstanding_total,
-            amount_due: d.amount_due,
-            amount_to_pay: d.amount_to_pay,
-          });
 
           const total = toNum(d.total_price);
 
@@ -1742,18 +1733,10 @@ app.get("/planyo/upcoming", async (_req, res) => {
 
           totalPrice = Number.isFinite(total) ? total.toFixed(2) : "0.00";
           amountPaid = paid.toFixed(2);
-
-          console.log("💳 Payment resolved", bookingID, {
-            total,
-            paid,
-            outstanding,
-          });
+          outstandingAmount = outstanding.toFixed(2);
         }
       } catch (e) {
-        console.warn(
-          `⚠️ Payment lookup failed for booking ${bookingID}`,
-          e.message
-        );
+        console.warn(`⚠️ Payment lookup failed for booking ${bookingID}`, e.message);
       }
 
       const licenceNumber = q.licenceNumber || "";
@@ -1768,13 +1751,14 @@ app.get("/planyo/upcoming", async (_req, res) => {
         email: b.email || "",
         phoneNumber: b.mobile_number || b.phone || "",
 
-       // 💰 Payments (canonical)
-totalAmount: totalPrice,
-paidAmount: amountPaid,
-outstandingAmount: (
-  Number(totalPrice) - Number(amountPaid)
-).toFixed(2),
+        // 💰 Legacy (keep)
+        totalPrice,
+        amountPaid,
 
+        // 💰 Canonical (NEW – Step 1)
+        totalAmount: totalPrice,
+        paidAmount: amountPaid,
+        outstandingAmount,
 
         addressLine1: b.address || "",
         addressLine2: b.city || "",
@@ -1802,6 +1786,7 @@ outstandingAmount: (
     return res.status(500).json({ error: err.message });
   }
 });
+
 // ----------------------------------------------------
 // Planyo single booking (full details for QR scan / HireCheck)
 // ----------------------------------------------------
@@ -1816,27 +1801,30 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
     });
 
     if (!result.ok || !result.json?.data) {
-      console.error("❌ Planyo booking fetch failed:", result.json);
-      return res.status(404).json({
-        error: "No booking found",
-        raw: result.json
-      });
+      return res.status(404).json({ error: "No booking found" });
     }
 
     const b = result.json.data;
-
     const questionnaire = formStatus[bookingID] || {};
 
-    const licenceNumber = questionnaire.licenceNumber || "";
-    const dvlaCode = questionnaire.dvlaCode || "";
-    const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
+    const toNum = (v) => {
+      if (v === null || v === undefined) return NaN;
+      if (typeof v === "number") return v;
+      if (typeof v === "string") {
+        const n = parseFloat(v.replace(",", "."));
+        return Number.isFinite(n) ? n : NaN;
+      }
+      return NaN;
+    };
 
-    const mapProducts = (arr = []) =>
-      arr.map((p) => ({
-        id: String(p.id || ""),
-        name: p.name || "",
-        quantity: Number(p.quantity || 1),
-      }));
+    const total = toNum(b.total_price);
+    const paid = toNum(b.amount_paid);
+    const outstanding = Number.isFinite(total)
+      ? Math.max(total - (Number.isFinite(paid) ? paid : 0), 0)
+      : 0;
+
+    const licenceNumber = questionnaire.licenceNumber || "";
+    const dvlaLast8 = licenceNumber ? licenceNumber.slice(-8) : "";
 
     return res.json({
       bookingID,
@@ -1846,48 +1834,38 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
       phoneNumber: b.mobile_number || b.phone || "",
-     const total = toNum(b.total_price);
-const paid = toNum(b.amount_paid);
-const outstanding = Number.isFinite(total)
-  ? Math.max(total - (Number.isFinite(paid) ? paid : 0), 0)
-  : 0;
 
-return res.json({
-  bookingID,
-  vehicleName: b.name || "—",
-  startDate: b.start_time || "",
-  endDate: b.end_time || "",
+      // 💰 Legacy
+      totalPrice: Number.isFinite(total) ? total.toFixed(2) : "0.00",
+      amountPaid: Number.isFinite(paid) ? paid.toFixed(2) : "0.00",
 
-  // 💰 Payments (canonical)
-  totalAmount: Number.isFinite(total) ? total.toFixed(2) : "0.00",
-  paidAmount: Number.isFinite(paid) ? paid.toFixed(2) : "0.00",
-  outstandingAmount: outstanding.toFixed(2),
+      // 💰 Canonical (NEW)
+      totalAmount: Number.isFinite(total) ? total.toFixed(2) : "0.00",
+      paidAmount: Number.isFinite(paid) ? paid.toFixed(2) : "0.00",
+      outstandingAmount: outstanding.toFixed(2),
 
       addressLine1: b.address || "",
       addressLine2: b.city || "",
       postcode: b.zip || "",
       dateOfBirth: b.properties?.Date_of_Birth || "",
       userNotes: b.user_notes || "",
-      additionalProducts: mapProducts(
-        b.regular_products || b.group_products || []
-      ),
+      additionalProducts: (b.regular_products || b.group_products || []).map(p => ({
+        id: String(p.id || ""),
+        name: p.name || "",
+        quantity: Number(p.quantity || 1),
+      })),
 
       formStatus: {
         requiredForm: questionnaire.requiredForm ?? null,
         shortDone: questionnaire.shortDone ?? false,
         longDone: questionnaire.longDone ?? false,
         licenceNumber,
-        dvlaCode,
+        dvlaCode: questionnaire.dvlaCode || "",
         dvlaLast8,
         dvlaStatus: questionnaire.dvlaStatus ?? "pending",
         dvlaNameMatch: questionnaire.dvlaNameMatch ?? null,
         dvlaExpiry: questionnaire.dvlaExpiry ?? null
-      },
-
-      licenceNumber,
-      dvlaCode,
-      dvlaLast8,
-      dvlaStatus: questionnaire.dvlaStatus ?? "pending"
+      }
     });
 
   } catch (err) {
@@ -1895,7 +1873,6 @@ return res.json({
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // ----------------------------------------------------
 // Planyo Webhook (reservation_confirmed) → questionnaire + deposit link
