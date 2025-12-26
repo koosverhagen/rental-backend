@@ -1768,9 +1768,13 @@ app.get("/planyo/upcoming", async (_req, res) => {
         email: b.email || "",
         phoneNumber: b.mobile_number || b.phone || "",
 
-        // 💰 CORRECT & TRUSTED
-        totalPrice,
-        amountPaid,
+       // 💰 Payments (canonical)
+totalAmount: totalPrice,
+paidAmount: amountPaid,
+outstandingAmount: (
+  Number(totalPrice) - Number(amountPaid)
+).toFixed(2),
+
 
         addressLine1: b.address || "",
         addressLine2: b.city || "",
@@ -1842,8 +1846,23 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
       customerName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
       email: b.email || "",
       phoneNumber: b.mobile_number || b.phone || "",
-      totalPrice: b.total_price || "",
-      amountPaid: b.amount_paid || "",
+     const total = toNum(b.total_price);
+const paid = toNum(b.amount_paid);
+const outstanding = Number.isFinite(total)
+  ? Math.max(total - (Number.isFinite(paid) ? paid : 0), 0)
+  : 0;
+
+return res.json({
+  bookingID,
+  vehicleName: b.name || "—",
+  startDate: b.start_time || "",
+  endDate: b.end_time || "",
+
+  // 💰 Payments (canonical)
+  totalAmount: Number.isFinite(total) ? total.toFixed(2) : "0.00",
+  paidAmount: Number.isFinite(paid) ? paid.toFixed(2) : "0.00",
+  outstandingAmount: outstanding.toFixed(2),
+
       addressLine1: b.address || "",
       addressLine2: b.city || "",
       postcode: b.zip || "",
