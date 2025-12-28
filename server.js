@@ -1875,6 +1875,37 @@ app.get("/planyo/booking/:bookingID", async (req, res) => {
 });
 
 // ----------------------------------------------------
+// MARK: - DVLA status update (HireCheck)
+// ----------------------------------------------------
+app.post("/forms/dvla-status", express.json(), (req, res) => {
+  const { bookingID, dvlaStatus } = req.body;
+
+  if (!bookingID || !dvlaStatus) {
+    return res.status(400).json({ success: false, error: "Missing data" });
+  }
+
+  const filePath = path.join(__dirname, "forms_status.json");
+  let store = {};
+
+  if (fs.existsSync(filePath)) {
+    store = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  }
+
+  store[bookingID] = {
+    ...(store[bookingID] || {}),
+    dvlaStatus,
+    dvlaCheckedAt: new Date().toISOString()
+  };
+
+  fs.writeFileSync(filePath, JSON.stringify(store, null, 2));
+
+  console.log(`🛂 DVLA status updated #${bookingID}: ${dvlaStatus}`);
+
+  res.json({ success: true });
+});
+
+
+// ----------------------------------------------------
 // Planyo Webhook (reservation_confirmed) → questionnaire + deposit link
 // ----------------------------------------------------
 app.post("/planyo/callback", express.json(), async (req, res) => {
