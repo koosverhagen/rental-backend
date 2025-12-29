@@ -1271,11 +1271,16 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
     // 🔹 Initialise / load status
     // ------------------------------------------------
     const status = formStatus[bookingID] || {
-      requiredForm: formType,
-      shortDone: false,
-      longDone: false,
-      dvlaStatus: "pending"
-    };
+  requiredForm: formType,
+  shortDone: false,
+  longDone: false,
+  licenceNumber: "",
+  dvlaCode: "",
+  dvlaLast8: "",
+  dvlaStatus: "pending",
+  dvlaNameMatch: null
+};
+
 
     // ------------------------------------------------
     // 🔹 Mark form completion
