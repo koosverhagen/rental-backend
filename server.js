@@ -1229,43 +1229,66 @@ app.post("/forms/submitted", express.json(), async (req, res) => {
       return res.status(400).json({ error: "Missing bookingID or invalid formType" });
     }
 
-    // ------------------------------------------------
-    // 🔑 DVLA FIELD NORMALISATION (SHORT + LONG SAFE)
-    // ------------------------------------------------
-    const pick = (...vals) =>
-      vals.find(v => typeof v === "string" && v.trim().length > 0) || "";
+// ------------------------------------------------
+// 🔑 DVLA FIELD NORMALISATION (SHORT + LONG SAFE)
+// ------------------------------------------------
 
-    const licenceNumber = pick(
-      body.licenceNumber,
-      body.licenseNumber,
-      body.drivingLicenceNumber,
-      body.drivingLicenseNumber,
-      body.licence,
-      body.license,
-      body.dvlaLicenceNumber,
-      body.dvlaLicenseNumber
-    ).trim();
+// Pick first non-empty string
+const pick = (...vals) =>
+  vals.find(v => typeof v === "string" && v.trim().length > 0) || "";
 
-    const dvlaCode = pick(
-      body.dvlaCode,
-      body.dvlaAccessCode,
-      body.accessCode,
-      body.dvla_code,
-      body.dvla_access_code
-    ).trim();
+// -----------------------------
+// LICENCE NUMBER (SAFE TO NORMALISE)
+// -----------------------------
+const rawLicence = pick(
+  body.licenceNumber,
+  body.licenseNumber,
+  body.drivingLicenceNumber,
+  body.drivingLicenseNumber,
+  body.licence,
+  body.license,
+  body.dvlaLicenceNumber,
+  body.dvlaLicenseNumber
+);
 
-    const dvlaLast8Provided = pick(
-      body.dvlaLast8,
-      body.last8,
-      body.licenceLast8,
-      body.licenseLast8
-    ).trim();
+const licenceNumber = rawLicence
+  ? rawLicence.replace(/\s+/g, "").toUpperCase()
+  : "";
 
-    const dvlaLast8Computed = licenceNumber
-      ? licenceNumber.replace(/\s+/g, "").slice(-8).toUpperCase()
-      : "";
+// -----------------------------
+// DVLA ACCESS CODE (CASE-SENSITIVE)
+// -----------------------------
+const rawDvlaCode = pick(
+  body.dvlaCode,
+  body.dvlaAccessCode,
+  body.accessCode,
+  body.dvla_code,
+  body.dvla_access_code
+);
 
-    const dvlaLast8 = pick(dvlaLast8Provided, dvlaLast8Computed);
+// ❗ IMPORTANT: do NOT uppercase
+const dvlaCode = rawDvlaCode
+  ? rawDvlaCode.replace(/\s+/g, "")
+  : "";
+
+// -----------------------------
+// LAST 8 — LICENCE ONLY
+// -----------------------------
+const dvlaLast8Provided = pick(
+  body.dvlaLast8,
+  body.last8,
+  body.licenceLast8,
+  body.licenseLast8
+);
+
+const dvlaLast8Computed = licenceNumber
+  ? licenceNumber.slice(-8)
+  : "";
+
+const dvlaLast8 = pick(
+  dvlaLast8Provided,
+  dvlaLast8Computed
+);
 
     // ------------------------------------------------
     // 🔹 Initialise / load status
