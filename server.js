@@ -1213,6 +1213,158 @@ app.post("/deposit/send-link", async (req, res) => {
   }
 });
 
+//-----------------------
+// HOME TO MOTORHOME HIRE
+//-----------------------
+app.post("/motorhome/deposit/send-link", async (req, res) => {
+  try {
+    const business = "motorhome";
+    const stripe = getStripeForBusiness(business);
+
+    const { bookingID, amount = 40000, force } = req.body;
+    const link = `https://www.hometomotorhomehire.co.uk/deposit?bookingID=${bookingID}`;
+
+    const isForced =
+      force === true || force === "true" || force === 1 || force === "1";
+
+    if (!isForced && alreadySentRecently(bookingID)) {
+      console.log(`⏩ Skipping duplicate deposit send for #${bookingID} (recent)`);
+      return res.json({ success: true, url: link, alreadySent: true });
+    }
+
+    const bk = await fetchPlanyoBooking(bookingID);
+    if (!bk.email) {
+      console.warn(`⚠️ No customer email for booking #${bookingID}`);
+      return res.json({ success: false, error: "No customer email" });
+    }
+
+    const amountText = (amount / 100).toFixed(2);
+
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif; line-height:1.6; color:#333; max-width:720px; margin:0 auto; padding:20px;">
+        <!-- Logo -->
+        <div style="text-align:center; margin-bottom:20px;">
+          <img src="https://static.wixstatic.com/media/a9ff84_394b1c05d6bb41f597e75cee9ee3302c~mv2.png"
+               alt="Home To Motorhome Hire"
+               style="max-width:200px; height:auto;" />
+        </div>
+
+        <!-- Title -->
+        <h2 style="text-align:center; color:#0070f3; margin-bottom:10px;">
+          Home To Motorhome Hire– Deposit Payment Request${isForced ? " (Resent)" : ""}
+        </h2>
+
+        <p>Dear ${bk.firstName || ""} ${bk.lastName || ""},</p>
+
+        <p>
+          Thank you for your booking with <strong>Home To Motorhome Hire</strong>.<br/>
+          Please complete your <strong>deposit hold</strong> for the hire below.
+        </p>
+
+        <!-- Booking details -->
+        <div style="background:#f8f9ff; border:1px solid #d6e7ff; border-radius:8px; padding:12px 16px; margin:18px 0;">
+          <h3 style="margin-top:0; margin-bottom:8px; color:#124a8a;">Booking Details</h3>
+          <ul style="padding-left:18px; margin:0;">
+            <li><strong>Booking reference:</strong> #${bookingID}</li>
+            <li><strong>Lorry:</strong> ${bk.resource || "N/A"}</li>
+            <li><strong>From:</strong> ${bk.start ? formatDateLondon(bk.start) : "N/A"}</li>
+            <li><strong>To:</strong> ${bk.end ? formatDateLondon(bk.end) : "N/A"}</li>
+            <li><strong>Customer:</strong> ${bk.firstName || ""} ${bk.lastName || ""}</li>
+            <li><strong>Email:</strong> ${bk.email || "N/A"}</li>
+          </ul>
+        </div>
+
+        <!-- Amount + button -->
+        <p style="font-size:16px; margin:14px 0;">
+          The required deposit hold amount is:
+          <strong style="font-size:18px;">£${amountText}</strong>
+        </p>
+
+        <div style="text-align:center; margin:26px 0;">
+          <a href="${link}"
+             style="display:inline-block; padding:14px 28px; background:#0070f3; color:#ffffff;
+                    border-radius:6px; text-decoration:none; font-size:16px; font-weight:bold;">
+            💳 Pay Deposit Securely
+          </a>
+        </div>
+
+        <p>If the button does not work, please use this link:</p>
+        <p style="word-break:break-all;">
+          <a href="${link}" style="color:#0070f3; text-decoration:none;">${link}</a>
+        </p>
+
+        <!-- Pre-authorisation note -->
+        <div style="background:#fff8e5; border:1px solid #f2c96a; border-radius:8px; padding:12px 16px; margin-top:24px; font-size:14px; color:#6b4b00;">
+          <strong>Important:</strong> This is a <strong>pre-authorisation (hold)</strong>, not an immediate payment.
+          The funds are reserved on your card and will either be released after the hire
+          or partially/fully captured only if required under the hire agreement
+          (for example, damage, excessive cleaning, or fuel charges).
+        </div>
+
+        <p style="margin-top:28px;">
+          With kind regards,<br/>
+          <strong>Koos &amp; Avril</strong><br/>
+          <strong>Home To Motorhome Hire</strong>
+        </p>
+
+        <hr style="margin:30px 0 16px; border:none; border-top:1px solid #ddd;" />
+
+        <!-- Footer -->
+        <div style="font-size:12px; color:#777; text-align:center; line-height:1.5;">
+          <p style="margin:4px 0;">
+            Home To Motorhome Hire<br/>
+            Upper Broadreed Farm, Stonehurst Lane, Five Ashes, TN20 6LL, East Sussex, GB
+          </p>
+          <p style="margin:4px 0;">
+            📞 +44 7584 578654<br/>
+            ✉️ <a href="mailto:eastgrinsteadtyreserviceltd@gmail.com" style="color:#777; text-decoration:none;">
+  eastgrinsteadtyreserviceltd@gmail.com
+</a><br/>
+            🌍 <a href="https://www.hometomotorhomehire.co.uk" style="color:#777; text-decoration:none;">www.hometomotorhomehire.co.uk</a>
+          </p>
+        </div>
+      </div>
+    `;
+
+    const subjectBase = `Home To Motorhome Hire | Secure Deposit Link${isForced ? " (Resent)" : ""}`;
+    const subjectDetail = `Booking #${bookingID} | ${bk.firstName || ""} ${bk.lastName || ""}`.trim();
+
+    await Promise.all([
+      sendgrid.send({
+        to: bk.email,
+        from: "Home To Motorhome Hire <eastgrinsteadtyreserviceltd@gmail.com>",
+        subject: `${subjectBase} | ${subjectDetail}`,
+        html,
+      }),
+      sendgrid.send({
+        to: "kverhagen@mac.com",
+        from: "Home To Motorhome Hire <eastgrinsteadtyreserviceltd@gmail.com>",
+        subject: `Admin Copy | ${subjectBase} | ${subjectDetail}`,
+        html,
+      }),
+    ]);
+
+    if (!isForced) {
+      markDepositSent(bookingID);
+    }
+
+    console.log(
+      `✅ Deposit link ${isForced ? "resent" : "sent"} for booking #${bookingID} to ${bk.email}`
+    );
+
+    return res.json({
+      success: true,
+      url: link,
+      forced: isForced,
+      email: bk.email,
+    });
+  } catch (err) {
+    console.error("❌ SendGrid deposit-link error:", err);
+    return res.json({ success: false, error: err.message });
+  }
+});
+
+
 // ----------------------------------------------------
 // HIRECHECK ENDPOINT — always triggers manual resend
 // ----------------------------------------------------
