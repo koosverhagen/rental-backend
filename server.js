@@ -12,6 +12,61 @@ const fs = require("fs");
 const path = require("path");
 require("dotenv").config();
 
+// =====================================================
+// Business configuration (Equine = default)
+// =====================================================
+
+const BUSINESS_CONFIG = {
+  equine: {
+    planyo: {
+      apiKey: process.env.PLANYO_API_KEY,
+      hashKey: process.env.PLANYO_HASH_KEY,
+      siteId: process.env.PLANYO_SITE_ID,
+    },
+    stripe: {
+      secretKey: process.env.STRIPE_SECRET_KEY,
+      publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+    }
+  },
+
+  motorhome: {
+    planyo: {
+      apiKey: process.env.PLANYO_API_KEY_MOTORHOME,
+      hashKey: process.env.PLANYO_HASH_KEY_MOTORHOME,
+      siteId: process.env.PLANYO_SITE_ID_MOTORHOME,
+    },
+    stripe: {
+      secretKey: process.env.STRIPE_SECRET_KEY_MOTORHOME,
+      publishableKey: process.env.STRIPE_PUBLISHABLE_KEY_MOTORHOME,
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET_MOTORHOME,
+    }
+  }
+};
+
+
+function getBusiness(req) {
+  // Default = Equine (keeps all existing behaviour)
+  return req.params.business || 'equine';
+}
+
+
+function getStripeForBusiness(business) {
+  const cfg = BUSINESS_CONFIG[business];
+  if (!cfg || !cfg.stripe.secretKey) {
+    throw new Error(`Stripe config missing for business: ${business}`);
+  }
+  return require('stripe')(cfg.stripe.secretKey);
+}
+
+function getPlanyoConfig(business) {
+  const cfg = BUSINESS_CONFIG[business];
+  if (!cfg || !cfg.planyo.apiKey) {
+    throw new Error(`Planyo config missing for business: ${business}`);
+  }
+  return cfg.planyo;
+}
+
 // ----------------------------------------------------
 // Canonical public API base URL (HTTPS only)
 // ----------------------------------------------------
