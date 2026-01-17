@@ -267,12 +267,18 @@ function emailTemplate({ title, color, bodyTop, bookingID, booking }) {
 // ----------------------------------------------------
 // Fetch basic booking summary from Planyo (for emails, descriptions)
 // ----------------------------------------------------
-async function fetchPlanyoBooking(bookingID) {
+async function fetchPlanyoBooking(bookingID, business = "equine") {
+
   try {
-    const { ok, json, url } = await planyoCall("get_reservation_data", {
-      reservation_id: bookingID,
-      details: 1
-    });
+    const { ok, json, url } = await planyoCall(
+  "get_reservation_data",
+  {
+    reservation_id: bookingID,
+    details: 1
+  },
+  business
+);
+
 
     if (!ok) {
       console.warn("⚠️ Planyo get_reservation_data failed:", json, "URL:", url);
@@ -396,26 +402,31 @@ function alreadySentRecently(bookingID) {
 // ----------------------------------------------------
 // Generic Planyo call with timestamp + hash (safe)
 // ----------------------------------------------------
-async function planyoCall(method, params = {}) {
+async function planyoCall(method, params = {}, business = "equine") {
+
   const tsNow = () => Math.floor(Date.now() / 1000);
 
-  const buildUrl = (timestamp) => {
-    const secret = process.env.PLANYO_HASH_KEY || "";
-    const hashKey = md5(secret + String(timestamp) + String(method));
+const buildUrl = (timestamp) => {
+  const cfg = getPlanyoConfig(business);
 
-    const query = new URLSearchParams({
-      method: String(method),
-      api_key: String(process.env.PLANYO_API_KEY || ""),
-      site_id: String(process.env.PLANYO_SITE_ID || ""),
-      hash_timestamp: String(timestamp),
-      hash_key: hashKey,
-      ...Object.fromEntries(
-        Object.entries(params).map(([k, v]) => [k, String(v)])
-      ),
-    });
+  const hashKey = md5(
+    cfg.hashKey + String(timestamp) + String(method)
+  );
 
-    return `https://www.planyo.com/rest/?${query.toString()}`;
-  };
+  const query = new URLSearchParams({
+    method: String(method),
+    api_key: String(cfg.apiKey),
+    site_id: String(cfg.siteId),
+    hash_timestamp: String(timestamp),
+    hash_key: hashKey,
+    ...Object.fromEntries(
+      Object.entries(params).map(([k, v]) => [k, String(v)])
+    ),
+  });
+
+  return `https://www.planyo.com/rest/?${query.toString()}`;
+};
+
 
   async function fetchOnce(timestamp) {
     const url = buildUrl(timestamp);
@@ -1232,7 +1243,8 @@ app.post("/motorhome/deposit/send-link", async (req, res) => {
       return res.json({ success: true, url: link, alreadySent: true });
     }
 
-    const bk = await fetchPlanyoBooking(bookingID);
+   const bk = await fetchPlanyoBooking(bookingID, "motorhome");
+
     if (!bk.email) {
       console.warn(`⚠️ No customer email for booking #${bookingID}`);
       return res.json({ success: false, error: "No customer email" });
