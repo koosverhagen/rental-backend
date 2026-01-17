@@ -1344,13 +1344,13 @@ app.post("/motorhome/deposit/send-link", async (req, res) => {
     await Promise.all([
       sendgrid.send({
         to: bk.email,
-        from: "Home To Motorhome Hire <eastgrinsteadtyreserviceltd@gmail.com>",
+        from: "Home To Motorhome Hire <info@hometomotorhomehire.co.uk>",
         subject: `${subjectBase} | ${subjectDetail}`,
         html,
       }),
       sendgrid.send({
         to: "kverhagen@mac.com",
-        from: "Home To Motorhome Hire <eastgrinsteadtyreserviceltd@gmail.com>",
+        from: "Home To Motorhome Hire <info@hometomotorhomehire.co.uk>",
         subject: `Admin Copy | ${subjectBase} | ${subjectDetail}`,
         html,
       }),
