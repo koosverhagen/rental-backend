@@ -92,6 +92,66 @@ sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
 
 
 // ----------------------------------------------------
+// Outstanding payment redirect (Planyo)
+// ----------------------------------------------------
+app.get("/pay/outstanding/:bookingID", async (req, res) => {
+  try {
+    const bookingID = String(req.params.bookingID);
+
+    // 1️⃣ Fetch full reservation data from Planyo
+    const result = await planyoCall(
+      "get_reservation_data",
+      {
+        reservation_id: bookingID,
+        details: 1
+      },
+      "equine" // 🔁 default business (lorry)
+    );
+
+    if (!result.ok || !result.json?.data) {
+      console.warn("❌ Outstanding redirect: booking not found", bookingID);
+      return res.status(404).send("Booking not found");
+    }
+
+    const d = result.json.data;
+
+    // 2️⃣ Required Planyo fields
+    const calendarID = d.calendar_id || d.site_id;
+    const userID = d.user_id;
+    const pppRS = d.ppp_rs;
+
+    if (!calendarID || !userID || !pppRS) {
+      console.error("❌ Missing Planyo payment params", {
+        calendarID,
+        userID,
+        pppRS
+      });
+      return res.status(500).send("Missing payment parameters");
+    }
+
+    // 3️⃣ Build authoritative outstanding payment URL
+    const url =
+      "https://www.planyo.com/booking.php" +
+      `?calendar=${calendarID}` +
+      "&custom-language=EN" +
+      "&planyo_lang=en" +
+      "&mode=payment_form" +
+      `&reservation_id=${bookingID}` +
+      `&user_id=${userID}` +
+      `&ppp_rs=${pppRS}` +
+      "&amount=outstanding";
+
+    // 4️⃣ Redirect customer/admin
+    return res.redirect(url);
+
+  } catch (err) {
+    console.error("❌ Outstanding payment redirect error:", err);
+    return res.status(500).send("Failed to create outstanding payment link");
+  }
+});
+
+
+// ----------------------------------------------------
 // ⚠️ DATE FORMATTER (dd/mm/yy) — ADDED
 // ----------------------------------------------------
 function formatDateLondon(dateString) {
