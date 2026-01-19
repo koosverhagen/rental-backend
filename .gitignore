@@ -1,3 +1,4 @@
 .env
 .env.save
 .env
+.DS_Store
