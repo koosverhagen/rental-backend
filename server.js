@@ -152,6 +152,121 @@ app.get("/pay/outstanding/:bookingID", async (req, res) => {
 
 
 // ----------------------------------------------------
+// Outstanding payment EMAIL sender (HireCheck / Admin)
+// ----------------------------------------------------
+app.post("/outstanding/send-link", async (req, res) => {
+  try {
+    const { bookingID, force } = req.body;
+    if (!bookingID) {
+      return res.status(400).json({ success: false, error: "Missing bookingID" });
+    }
+
+    // 1️⃣ Fetch booking + email
+    const bk = await fetchPlanyoBooking(bookingID);
+    if (!bk.email) {
+      return res.json({ success: false, error: "No customer email" });
+    }
+
+    // 2️⃣ Build outstanding payment URL (same as redirect)
+    const result = await planyoCall(
+      "get_reservation_data",
+      { reservation_id: bookingID, details: 1 },
+      "equine"
+    );
+
+    if (!result.ok || !result.json?.data) {
+      return res.status(404).json({ success: false, error: "Booking not found" });
+    }
+
+    const d = result.json.data;
+    const calendarID = d.calendar_id || d.site_id;
+    const userID = d.user_id;
+    const pppRS = d.ppp_rs;
+
+    const paymentUrl =
+      "https://www.planyo.com/booking.php" +
+      `?calendar=${calendarID}` +
+      "&custom-language=EN" +
+      "&planyo_lang=en" +
+      "&mode=payment_form" +
+      `&reservation_id=${bookingID}` +
+      `&user_id=${userID}` +
+      `&ppp_rs=${pppRS}` +
+      "&amount=outstanding";
+
+    // 3️⃣ Email body
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif; line-height:1.6; color:#333;">
+        <h2 style="color:#0070f3;">Outstanding Payment Required</h2>
+
+        <p>Dear ${bk.firstName || ""} ${bk.lastName || ""},</p>
+
+        <p>
+          Our records show there is an <strong>outstanding balance</strong>
+          for your booking <strong>#${bookingID}</strong>.
+        </p>
+
+        <p>Please complete payment using the secure link below:</p>
+
+        <p style="text-align:center; margin:24px 0;">
+          <a href="${paymentUrl}"
+             style="background:#0070f3;color:#fff;padding:14px 28px;
+                    border-radius:6px;text-decoration:none;font-weight:bold;">
+            Pay Outstanding Balance
+          </a>
+        </p>
+
+        <p>If the button does not work, use this link:</p>
+        <p style="word-break:break-all;">
+          <a href="${paymentUrl}">${paymentUrl}</a>
+        </p>
+
+        <p>
+          If you have already paid, please ignore this message.
+        </p>
+
+        <p style="margin-top:30px;">
+          Kind regards,<br>
+          <strong>Koos &amp; Avril</strong><br>
+          Equine Transport UK
+        </p>
+      </div>
+    `;
+
+    const subject = `Equine Transport UK | Outstanding Payment | Booking #${bookingID}`;
+
+    // 4️⃣ Send customer + admin copy
+    await Promise.all([
+      sendgrid.send({
+        to: bk.email,
+        from: "Equine Transport UK <info@equinetransportuk.com>",
+        subject,
+        html,
+      }),
+      sendgrid.send({
+        to: "kverhagen@mac.com",
+        from: "Equine Transport UK <info@equinetransportuk.com>",
+        subject: `Admin Copy | ${subject}`,
+        html,
+      }),
+    ]);
+
+    console.log(`📩 Outstanding payment email sent for #${bookingID}`);
+
+    return res.json({
+      success: true,
+      bookingID,
+      email: bk.email,
+      url: paymentUrl,
+    });
+
+  } catch (err) {
+    console.error("❌ Outstanding email error:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ----------------------------------------------------
 // ⚠️ DATE FORMATTER (dd/mm/yy) — ADDED
 // ----------------------------------------------------
 function formatDateLondon(dateString) {
