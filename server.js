@@ -74,6 +74,7 @@ const PUBLIC_API_BASE = "https://api.equinetransportuk.com";
 
 
 const app = express();
+app.use(express.json());
 
 // ----------------------------------------------------
 // Redirect /pay/:bookingID to Wix deposit page
@@ -150,13 +151,14 @@ app.get("/pay/outstanding/:bookingID", async (req, res) => {
   }
 });
 
-
 // ----------------------------------------------------
 // Outstanding payment EMAIL sender (HireCheck / Admin)
 // ----------------------------------------------------
-app.post("/outstanding/send-link", async (req, res) => {
+app.post("/pay/outstanding/send-link", async (req, res) => {
   try {
-    const { bookingID, force } = req.body;
+    const bookingID = req.body?.bookingID;
+const force = req.body?.force;
+
     if (!bookingID) {
       return res.status(400).json({ success: false, error: "Missing bookingID" });
     }
