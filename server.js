@@ -76,6 +76,16 @@ const PUBLIC_API_BASE = "https://api.equinetransportuk.com";
 const app = express();
 app.use(express.json());
 
+const express = require("express");
+const app = express();
+
+// 🔑 THIS MUST EXIST
+app.use(express.json());
+
+// (optional but fine)
+app.use(express.urlencoded({ extended: true }));
+
+
 app.use((req, res, next) => {
   console.log("➡️", req.method, req.originalUrl);
   next();
