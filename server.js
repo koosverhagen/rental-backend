@@ -167,6 +167,9 @@ app.get("/pay/outstanding/:bookingID", async (req, res) => {
 // Outstanding payment EMAIL sender (HireCheck / Admin)
 // ----------------------------------------------------
 app.post("/pay/outstanding/send-link", async (req, res) => {
+console.log("📨 RAW BODY:", req.body);
+  console.log("📨 HEADERS:", req.headers["content-type"]);
+
   try {
     const bookingID = req.body?.bookingID;
 const force = req.body?.force;
