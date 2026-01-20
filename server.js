@@ -76,6 +76,12 @@ const PUBLIC_API_BASE = "https://api.equinetransportuk.com";
 const app = express();
 app.use(express.json());
 
+app.use((req, res, next) => {
+  console.log("➡️", req.method, req.originalUrl);
+  next();
+});
+
+
 // ----------------------------------------------------
 // Redirect /pay/:bookingID to Wix deposit page
 // ----------------------------------------------------
