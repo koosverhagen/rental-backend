@@ -420,7 +420,17 @@ app.post(
 // ----------------------------------------------------
 // Normal middleware AFTER webhook
 // ----------------------------------------------------
-app.use(cors());
+import cors from "cors";
+
+app.use(cors({
+  origin: [
+    "https://www.equinetransportuk.com",
+    "https://equinetransportuk.com"
+  ],
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
+
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
