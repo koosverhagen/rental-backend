@@ -420,7 +420,6 @@ app.post(
 // ----------------------------------------------------
 // Normal middleware AFTER webhook
 // ----------------------------------------------------
-import cors from "cors";
 
 app.use(cors({
   origin: [
