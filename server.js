@@ -44,19 +44,17 @@ const BUSINESS_CONFIG = {
   }
 };
 
-
 function getBusiness(req) {
   // Default = Equine (keeps all existing behaviour)
-  return req.params.business || 'equine';
+  return req.params.business || "equine";
 }
-
 
 function getStripeForBusiness(business) {
   const cfg = BUSINESS_CONFIG[business];
   if (!cfg || !cfg.stripe.secretKey) {
     throw new Error(`Stripe config missing for business: ${business}`);
   }
-  return require('stripe')(cfg.stripe.secretKey);
+  return require("stripe")(cfg.stripe.secretKey);
 }
 
 function getPlanyoConfig(business) {
@@ -67,26 +65,39 @@ function getPlanyoConfig(business) {
   return cfg.planyo;
 }
 
-
-
 // ----------------------------------------------------
 // Canonical public API base URL (HTTPS only)
 // ----------------------------------------------------
 const PUBLIC_API_BASE = "https://api.equinetransportuk.com";
 
-
 const app = express();
 
+// ----------------------------------------------------
+// CORS (frontend → API)
+// IMPORTANT: keep BEFORE JSON, AFTER webhook (if any)
+// ----------------------------------------------------
+app.use(cors({
+  origin: [
+    "https://www.equinetransportuk.com",
+    "https://equinetransportuk.com"
+  ],
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
+
+// ----------------------------------------------------
+// Body parsers
+// ----------------------------------------------------
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ limit: "25mb", extended: true }));
 
-
-
+// ----------------------------------------------------
+// Request logging
+// ----------------------------------------------------
 app.use((req, res, next) => {
   console.log("➡️", req.method, req.originalUrl);
   next();
 });
-
 
 // ----------------------------------------------------
 // Redirect /pay/:bookingID to Wix deposit page
@@ -97,12 +108,16 @@ app.get("/pay/:bookingID", (req, res) => {
   return res.redirect(target);
 });
 
-// Serve static (Thank-you embed assets if needed)
+// ----------------------------------------------------
+// Static assets (thank-you embeds etc.)
+// ----------------------------------------------------
 app.use(express.static("public"));
 
+// ----------------------------------------------------
+// Stripe & SendGrid init
+// ----------------------------------------------------
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
-
 
 // ----------------------------------------------------
 // Outstanding payment redirect (Planyo)
