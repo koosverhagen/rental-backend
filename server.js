@@ -1862,6 +1862,11 @@ app.post("/dvla/manual-verify", express.json(), async (req, res) => {
   }
 });
 
+function logPreHire(text = "") {
+  console.log(text);
+}
+
+
 // ----------------------------------------------------
 // Manual scheduler trigger
 // ----------------------------------------------------
@@ -2624,22 +2629,32 @@ async function runPreHireReminderScheduler() {
     });
 
     const rows = list.json?.data?.results || [];
-    console.log(`📋 Pre-hire check: ${rows.length} booking(s) found`);
+    console.log(`📋 PRE-HIRE CHECK — ${rows.length} booking(s) found\n`);
 
     for (const r of rows) {
       const bookingID = String(r.reservation_id);
 
-      // ----------------------------
-      // 1️⃣ Deposit status
-      // ----------------------------
+      console.log(`🕓 PRE-HIRE REMINDER — Booking #${bookingID}`);
+      console.log(`📅 Hire date: ${formatDateLondon(r.start_time)}`);
+      console.log("");
+
+      // =============================
+      // 💰 Deposit check
+      // =============================
+      console.log("💰 Deposit check:");
+
       const depositRes = await fetch(
         `${PUBLIC_API_BASE}/deposit/status/${bookingID}`
       ).then(r => r.json()).catch(() => null);
 
       const depositDone = depositRes?.success === true;
 
-      if (!depositDone) {
-        console.log(`📧 Deposit reminder → #${bookingID}`);
+      if (depositDone) {
+        console.log("✅ Deposit already completed — reminder NOT required");
+      } else {
+        console.log("❌ No active deposit found");
+        console.log("📧 ACTION: Deposit reminder email SENT");
+
         await fetch(`${PUBLIC_API_BASE}/deposit/send-link`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2652,44 +2667,67 @@ async function runPreHireReminderScheduler() {
         });
       }
 
-      // ----------------------------
-      // 2️⃣ Outstanding payment
-      // ----------------------------
+      console.log("");
+
+      // =============================
+      // 💳 Outstanding payment check
+      // =============================
+      console.log("💳 Outstanding payment check:");
+
       const pay = await fetch(
         `${PUBLIC_API_BASE}/bookingpayments/list/${bookingID}`
       ).then(r => r.json()).catch(() => null);
 
-      const outstanding =
-        pay && Number(pay.balance) > 0.01;
+      if (!pay) {
+        console.log("⚠️ Payment data unavailable — check skipped");
+      } else {
+        console.log(
+          `ℹ️ Total: £${pay.total} | Paid: £${pay.paid} | Outstanding: £${pay.balance}`
+        );
 
-      if (outstanding) {
-        console.log(`📧 Outstanding reminder → #${bookingID}`);
-        await fetch(`${PUBLIC_API_BASE}/pay/outstanding/send-link`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            bookingID,
-            force: true,
-            automatic: true
-          })
-        });
+        if (Number(pay.balance) > 0.01) {
+          console.log("📧 ACTION: Outstanding payment reminder email SENT");
+
+          await fetch(`${PUBLIC_API_BASE}/pay/outstanding/send-link`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              bookingID,
+              force: true,
+              automatic: true
+            })
+          });
+        } else {
+          console.log("✅ No outstanding balance — reminder NOT required");
+        }
       }
 
-      // ----------------------------
-      // 3️⃣ Form reminder
-      // ----------------------------
+      console.log("");
+
+      // =============================
+      // 📄 Hire form check
+      // =============================
+      console.log("📄 Hire form check:");
+
       const form = await fetch(
         `${PUBLIC_API_BASE}/forms/status/${bookingID}`
       ).then(r => r.json()).catch(() => null);
 
-      if (form?.requiredForm) {
+      if (!form?.requiredForm) {
+        console.log("⚠️ Form status unavailable — check skipped");
+      } else {
+        const required = form.requiredForm.toUpperCase();
         const done =
-          form.requiredForm === "short"
-            ? form.shortDone
-            : form.longDone;
+          required === "SHORT" ? form.shortDone : form.longDone;
 
-        if (!done) {
-          console.log(`📧 Form reminder → #${bookingID}`);
+        console.log(`ℹ️ Required form: ${required}`);
+
+        if (done) {
+          console.log("✅ Form completed — reminder NOT required");
+        } else {
+          console.log(`❌ ${required} form not completed`);
+          console.log("📧 ACTION: Form reminder email SENT");
+
           await fetch(`${PUBLIC_API_BASE}/forms/manual-resend`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -2702,13 +2740,16 @@ async function runPreHireReminderScheduler() {
           });
         }
       }
+
+      console.log("");
+      console.log(`✅ Pre-hire checks complete for booking #${bookingID}`);
+      console.log("--------------------------------------------------\n");
     }
 
   } catch (err) {
     console.error("❌ Pre-hire reminder scheduler failed:", err);
   }
 }
-
 
 // ----------------------------------------------------
 // 🔔 PRE-HIRE REMINDERS — 16:00 London (day before hire)
