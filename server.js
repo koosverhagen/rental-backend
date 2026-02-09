@@ -2615,7 +2615,7 @@ async function runPreHireReminderScheduler() {
   try {
     const tz = "Europe/London";
 
-    // --- Tomorrow (UK local date)
+    // --- Tomorrow (UK local date at 00:00)
     const now = new Date();
     const londonNow = new Date(
       new Intl.DateTimeFormat("en-GB", {
@@ -2638,7 +2638,7 @@ async function runPreHireReminderScheduler() {
     const start_time = fmt(tomorrow);
     const end_time = fmt(new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000));
 
-    // --- Get tomorrow’s confirmed bookings
+    // --- Fetch tomorrow’s confirmed bookings
     const list = await planyoCall("list_reservations", {
       start_time,
       end_time,
@@ -2651,14 +2651,15 @@ async function runPreHireReminderScheduler() {
 
     for (const r of rows) {
       const bookingID = String(r.reservation_id);
+      const hireDate = formatDateLondon(r.start_time);
 
       console.log(`🕓 PRE-HIRE REMINDER — Booking #${bookingID}`);
-      console.log(`📅 Hire date: ${formatDateLondon(r.start_time)}`);
+      console.log(`📅 Hire date: ${hireDate}`);
       console.log("");
 
-      // =============================
+      // ==================================================
       // 💰 Deposit check
-      // =============================
+      // ==================================================
       console.log("💰 Deposit check:");
 
       const depositRes = await fetch(
@@ -2687,9 +2688,9 @@ async function runPreHireReminderScheduler() {
 
       console.log("");
 
-      // =============================
+      // ==================================================
       // 💳 Outstanding payment check
-      // =============================
+      // ==================================================
       console.log("💳 Outstanding payment check:");
 
       const pay = await fetch(
@@ -2699,11 +2700,15 @@ async function runPreHireReminderScheduler() {
       if (!pay) {
         console.log("⚠️ Payment data unavailable — check skipped");
       } else {
+        const total = Number(pay.total || 0).toFixed(2);
+        const paid = Number(pay.paid || 0).toFixed(2);
+        const balance = Number(pay.balance || 0).toFixed(2);
+
         console.log(
-          `ℹ️ Total: £${pay.total} | Paid: £${pay.paid} | Outstanding: £${pay.balance}`
+          `ℹ️ Total: £${total} | Paid: £${paid} | Outstanding: £${balance}`
         );
 
-        if (Number(pay.balance) > 0.01) {
+        if (Number(balance) > 0.01) {
           console.log("📧 ACTION: Outstanding payment reminder email SENT");
 
           await fetch(`${PUBLIC_API_BASE}/pay/outstanding/send-link`, {
@@ -2722,16 +2727,16 @@ async function runPreHireReminderScheduler() {
 
       console.log("");
 
-      // =============================
+      // ==================================================
       // 📄 Hire form check
-      // =============================
+      // ==================================================
       console.log("📄 Hire form check:");
 
       const form = await fetch(
         `${PUBLIC_API_BASE}/forms/status/${bookingID}`
       ).then(r => r.json()).catch(() => null);
 
-      if (!form?.requiredForm) {
+      if (!form || !form.requiredForm) {
         console.log("⚠️ Form status unavailable — check skipped");
       } else {
         const required = form.requiredForm.toUpperCase();
@@ -2761,13 +2766,14 @@ async function runPreHireReminderScheduler() {
 
       console.log("");
       console.log(`✅ Pre-hire checks complete for booking #${bookingID}`);
-      console.log("--------------------------------------------------\n");
+      console.log("────────────────────────────────────────────\n");
     }
 
   } catch (err) {
     console.error("❌ Pre-hire reminder scheduler failed:", err);
   }
 }
+
 
 // ----------------------------------------------------
 // 🔔 PRE-HIRE REMINDERS — 16:00 London (day before hire)
