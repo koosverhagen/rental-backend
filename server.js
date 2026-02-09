@@ -1877,8 +1877,19 @@ app.get("/trigger-daily-deposits", async (_req, res) => {
 });
 
 // ----------------------------------------------------
-// Booking payments (for Wix thank-you embed)
+// Manual pre-hire reminder trigger (SAFE / ADMIN ONLY)
 // ----------------------------------------------------
+app.get("/trigger-prehire-reminders", async (_req, res) => {
+  try {
+    console.log("⚡ Manual pre-hire reminder triggered");
+    await runPreHireReminderScheduler("manual");
+    res.send("✅ Pre-hire reminders triggered");
+  } catch (err) {
+    console.error("❌ Pre-hire reminder failed:", err);
+    res.status(500).send("Error running pre-hire reminders");
+  }
+});
+
 // ----------------------------------------------------
 // Booking payments (authoritative totals from Planyo)
 // ----------------------------------------------------
@@ -2577,6 +2588,143 @@ async function runDepositScheduler(mode) {
   }
 }
 
+async function runPreHireReminderScheduler() {
+  try {
+    const tz = "Europe/London";
+
+    // --- Tomorrow (UK local date)
+    const now = new Date();
+    const londonNow = new Date(
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      })
+        .format(now)
+        .replace(/(\d{2})\/(\d{2})\/(\d{4})/, "$3-$2-$1T00:00:00")
+    );
+
+    const tomorrow = new Date(londonNow);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const pad = (n) => String(n).padStart(2, "0");
+    const fmt = (d) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} 00:00:00`;
+
+    const start_time = fmt(tomorrow);
+    const end_time = fmt(new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000));
+
+    // --- Get tomorrow’s confirmed bookings
+    const list = await planyoCall("list_reservations", {
+      start_time,
+      end_time,
+      include_unconfirmed: 0,
+      detail_level: 1
+    });
+
+    const rows = list.json?.data?.results || [];
+    console.log(`📋 Pre-hire check: ${rows.length} booking(s) found`);
+
+    for (const r of rows) {
+      const bookingID = String(r.reservation_id);
+
+      // ----------------------------
+      // 1️⃣ Deposit status
+      // ----------------------------
+      const depositRes = await fetch(
+        `${PUBLIC_API_BASE}/deposit/status/${bookingID}`
+      ).then(r => r.json()).catch(() => null);
+
+      const depositDone = depositRes?.success === true;
+
+      if (!depositDone) {
+        console.log(`📧 Deposit reminder → #${bookingID}`);
+        await fetch(`${PUBLIC_API_BASE}/deposit/send-link`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            bookingID,
+            amount: 20000,
+            force: true,
+            automatic: true
+          })
+        });
+      }
+
+      // ----------------------------
+      // 2️⃣ Outstanding payment
+      // ----------------------------
+      const pay = await fetch(
+        `${PUBLIC_API_BASE}/bookingpayments/list/${bookingID}`
+      ).then(r => r.json()).catch(() => null);
+
+      const outstanding =
+        pay && Number(pay.balance) > 0.01;
+
+      if (outstanding) {
+        console.log(`📧 Outstanding reminder → #${bookingID}`);
+        await fetch(`${PUBLIC_API_BASE}/pay/outstanding/send-link`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            bookingID,
+            force: true,
+            automatic: true
+          })
+        });
+      }
+
+      // ----------------------------
+      // 3️⃣ Form reminder
+      // ----------------------------
+      const form = await fetch(
+        `${PUBLIC_API_BASE}/forms/status/${bookingID}`
+      ).then(r => r.json()).catch(() => null);
+
+      if (form?.requiredForm) {
+        const done =
+          form.requiredForm === "short"
+            ? form.shortDone
+            : form.longDone;
+
+        if (!done) {
+          console.log(`📧 Form reminder → #${bookingID}`);
+          await fetch(`${PUBLIC_API_BASE}/forms/manual-resend`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              bookingID,
+              force: true,
+              adminCopy: true,
+              automatic: true
+            })
+          });
+        }
+      }
+    }
+
+  } catch (err) {
+    console.error("❌ Pre-hire reminder scheduler failed:", err);
+  }
+}
+
+
+// ----------------------------------------------------
+// 🔔 PRE-HIRE REMINDERS — 16:00 London (day before hire)
+// ----------------------------------------------------
+if (!global.__PREHIRE_REMINDER_SET__) {
+  global.__PREHIRE_REMINDER_SET__ = true;
+
+  cron.schedule(
+    "0 16 * * *",
+    async () => {
+      console.log("🕓 [AUTO] 16:00 London → Pre-hire reminder check");
+      await runPreHireReminderScheduler();
+    },
+    { timezone: "Europe/London" }
+  );
+}
 
 
 // ----------------------------------------------------
