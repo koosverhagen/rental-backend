@@ -2504,6 +2504,24 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
 });
 
 // ----------------------------------------------------
+// Daily pre-hire reminders — 16:00 London (day before hire)
+// ----------------------------------------------------
+if (!global.__PREHIRE_SCHEDULER_SET__) {
+  global.__PREHIRE_SCHEDULER_SET__ = true;
+
+  cron.schedule(
+    "0 16 * * *",
+    async () => {
+      console.log("🕓 [AUTO] 16:00 London → Running pre-hire reminders");
+      await runPreHireReminderScheduler();
+    },
+    {
+      timezone: "Europe/London"
+    }
+  );
+}
+
+// ----------------------------------------------------
 // Daily scheduler 19:00 London — send links for tomorrow's bookings
 // ----------------------------------------------------
 if (!global.__DEPOSIT_SCHEDULER_SET__) {
