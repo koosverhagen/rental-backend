@@ -72,6 +72,24 @@ function createAdminLogBuffer() {
   return { log, text, lines };
 }
 
+// ----------------------------------------------------
+// 📬 Admin-only pre-hire digest email
+// ----------------------------------------------------
+async function sendAdminPreHireDigest({ subject, body }) {
+  const html = `
+    <div style="font-family: monospace; font-size:14px; line-height:1.5; color:#111;">
+      <pre style="white-space:pre-wrap;">${body}</pre>
+    </div>
+  `;
+
+  await sendgrid.send({
+    to: "kverhagen@mac.com",
+    from: "Equine Transport UK <info@equinetransportuk.com>",
+    subject,
+    html
+  });
+}
+
 
 // ----------------------------------------------------
 // Canonical public API base URL (HTTPS only)
@@ -2817,6 +2835,45 @@ async function runPreHireReminderScheduler({ collectLogs = false } = {}) {
   }
 }
 
+// ----------------------------------------------------
+// 🕓 ADMIN DIGEST — PRE-HIRE SUMMARY (04:00 London)
+// ----------------------------------------------------
+if (!global.__PREHIRE_DIGEST_SET__) {
+  global.__PREHIRE_DIGEST_SET__ = true;
+
+  cron.schedule(
+    "0 4 * * *",
+    async () => {
+      console.log("🕓 [ADMIN DIGEST] 04:00 London → Pre-hire summary started");
+
+      try {
+        const result = await runPreHireReminderScheduler({
+          collectLogs: true
+        });
+
+        const today = new Date().toLocaleDateString("en-GB");
+
+        await sendAdminPreHireDigest({
+          subject: `Equine Transport UK — Pre-hire Admin Digest (${today})`,
+          body: result?.logText || "No pre-hire activity recorded."
+        });
+
+        console.log("✅ Admin pre-hire digest email sent");
+
+      } catch (err) {
+        console.error("❌ Admin digest failed:", err);
+
+        await sendAdminPreHireDigest({
+          subject: "❌ PRE-HIRE ADMIN DIGEST FAILED",
+          body:
+            "The 04:00 pre-hire admin digest failed.\n\n" +
+            (err?.stack || err?.message || String(err))
+        });
+      }
+    },
+    { timezone: "Europe/London" }
+  );
+}
 
 
 // ----------------------------------------------------
@@ -2834,6 +2891,7 @@ if (!global.__PREHIRE_REMINDER_SET__) {
     { timezone: "Europe/London" }
   );
 }
+
 
 
 // ----------------------------------------------------
