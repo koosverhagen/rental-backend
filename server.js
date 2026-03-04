@@ -2549,17 +2549,18 @@ if (!global.__PREHIRE_SCHEDULER_SET__) {
 
 // ----------------------------------------------------
 // Daily scheduler 19:00 London — send links for tomorrow's bookings
+// DISABLED (manual only to reduce SendGrid usage)
 // ----------------------------------------------------
-if (!global.__DEPOSIT_SCHEDULER_SET__) {
-  global.__DEPOSIT_SCHEDULER_SET__ = true;
-  cron.schedule("0 19 * * *", async () => {
-    console.log(
-      "🕓 [AUTO] 19:00 London → Checking upcoming bookings (tomorrow) …"
-    );
-    await runDepositScheduler("auto");
-  });
-}
 
+// if (!global.__DEPOSIT_SCHEDULER_SET__) {
+//   global.__DEPOSIT_SCHEDULER_SET__ = true;
+//   cron.schedule("0 19 * * *", async () => {
+//     console.log(
+//       "🕓 [AUTO] 19:00 London → Checking upcoming bookings (tomorrow) …"
+//     );
+//     await runDepositScheduler("auto");
+//   });
+// }
 async function runDepositScheduler(mode) {
   try {
     const tz = "Europe/London";
@@ -2837,12 +2838,14 @@ async function runPreHireReminderScheduler({ collectLogs = false } = {}) {
 
 // ----------------------------------------------------
 // 🕓 ADMIN DIGEST — PRE-HIRE SUMMARY (04:00 London)
+// DISABLED to reduce SendGrid usage
 // ----------------------------------------------------
-if (!global.__PREHIRE_DIGEST_SET__) {
-  global.__PREHIRE_DIGEST_SET__ = true;
 
-  cron.schedule(
-    "0 4 * * *",
+// if (!global.__PREHIRE_DIGEST_SET__) {
+//   global.__PREHIRE_DIGEST_SET__ = true;
+
+//   cron.schedule(
+//     "0 4 * * *",
     async () => {
       console.log("🕓 [ADMIN DIGEST] 04:00 London → Pre-hire summary started");
 
@@ -2878,19 +2881,21 @@ if (!global.__PREHIRE_DIGEST_SET__) {
 
 // ----------------------------------------------------
 // 🔔 PRE-HIRE REMINDERS — 16:00 London (day before hire)
+// DISABLED (manual trigger only)
 // ----------------------------------------------------
-if (!global.__PREHIRE_REMINDER_SET__) {
-  global.__PREHIRE_REMINDER_SET__ = true;
 
-  cron.schedule(
-    "0 16 * * *",
-    async () => {
-      console.log("🕓 [AUTO] 16:00 London → Pre-hire reminder check");
-      await runPreHireReminderScheduler();
-    },
-    { timezone: "Europe/London" }
-  );
-}
+// if (!global.__PREHIRE_REMINDER_SET__) {
+//   global.__PREHIRE_REMINDER_SET__ = true;
+
+//   cron.schedule(
+//     "0 16 * * *",
+//     async () => {
+//       console.log("🕓 [AUTO] 16:00 London → Pre-hire reminder check");
+//       await runPreHireReminderScheduler();
+//     },
+//     { timezone: "Europe/London" }
+//   );
+// }
 
 
 
