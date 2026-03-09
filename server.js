@@ -2846,38 +2846,37 @@ async function runPreHireReminderScheduler({ collectLogs = false } = {}) {
 
 //   cron.schedule(
 //     "0 4 * * *",
-    async () => {
-      console.log("🕓 [ADMIN DIGEST] 04:00 London → Pre-hire summary started");
+//     async () => {
+//       console.log("🕓 [ADMIN DIGEST] 04:00 London → Pre-hire summary started");
 
-      try {
-        const result = await runPreHireReminderScheduler({
-          collectLogs: true
-        });
+//       try {
+//         const result = await runPreHireReminderScheduler({
+//           collectLogs: true
+//         });
 
-        const today = new Date().toLocaleDateString("en-GB");
+//         const today = new Date().toLocaleDateString("en-GB");
 
-        await sendAdminPreHireDigest({
-          subject: `Equine Transport UK — Pre-hire Admin Digest (${today})`,
-          body: result?.logText || "No pre-hire activity recorded."
-        });
+//         await sendAdminPreHireDigest({
+//           subject: `Equine Transport UK — Pre-hire Admin Digest (${today})`,
+//           body: result?.logText || "No pre-hire activity recorded."
+//         });
 
-        console.log("✅ Admin pre-hire digest email sent");
+//         console.log("✅ Admin pre-hire digest email sent");
 
-      } catch (err) {
-        console.error("❌ Admin digest failed:", err);
+//       } catch (err) {
+//         console.error("❌ Admin digest failed:", err);
 
-        await sendAdminPreHireDigest({
-          subject: "❌ PRE-HIRE ADMIN DIGEST FAILED",
-          body:
-            "The 04:00 pre-hire admin digest failed.\n\n" +
-            (err?.stack || err?.message || String(err))
-        });
-      }
-    },
-    { timezone: "Europe/London" }
-  );
-}
-
+//         await sendAdminPreHireDigest({
+//           subject: "❌ PRE-HIRE ADMIN DIGEST FAILED",
+//           body:
+//             "The 04:00 pre-hire admin digest failed.\n\n" +
+//             (err?.stack || err?.message || String(err))
+//         });
+//       }
+//     },
+//     { timezone: "Europe/London" }
+//   );
+// }
 
 // ----------------------------------------------------
 // 🔔 PRE-HIRE REMINDERS — 16:00 London (day before hire)
