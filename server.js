@@ -146,6 +146,42 @@ const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 sendgrid.setApiKey(process.env.SENDGRID_API_KEY);
 
 // ----------------------------------------------------
+// 🚫 LEGACY EMAIL KILL SWITCH
+// ----------------------------------------------------
+// This old Planyo/SendGrid backend is no longer allowed to send emails.
+// By default emails are BLOCKED, even if old endpoints or schedulers are hit.
+// To temporarily re-enable manually, set LEGACY_EMAILS_DISABLED=false in the
+// server environment and redeploy/restart the service.
+const LEGACY_EMAILS_DISABLED =
+  String(process.env.LEGACY_EMAILS_DISABLED ?? "true").toLowerCase() !== "false";
+
+const realSendgridSend = sendgrid.send.bind(sendgrid);
+
+sendgrid.send = async function blockedLegacySendgridSend(message, ...args) {
+  if (!LEGACY_EMAILS_DISABLED) {
+    return realSendgridSend(message, ...args);
+  }
+
+  const messages = Array.isArray(message) ? message : [message];
+
+  messages.forEach((msg) => {
+    const to = Array.isArray(msg?.to) ? msg.to.join(", ") : msg?.to || "unknown";
+    const subject = msg?.subject || "(no subject)";
+    console.warn(`🚫 LEGACY EMAIL BLOCKED — to=${to} | subject=${subject}`);
+  });
+
+  // SendGrid normally resolves when accepted. Return a harmless fake response so
+  // old routes do not crash, but absolutely no email leaves this server.
+  return [{ statusCode: 202, body: { legacyEmailsDisabled: true } }, {}];
+};
+
+console.log(
+  LEGACY_EMAILS_DISABLED
+    ? "🚫 Legacy SendGrid emails are DISABLED."
+    : "⚠️ Legacy SendGrid emails are ENABLED by environment override."
+);
+
+// ----------------------------------------------------
 // Outstanding payment redirect (Planyo)
 // ----------------------------------------------------
 app.get("/pay/outstanding/:bookingID", async (req, res) => {
@@ -2532,7 +2568,9 @@ app.post("/planyo/callback", express.json(), async (req, res) => {
 // ----------------------------------------------------
 // Daily pre-hire reminders — 16:00 London (day before hire)
 // ----------------------------------------------------
-if (!global.__PREHIRE_SCHEDULER_SET__) {
+if (LEGACY_EMAILS_DISABLED) {
+  console.log("🚫 Legacy 16:00 pre-hire reminder scheduler is DISABLED.");
+} else if (!global.__PREHIRE_SCHEDULER_SET__) {
   global.__PREHIRE_SCHEDULER_SET__ = true;
 
   cron.schedule(
